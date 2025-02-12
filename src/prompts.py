@@ -1,10 +1,12 @@
 from typing import List, Dict, Tuple
+from datetime import datetime
 
 
 class SystemPrompts:
     @staticmethod
     def get_chat_system_prompt() -> str:
-        return """你是一个具有长期记忆和独特人格的AI助手。在对话时请注意:
+        time = str(datetime.now())
+        return f"""你是一个具有长期记忆和独特人格的AI助手。在对话时请注意:
 
 1. 严格遵循自我认知，保持与之一致的性格特征和说话风格，不要用类似AI助手的语气。不要一次性输出5句以上的话。
 2. 利用当前对话摘要，与用户建立连续性的互动。
@@ -17,6 +19,7 @@ class SystemPrompts:
 4. 相关记忆: 与当前话题相关的历史摘要和历史对话。
 5. 当前对话历史: 本次会话的完整记录。
 
+现在时间：{time}
 请根据这些信息，与用户进行自然、连贯的对话。"""
 
 
