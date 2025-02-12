@@ -5,6 +5,7 @@ from config import Config
 from memory import MemoryManager
 from llm import LLMClient
 from prompts import PromptBuilder, SystemPrompts
+from utils import remove_cite_tags
 
 
 class ChatBot:
@@ -28,7 +29,13 @@ class ChatBot:
         if existing_conv:
             print(f"\n最后{len(existing_conv)}条历史对话:")
             for role, text in existing_conv:
-                print(f"{role}: {text}")
+                # 非调试模式下显示清理后的文本
+                display_text = (
+                    remove_cite_tags(text)
+                    if role == "assistant" and not Config.DEBUG_MODE
+                    else text
+                )
+                print(f"{role}: {display_text}")
         print("\n输入消息开始对话(输入 /help 查看可用命令)")
 
     def _init_logging(self):
@@ -92,9 +99,12 @@ class ChatBot:
 
     def _finalize_session(self) -> None:
         """结束当前会话,更新记忆"""
-        # 获取当前会话的对话记录
+        # 首先清理数据库中的cite标签
+        self.memory.close_session(self.session_id)
+
+        # 获取清理后的对话记录用于生成总结
         conversations = self.memory.get_recent_conversations(
-            self.session_id, Config.MAX_CONV_NUM
+            self.session_id, self.current_conv_count
         )
         conv_text = "\n".join([f"{role}: {text}" for role, text in conversations])
 
@@ -143,9 +153,6 @@ class ChatBot:
         # 清理向量数据库
         self.memory.clean_vector_db()
 
-        # 关闭当前会话
-        self.memory.close_session(self.session_id)
-
     def _update_summaries(self) -> None:
         """更新对话总结"""
         # 当对话轮数超过MAX_CONV_NUM时,总结较早的REFRESH_EVERY_CONV_NUM轮对话
@@ -156,8 +163,13 @@ class ChatBot:
             )
 
             if conversations_to_summarize:
+                # 清理cite标签
+                cleaned_conversations = [
+                    (role, remove_cite_tags(text) if role == "assistant" else text)
+                    for role, text in conversations_to_summarize
+                ]
                 conv_text = "\n".join(
-                    [f"{role}: {text}" for role, text in conversations_to_summarize]
+                    [f"{role}: {text}" for role, text in cleaned_conversations]
                 )
                 current_summary = self.memory.get_current_summary(self.session_id)
 
@@ -226,14 +238,18 @@ class ChatBot:
                     logging.debug(f"Session: {self.session_id} 完整提示词: {messages}")
 
                 response = self.llm.generate_response(messages)
-                print(f"\nAI: {response}")
+                # 非调试模式下显示清理后的文本
+                display_text = (
+                    remove_cite_tags(response) if not Config.DEBUG_MODE else response
+                )
+                print(f"\nAI: {display_text}")
 
                 # 保存AI响应并更新计数
                 self.memory.add_conversation(self.session_id, "assistant", response)
                 self.current_conv_count = self.memory.get_conv_count(self.session_id)
 
             except KeyboardInterrupt:
-                print("\n会话已自动保存,输入 /exit 退出程序")
+                exit()
             except Exception as e:
                 logging.error(f"运行时错误: {str(e)}")
                 print("发生错误,请检查日志文件")

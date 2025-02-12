@@ -8,6 +8,7 @@ from datetime import datetime
 from config import Config
 from llm import LLMClient
 from prompts import PromptBuilder
+from utils import remove_cite_tags
 
 llm_client = LLMClient()
 prompt_builder = PromptBuilder()
@@ -137,8 +138,10 @@ class MemoryManager:
         )
         self.conn.commit()
 
+        # 如果是assistant的回复,移除cite标签后再生成向量
+        text_for_embedding = remove_cite_tags(text) if role == "assistant" else text
         # 保存到向量数据库
-        embedding = llm_client.get_embedding(text)
+        embedding = llm_client.get_embedding(text_for_embedding)
         table = self.vector_db.open_table("conversations")
         table.add(
             [
@@ -371,12 +374,34 @@ class MemoryManager:
 
     def close_session(self, session_id: str) -> None:
         cursor = self.conn.cursor()
+
+        # 清理assistant回复中的cite标签
+        cursor.execute(
+            """
+            SELECT conversation_id, text 
+            FROM conversation 
+            WHERE session_id = ? AND role = 'assistant'
+            """,
+            (session_id,),
+        )
+        for conv_id, text in cursor.fetchall():
+            cleaned_text = remove_cite_tags(text)
+            cursor.execute(
+                """
+                UPDATE conversation 
+                SET text = ? 
+                WHERE conversation_id = ?
+                """,
+                (cleaned_text, conv_id),
+            )
+
+        # 更新session状态
         cursor.execute(
             """
             UPDATE session 
             SET end_timestamp = ?, status = 'archived'
             WHERE session_id = ?
-        """,
+            """,
             (datetime.now(), session_id),
         )
         self.conn.commit()
@@ -479,13 +504,23 @@ class MemoryManager:
         # 清理对话向量表
         conv_table = self.vector_db.open_table("conversations")
         conv_data = conv_table.to_pandas()
-        invalid_conv_mask = ~conv_data["text_id"].isin(valid_conv_ids)
-        if invalid_conv_mask.any():
-            conv_table.delete(invalid_conv_mask)
+        invalid_conv_ids = conv_data[~conv_data["text_id"].isin(valid_conv_ids)][
+            "text_id"
+        ].tolist()
+        if invalid_conv_ids:
+            delete_condition = " OR ".join(
+                [f"text_id = '{text_id}'" for text_id in invalid_conv_ids]
+            )
+            conv_table.delete(delete_condition)
 
         # 清理摘要向量表
         summary_table = self.vector_db.open_table("summaries")
         summary_data = summary_table.to_pandas()
-        invalid_summary_mask = ~summary_data["text_id"].isin(valid_summary_ids)
-        if invalid_summary_mask.any():
-            summary_table.delete(invalid_summary_mask)
+        invalid_summary_ids = summary_data[
+            ~summary_data["text_id"].isin(valid_summary_ids)
+        ]["text_id"].tolist()
+        if invalid_summary_ids:
+            delete_condition = " OR ".join(
+                [f"text_id = '{text_id}'" for text_id in invalid_summary_ids]
+            )
+            summary_table.delete(delete_condition)
