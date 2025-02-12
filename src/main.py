@@ -120,7 +120,10 @@ class ChatBot:
                 }
             ]
         )
-        self.memory.update_summary(self.session_id, final_summary)
+        self.memory.update_summary(
+            self.session_id,
+            final_summary + " 对话结束于: " + str(datetime.now().date()),
+        )
 
         # 更新人格记忆
         updated_persona = self.llm.generate_response(
