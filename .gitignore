@@ -32,7 +32,6 @@ ENV/
 *.swo
 
 # Project specific
-logs/
-database/
+data/
 .env
 *.log
