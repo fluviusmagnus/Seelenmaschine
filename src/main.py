@@ -5,7 +5,7 @@ from config import Config
 from memory import MemoryManager
 from llm import LLMClient
 from prompts import PromptBuilder, SystemPrompts
-from utils import remove_cite_tags
+from utils import remove_blockquote_tags
 
 
 class ChatBot:
@@ -31,7 +31,7 @@ class ChatBot:
             for role, text in existing_conv:
                 # 非调试模式下显示清理后的文本
                 display_text = (
-                    remove_cite_tags(text)
+                    remove_blockquote_tags(text)
                     if role == "assistant" and not Config.DEBUG_MODE
                     else text
                 )
@@ -168,9 +168,12 @@ class ChatBot:
             )
 
             if conversations_to_summarize:
-                # 清理cite标签
+                # 清理blockquote标签
                 cleaned_conversations = [
-                    (role, remove_cite_tags(text) if role == "assistant" else text)
+                    (
+                        role,
+                        remove_blockquote_tags(text) if role == "assistant" else text,
+                    )
                     for role, text in conversations_to_summarize
                 ]
                 conv_text = "\n".join(
@@ -245,7 +248,9 @@ class ChatBot:
                 response = self.llm.generate_response(messages)
                 # 非调试模式下显示清理后的文本
                 display_text = (
-                    remove_cite_tags(response) if not Config.DEBUG_MODE else response
+                    remove_blockquote_tags(response)
+                    if not Config.DEBUG_MODE
+                    else response
                 )
                 print(f"\nAI: {display_text}")
 

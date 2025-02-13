@@ -8,7 +8,7 @@ from datetime import datetime
 from config import Config
 from llm import LLMClient
 from prompts import PromptBuilder
-from utils import remove_cite_tags
+from utils import remove_blockquote_tags
 
 llm_client = LLMClient()
 prompt_builder = PromptBuilder()
@@ -159,8 +159,10 @@ class MemoryManager:
         )
         self.conn.commit()
 
-        # 如果是assistant的回复,移除cite标签后再生成向量
-        text_for_embedding = remove_cite_tags(text) if role == "assistant" else text
+        # 如果是assistant的回复,移除blockquote标签后再生成向量
+        text_for_embedding = (
+            remove_blockquote_tags(text) if role == "assistant" else text
+        )
         # 保存到向量数据库
         embedding = llm_client.get_embedding(text_for_embedding)
         table = self.vector_db.open_table("conversations")
@@ -406,7 +408,7 @@ class MemoryManager:
             (session_id,),
         )
         for conv_id, text in cursor.fetchall():
-            cleaned_text = remove_cite_tags(text)
+            cleaned_text = remove_blockquote_tags(text)
             cursor.execute(
                 """
                 UPDATE conversation 
