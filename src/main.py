@@ -82,14 +82,16 @@ class ChatBot:
             self.memory.reset_session(self.session_id)
             self.current_conv_count = 0
             print("\n当前会话已重置")
+            print(f"当前会话ID: {self.session_id}")
+            print(f"开始时间: {self.start_time}")
             return True
         elif command == "/save":
             self._finalize_session()
             self.session_id, self.start_time, self.current_conv_count = (
                 self.memory.get_or_create_session()
             )
-            print(f"\n新会话已创建")
-            print(f"ID: {self.session_id}")
+            print("\n当前会话已保存,创建新会话")
+            print(f"当前会话ID: {self.session_id}")
             print(f"开始时间: {self.start_time}")
             return True
         elif command == "/exit":

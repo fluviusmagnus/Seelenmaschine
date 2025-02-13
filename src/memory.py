@@ -92,16 +92,37 @@ class MemoryManager:
         result = cursor.fetchone()
 
         if result:
+            session_id = result[0]
+            # 检查是否有任何对话记录
             cursor.execute(
-                """
-                SELECT session_id, start_timestamp, current_conv_count 
-                FROM session 
-                WHERE session_id = ?
-                """,
-                (result[0],),
+                "SELECT COUNT(*) FROM conversation WHERE session_id = ?", (session_id,)
             )
-            session_id, start_time, conv_count = cursor.fetchone()
-            return session_id, datetime.fromisoformat(start_time), conv_count
+            conversation_count = cursor.fetchone()[0]
+
+            if conversation_count == 0:
+                # 如果没有对话记录,更新开始时间为现在
+                current_time = datetime.now()
+                cursor.execute(
+                    """
+                    UPDATE session 
+                    SET start_timestamp = ? 
+                    WHERE session_id = ?
+                    """,
+                    (current_time, session_id),
+                )
+                self.conn.commit()
+                return session_id, current_time, 0
+            else:
+                cursor.execute(
+                    """
+                    SELECT session_id, start_timestamp, current_conv_count 
+                    FROM session 
+                    WHERE session_id = ?
+                    """,
+                    (session_id,),
+                )
+                session_id, start_time, conv_count = cursor.fetchone()
+                return session_id, datetime.fromisoformat(start_time), conv_count
         else:
             new_session_id = str(uuid.uuid4())
             cursor.execute(
