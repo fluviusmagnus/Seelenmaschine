@@ -58,8 +58,8 @@ EMBEDDING_DIMENSION=1536
 # 记忆系统设置
 MAX_CONV_NUM=20  # 最大对话轮数
 REFRESH_EVERY_CONV_NUM=10  # 每次总结的对话轮数
-RECALL_SESSION_NUM=3  # 检索相关会话数量
-RECALL_CONV_NUM=3  # 从相关会话检索的对话数量
+RECALL_SESSION_NUM=2  # 检索相关会话数量
+RECALL_CONV_NUM=4  # 从相关会话检索的对话数量
 ```
 
 3. (可选) 在`data`文件夹中创建`persona_memory.txt`和`user_profile.txt`,填入人格记忆和用户形象

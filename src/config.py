@@ -42,10 +42,10 @@ class Config:
         os.getenv("REFRESH_EVERY_CONV_NUM", "10")
     )  # 每N轮对话触发总结
     RECALL_SESSION_NUM = int(
-        os.getenv("RECALL_SESSION_NUM", "3")
+        os.getenv("RECALL_SESSION_NUM", "2")
     )  # 召回的相关session数量
     RECALL_CONV_NUM = int(
-        os.getenv("RECALL_CONV_NUM", "6")
+        os.getenv("RECALL_CONV_NUM", "4")
     )  # 从相关session召回的对话数量
 
 
