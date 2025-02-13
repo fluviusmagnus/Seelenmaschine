@@ -43,6 +43,10 @@ pip install -r requirements.txt
 # Debug设置
 DEBUG_MODE=true/false  # 调试模式开关
 
+# 基本身份设定
+AI_NAME=Seelenmachine
+USER_NAME=User
+
 # OpenAI API设置
 OPENAI_API_KEY=your_api_key
 OPENAI_API_BASE=your_api_base

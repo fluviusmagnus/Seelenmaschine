@@ -15,6 +15,10 @@ class Config:
     SQLITE_DB_PATH = DATA_DIR / "chat_sessions.db"
     LANCEDB_PATH = DATA_DIR / "lancedb"
 
+    # 基本身份设定
+    AI_NAME = os.getenv("AI_NAME", "Seelenmaschine")
+    USER_NAME = os.getenv("USER_NAME", "User")
+
     # 记忆文件配置
     PERSONA_MEMORY_PATH = DATA_DIR / "persona_memory.txt"
     USER_PROFILE_PATH = DATA_DIR / "user_profile.txt"

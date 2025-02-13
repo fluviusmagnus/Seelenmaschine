@@ -35,7 +35,9 @@ class ChatBot:
                     if role == "assistant" and not Config.DEBUG_MODE
                     else text
                 )
-                print(f"{role}: {display_text}")
+                print(
+                    f"{Config.AI_NAME if role == 'assistant' else Config.USER_NAME}: {display_text}"
+                )
         print("\n输入消息开始对话(输入 /help 查看可用命令)")
 
     def _init_logging(self):
@@ -108,7 +110,12 @@ class ChatBot:
         conversations = self.memory.get_recent_conversations(
             self.session_id, self.current_conv_count
         )
-        conv_text = "\n".join([f"{role}: {text}" for role, text in conversations])
+        conv_text = "\n".join(
+            [
+                f"{Config.AI_NAME if role == 'assistant' else Config.USER_NAME}: {text}"
+                for role, text in conversations
+            ]
+        )
 
         # 生成最终总结
         current_summary = self.memory.get_current_summary(self.session_id)
@@ -177,7 +184,10 @@ class ChatBot:
                     for role, text in conversations_to_summarize
                 ]
                 conv_text = "\n".join(
-                    [f"{role}: {text}" for role, text in cleaned_conversations]
+                    [
+                        f"{Config.AI_NAME if role == 'assistant' else Config.USER_NAME}: {text}"
+                        for role, text in cleaned_conversations
+                    ]
                 )
                 current_summary = self.memory.get_current_summary(self.session_id)
 
@@ -203,7 +213,7 @@ class ChatBot:
         """运行聊天机器人"""
         while True:
             try:
-                user_input = input("> ").strip()
+                user_input = input("\n> ").strip()
                 if not user_input:
                     continue
 
@@ -252,7 +262,7 @@ class ChatBot:
                     if not Config.DEBUG_MODE
                     else response
                 )
-                print(f"\nAI: {display_text}")
+                print(f"\n{Config.AI_NAME}: {display_text}")
 
                 # 保存AI响应并更新计数
                 self.memory.add_conversation(self.session_id, "assistant", response)
