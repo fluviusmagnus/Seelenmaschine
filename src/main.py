@@ -171,8 +171,8 @@ class ChatBot:
         if self.current_conv_count > Config.MAX_CONV_NUM:
             # 获取最早的REFRESH_EVERY_CONV_NUM轮对话
             conversations_to_summarize = self.memory.get_recent_conversations(
-                self.session_id, Config.REFRESH_EVERY_CONV_NUM
-            )
+                self.session_id, self.current_conv_count
+            )[: Config.REFRESH_EVERY_CONV_NUM]
 
             if conversations_to_summarize:
                 # 清理blockquote标签
