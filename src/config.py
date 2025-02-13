@@ -45,8 +45,8 @@ class Config:
         os.getenv("RECALL_SESSION_NUM", "3")
     )  # 召回的相关session数量
     RECALL_CONV_NUM = int(
-        os.getenv("RECALL_CONV_NUM", "3")
-    )  # 每个相关session召回的对话数量
+        os.getenv("RECALL_CONV_NUM", "6")
+    )  # 从相关session召回的对话数量
 
 
 # 确保目录存在
