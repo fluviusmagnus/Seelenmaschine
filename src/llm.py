@@ -1,6 +1,7 @@
 from openai import OpenAI
 from config import Config
 from typing import List, Dict
+import logging
 
 
 class LLMClient:
@@ -14,6 +15,8 @@ class LLMClient:
             response = self.client.chat.completions.create(
                 model=Config.CHAT_MODEL, messages=messages, temperature=0.7
             )
+            if Config.DEBUG_MODE:
+                logging.debug(f"完整提示词: {messages}")
             return response.choices[0].message.content
         except Exception as e:
             raise Exception(f"API请求失败: {str(e)}")

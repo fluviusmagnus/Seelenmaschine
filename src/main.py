@@ -252,9 +252,6 @@ class ChatBot:
                     user_input=user_input,
                 )
 
-                if Config.DEBUG_MODE:
-                    logging.debug(f"Session: {self.session_id} 完整提示词: {messages}")
-
                 response = self.llm.generate_response(messages)
                 # 非调试模式下显示清理后的文本
                 display_text = (
