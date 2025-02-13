@@ -9,6 +9,7 @@ from config import Config
 from llm import LLMClient
 from prompts import PromptBuilder
 from utils import remove_blockquote_tags
+import logging
 
 llm_client = LLMClient()
 prompt_builder = PromptBuilder()
@@ -336,6 +337,18 @@ class MemoryManager:
                 )
                 related_session_ids.append(sid)
 
+            # 记录摘要搜索结果
+            summary_logs = []
+            for r, summary in zip(summary_results, summaries):
+                distance = r["_distance"]
+                summary_text = summary["summary"]
+                summary_logs.append(
+                    f"distance: {distance:.4f}, summary: {summary_text}"
+                )  # 只记录前100个字符
+
+            if summary_logs:
+                logging.debug("相关摘要搜索结果:\n" + "\n".join(summary_logs))
+
         # 在相关session中搜索对话
         related_conversations = []
         if related_session_ids:
@@ -364,6 +377,17 @@ class MemoryManager:
                     text_ids,
                 )
                 conv_data = cursor.fetchall()
+
+                # 记录对话搜索结果
+                conv_logs = []
+                for r, (role, text, timestamp) in zip(conv_results, conv_data):
+                    distance = r["_distance"]
+                    conv_logs.append(
+                        f"distance: {distance:.4f}, {role}: {text}"
+                    )  # 只记录前100个字符
+
+                if conv_logs:
+                    logging.debug("相关对话搜索结果:\n" + "\n".join(conv_logs))
 
                 related_conversations = []
                 for role, text, timestamp in conv_data:
