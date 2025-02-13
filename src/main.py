@@ -38,7 +38,7 @@ class ChatBot:
                 print(
                     f"{Config.AI_NAME if role == 'assistant' else Config.USER_NAME}: {display_text}"
                 )
-        print("\n输入消息开始对话(输入 /help 查看可用命令)")
+        print("\n输入消息开始对话(输入 /help 或 /h 查看可用命令)")
 
     def _init_logging(self):
         os.makedirs(os.path.dirname(Config.LOG_PATH), exist_ok=True)
@@ -73,31 +73,39 @@ class ChatBot:
         return ""
 
     def _handle_command(self, command: str) -> bool:
-        if command == "/help":
+        if command in {"/help", "/h"}:
             print("\n可用命令:")
-            print("/reset - 重置当前会话")
-            print("/save  - 保存并归档当前会话,开始新会话")
-            print("/exit  - 保存当前状态并退出程序")
-            print("/help  - 显示此帮助信息")
+            print("/reset, /r         - 重置当前会话")
+            print("/save, /s          - 归档当前会话,开始新会话")
+            print("/saveandexit, /sq  - 归档当前会话,退出程序")
+            print("/exit, /quit, /q   - 暂存当前状态并退出程序")
+            print("/help, /h          - 显示此帮助信息")
             return True
-        elif command == "/reset":
+        elif command in {"/reset", "/r"}:
             self.memory.reset_session(self.session_id)
             self.current_conv_count = 0
             print("\n当前会话已重置")
             print(f"当前会话ID: {self.session_id}")
             print(f"开始时间: {self.start_time}")
             return True
-        elif command == "/save":
+        elif command in {"/save", "/s"}:
             self._finalize_session()
             self.session_id, self.start_time, self.current_conv_count = (
                 self.memory.get_or_create_session()
             )
-            print("\n当前会话已保存,创建新会话")
+            print("\n当前会话已归档,创建新会话")
             print(f"当前会话ID: {self.session_id}")
             print(f"开始时间: {self.start_time}")
             return True
-        elif command == "/exit":
-            print("\n会话已保存,下次启动将恢复当前状态")
+        elif command in {"/saveandexit", "/sq"}:
+            self._finalize_session()
+            self.session_id, self.start_time, self.current_conv_count = (
+                self.memory.get_or_create_session()
+            )
+            print("\n当前会话已归档,再见")
+            exit()
+        elif command in {"/exit", "/quit", "/q"}:
+            print("\n会话已暂存,下次启动将恢复当前状态")
             exit()
         return False
 
