@@ -18,7 +18,7 @@ class LLMClient:
                 model=Config.CHAT_MODEL, messages=messages
             )
             if Config.DEBUG_MODE:
-                if response.choices[0].message.reasoning_content:
+                if hasattr(response.choices[0].message, "reasoning_content"):
                     logging.debug(
                         f"检测到推理: {response.choices[0].message.reasoning_content}"
                     )
