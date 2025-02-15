@@ -15,7 +15,7 @@ class LLMClient:
             if Config.DEBUG_MODE:
                 logging.debug(f"完整提示词: {messages}")
             response = self.client.chat.completions.create(
-                model=Config.CHAT_MODEL, messages=messages, temperature=0.7
+                model=Config.CHAT_MODEL, messages=messages
             )
             if Config.DEBUG_MODE:
                 if response.choices[0].message.reasoning_content:
