@@ -12,11 +12,17 @@ class LLMClient:
 
     def generate_response(self, messages: List[Dict]) -> str:
         try:
+            if Config.DEBUG_MODE:
+                logging.debug(f"完整提示词: {messages}")
             response = self.client.chat.completions.create(
                 model=Config.CHAT_MODEL, messages=messages, temperature=0.7
             )
             if Config.DEBUG_MODE:
-                logging.debug(f"完整提示词: {messages}")
+                if response.choices[0].message.reasoning_content:
+                    logging.debug(
+                        f"检测到推理: {response.choices[0].message.reasoning_content}"
+                    )
+                logging.debug(f"生成的回复: {response.choices[0].message.content}")
             return response.choices[0].message.content
         except Exception as e:
             raise Exception(f"API请求失败: {str(e)}")
