@@ -6,6 +6,7 @@ from memory import MemoryManager
 from llm import LLMClient
 from prompts import PromptBuilder, SystemPrompts
 from utils import remove_blockquote_tags
+import readline
 
 
 class ChatBot:
