@@ -171,6 +171,9 @@ class ChatBot:
         self.memory.update_user_profile(updated_profile)
         self.user_profile = updated_profile
 
+        # 清理embedding缓存
+        self.memory.embedding_cache = {}
+
         # 清理向量数据库
         self.memory.clean_vector_db()
 
