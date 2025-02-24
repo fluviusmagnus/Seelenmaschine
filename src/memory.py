@@ -22,6 +22,7 @@ class MemoryManager:
         self._init_db()
         self.vector_db = lancedb.connect(Config.LANCEDB_PATH)
         self._init_vector_db()
+        self.embedding_cache: Dict[str, List[float]] = {}  # 新增缓存字典
 
     def _init_db(self):
         cursor = self.conn.cursor()
@@ -78,6 +79,15 @@ class MemoryManager:
             self.vector_db.create_table("conversations", schema=schema)
         if "summaries" not in self.vector_db.table_names():
             self.vector_db.create_table("summaries", schema=schema)
+
+    def _get_embedding_with_cache(self, text: str) -> List[float]:
+        """使用缓存获取文本的embedding向量"""
+        if text in self.embedding_cache:
+            return self.embedding_cache[text]
+
+        embedding = llm_client.get_embedding(text)
+        self.embedding_cache[text] = embedding
+        return embedding
 
     def get_or_create_session(self) -> Tuple[str, datetime, int]:
         cursor = self.conn.cursor()
@@ -165,7 +175,7 @@ class MemoryManager:
             remove_blockquote_tags(text) if role == "assistant" else text
         )
         # 保存到向量数据库
-        embedding = llm_client.get_embedding(text_for_embedding)
+        embedding = self._get_embedding_with_cache(text_for_embedding)
         table = self.vector_db.open_table("conversations")
         table.add(
             [
@@ -216,7 +226,7 @@ class MemoryManager:
             )
 
             # 更新向量数据库
-            embedding = llm_client.get_embedding(summary)
+            embedding = self._get_embedding_with_cache(summary)
             table = self.vector_db.open_table("summaries")
             # 删除旧的向量
             table.delete(f"text_id = '{old_text_id}'")
@@ -243,7 +253,7 @@ class MemoryManager:
             )
 
             # 保存到向量数据库
-            embedding = llm_client.get_embedding(summary)
+            embedding = self._get_embedding_with_cache(summary)
             table = self.vector_db.open_table("summaries")
             table.add(
                 [
@@ -293,7 +303,7 @@ class MemoryManager:
     def search_related_memories(
         self, query: str, current_session_id: str
     ) -> Tuple[List[str], List[str]]:
-        query_embedding = llm_client.get_embedding(query)
+        query_embedding = self._get_embedding_with_cache(query)
 
         # 搜索相关摘要(排除当前会话)
         summary_table = self.vector_db.open_table("summaries")
