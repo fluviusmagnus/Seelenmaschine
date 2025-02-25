@@ -91,19 +91,21 @@ class ChatBot:
             return True
         elif command in {"/save", "/s"}:
             self._finalize_session()
+            print("\n正在归档,请耐心等待……")
             self.session_id, self.start_time, self.current_conv_count = (
                 self.memory.get_or_create_session()
             )
-            print("\n当前会话已归档,创建新会话")
+            print("当前会话已归档,创建新会话")
             print(f"当前会话ID: {self.session_id}")
             print(f"开始时间: {self.start_time}")
             return True
         elif command in {"/saveandexit", "/sq"}:
             self._finalize_session()
+            print("\n正在归档,请耐心等待……")
             self.session_id, self.start_time, self.current_conv_count = (
                 self.memory.get_or_create_session()
             )
-            print("\n当前会话已归档,再见")
+            print("当前会话已归档,再见")
             exit()
         elif command in {"/exit", "/quit", "/q"}:
             print("\n会话已暂存,下次启动将恢复当前状态")
