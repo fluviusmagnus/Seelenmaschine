@@ -65,6 +65,8 @@ RECALL_CONV_NUM=4  # 从相关会话检索的对话数量
 
 3. (可选) 在`data`文件夹中创建`persona_memory.txt`和`user_profile.txt`,填入人格记忆和用户形象
 
+更多配置建议和使用技巧请参考项目 [Wiki].(https://github.com/fluviusmagnus/Seelenmaschine/wiki/%E4%BD%BF%E7%94%A8%E6%8A%80%E5%B7%A7)
+
 ## 使用说明
 
 启动程序:
