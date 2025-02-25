@@ -90,8 +90,8 @@ class ChatBot:
             print(f"开始时间: {self.start_time}")
             return True
         elif command in {"/save", "/s"}:
-            self._finalize_session()
             print("\n正在归档,请耐心等待……")
+            self._finalize_session()
             self.session_id, self.start_time, self.current_conv_count = (
                 self.memory.get_or_create_session()
             )
@@ -100,8 +100,8 @@ class ChatBot:
             print(f"开始时间: {self.start_time}")
             return True
         elif command in {"/saveandexit", "/sq"}:
-            self._finalize_session()
             print("\n正在归档,请耐心等待……")
+            self._finalize_session()
             self.session_id, self.start_time, self.current_conv_count = (
                 self.memory.get_or_create_session()
             )
