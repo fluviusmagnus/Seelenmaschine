@@ -129,6 +129,7 @@ class ChatBot:
         # 生成最终总结
         current_summary = self.memory.get_current_summary(self.session_id)
         final_summary = self.llm.generate_response(
+            Config.TOOL_MODEL,
             [
                 {
                     "role": "user",
@@ -136,7 +137,7 @@ class ChatBot:
                         current_summary, conv_text
                     ),
                 }
-            ]
+            ],
         )
         self.memory.update_summary(
             self.session_id,
@@ -145,6 +146,7 @@ class ChatBot:
 
         # 更新人格记忆
         updated_persona = self.llm.generate_response(
+            Config.TOOL_MODEL,
             [
                 {
                     "role": "user",
@@ -152,13 +154,14 @@ class ChatBot:
                         self.persona_memory, final_summary
                     ),
                 }
-            ]
+            ],
         )
         self.memory.update_persona_memory(updated_persona)
         self.persona_memory = updated_persona
 
         # 更新用户档案
         updated_profile = self.llm.generate_response(
+            Config.TOOL_MODEL,
             [
                 {
                     "role": "user",
@@ -166,7 +169,7 @@ class ChatBot:
                         self.user_profile, final_summary
                     ),
                 }
-            ]
+            ],
         )
         self.memory.update_user_profile(updated_profile)
         self.user_profile = updated_profile
@@ -205,6 +208,7 @@ class ChatBot:
 
                 # 生成新的总结
                 new_summary = self.llm.generate_response(
+                    Config.TOOL_MODEL,
                     [
                         {
                             "role": "user",
@@ -212,7 +216,7 @@ class ChatBot:
                                 current_summary, conv_text
                             ),
                         }
-                    ]
+                    ],
                 )
                 self.memory.update_summary(self.session_id, new_summary)
 
@@ -264,7 +268,7 @@ class ChatBot:
                     user_input=user_input,
                 )
 
-                response = self.llm.generate_response(messages)
+                response = self.llm.generate_response(Config.CHAT_MODEL, messages)
                 # 非调试模式下显示清理后的文本
                 display_text = (
                     remove_blockquote_tags(response)

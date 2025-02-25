@@ -31,6 +31,7 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
+    TOOL_MODEL = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
     # 嵌入模型配置

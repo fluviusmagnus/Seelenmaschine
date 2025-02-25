@@ -10,12 +10,12 @@ class LLMClient:
             api_key=Config.OPENAI_API_KEY, base_url=Config.OPENAI_API_BASE
         )
 
-    def generate_response(self, messages: List[Dict]) -> str:
+    def generate_response(self, model, messages: List[Dict]) -> str:
         try:
             if Config.DEBUG_MODE:
                 logging.debug(f"完整提示词: {messages}")
             response = self.client.chat.completions.create(
-                model=Config.CHAT_MODEL, messages=messages
+                model=model, messages=messages
             )
             if Config.DEBUG_MODE:
                 if hasattr(response.choices[0].message, "reasoning_content"):
