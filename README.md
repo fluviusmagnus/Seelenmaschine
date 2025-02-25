@@ -52,6 +52,7 @@ USER_NAME=User
 OPENAI_API_KEY=your_api_key
 OPENAI_API_BASE=your_api_base
 CHAT_MODEL=your_preferred_model  # 例如:anthropic/claude-3.5-haiku
+TOOL_MODEL=your_tool_model  # 用于记忆管理。建议使用推理模型,例如:deepdeek/deepseek-r1
 EMBEDDING_MODEL=your_embedding_model  # 例如:text-embedding-3-small
 EMBEDDING_DIMENSION=1536
 
