@@ -205,9 +205,7 @@ class ChatBot:
             user_input=user_input,
         )
 
-        logging.debug("向LLM发送请求")
         response = self.llm.generate_response(Config.CHAT_MODEL, messages)
-        logging.debug("收到LLM响应")
 
         # 保存AI响应并更新计数
         self.memory.add_conversation(self.session_id, "assistant", response)
