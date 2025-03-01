@@ -29,6 +29,8 @@ def init_logging():
 
 def main():
 
+    init_logging()
+
     try:
         bot = ChatBot()
 
@@ -78,7 +80,7 @@ def main():
                 print(f"\n{Config.AI_NAME}: {display_text}")
 
             except KeyboardInterrupt:
-                logging.info("用户中断程序")
+                logging.debug("用户中断程序")
                 exit()
             except Exception as e:
                 logging.error(f"运行时错误: {str(e)}")
@@ -116,11 +118,11 @@ def handle_command(command: str, bot: ChatBot) -> bool:
     elif command in {"/saveandexit", "/sq"}:
         print("\n正在归档,请耐心等待……")
         bot.finalize_session()
-        logging.info("用户请求归档并退出")
+        logging.debug("用户请求归档并退出")
         print("当前会话已归档,再见")
         exit()
     elif command in {"/exit", "/quit", "/q"}:
-        logging.info("用户请求退出")
+        logging.debug("用户请求退出")
         print("\n会话已暂存,下次启动将恢复当前状态")
         exit()
     return False
