@@ -86,6 +86,7 @@ python src/main.py
 ```
 src/
 ├── main.py          # 主程序入口,控制流程
+├── chatbot.py       # 聊天逻辑实现
 ├── llm.py           # 大语言模型接口
 ├── memory.py        # 记忆系统实现
 ├── config.py        # 配置管理
