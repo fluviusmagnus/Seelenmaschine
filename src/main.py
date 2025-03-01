@@ -28,9 +28,6 @@ def init_logging():
 
 
 def main():
-
-    init_logging()
-
     try:
         bot = ChatBot()
 
@@ -128,5 +125,6 @@ def handle_command(command: str, bot: ChatBot) -> bool:
     return False
 
 
+init_logging()
 if __name__ == "__main__":
     main()
