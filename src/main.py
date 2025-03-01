@@ -18,8 +18,8 @@ class ChatBot:
         self.session_id, self.start_time, self.current_conv_count = (
             self.memory.get_or_create_session()
         )
-        self.persona_memory = self._load_persona_memory()
-        self.user_profile = self._load_user_profile()
+        self.persona_memory = self.memory.get_persona_memory()
+        self.user_profile = self.memory.get_user_profile()
 
         # 加载现有会话数据
         existing_conv = self.memory.get_recent_conversations(
@@ -60,18 +60,6 @@ class ChatBot:
             "openai",
         ]:
             logging.getLogger(logger_name).setLevel(logging.WARNING)
-
-    def _load_persona_memory(self) -> str:
-        if os.path.exists(Config.PERSONA_MEMORY_PATH):
-            with open(Config.PERSONA_MEMORY_PATH, "r", encoding="utf-8") as f:
-                return f.read()
-        return ""
-
-    def _load_user_profile(self) -> str:
-        if os.path.exists(Config.USER_PROFILE_PATH):
-            with open(Config.USER_PROFILE_PATH, "r", encoding="utf-8") as f:
-                return f.read()
-        return ""
 
     def _handle_command(self, command: str) -> bool:
         if command in {"/help", "/h"}:
@@ -159,7 +147,7 @@ class ChatBot:
             ],
         )
         self.memory.update_persona_memory(updated_persona)
-        self.persona_memory = updated_persona
+        self.persona_memory = self.memory.get_persona_memory()
 
         # 更新用户档案
         updated_profile = self.llm.generate_response(
@@ -174,7 +162,7 @@ class ChatBot:
             ],
         )
         self.memory.update_user_profile(updated_profile)
-        self.user_profile = updated_profile
+        self.user_profile = self.memory.get_user_profile()
 
         # 清理embedding缓存
         self.memory.embedding_cache = {}

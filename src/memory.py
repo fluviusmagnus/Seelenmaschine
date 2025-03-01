@@ -514,6 +514,20 @@ class MemoryManager:
         with open(Config.USER_PROFILE_PATH, "w", encoding="utf-8") as f:
             f.write(new_content)
 
+    def get_persona_memory(self) -> str:
+        """获取AI助手的人格记忆"""
+        if os.path.exists(Config.PERSONA_MEMORY_PATH):
+            with open(Config.PERSONA_MEMORY_PATH, "r", encoding="utf-8") as f:
+                return f.read()
+        return ""
+
+    def get_user_profile(self) -> str:
+        """获取用户档案"""
+        if os.path.exists(Config.USER_PROFILE_PATH):
+            with open(Config.USER_PROFILE_PATH, "r", encoding="utf-8") as f:
+                return f.read()
+        return ""
+
     def get_conv_count(self, session_id: str) -> int:
         """获取当前会话的对话计数"""
         cursor = self.conn.cursor()
