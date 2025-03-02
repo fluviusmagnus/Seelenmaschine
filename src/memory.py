@@ -509,10 +509,11 @@ class MemoryManager:
         cursor.execute(
             """
             UPDATE session 
-            SET current_conv_count = 0
+            SET current_conv_count = 0,
+                start_timestamp = ?
             WHERE session_id = ?
         """,
-            (session_id,),
+            (datetime.now(), session_id),
         )
         conn.commit()
         conn.close()
