@@ -1,6 +1,6 @@
 # Seelenmaschine
 
-Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能够通过终端进行纯文本对话,并具有持久化的记忆系统,可以记住与用户的对话历史,并形成对用户的理解。
+Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能够通过终端或WebUI进行纯文本对话,并具有持久化的记忆系统,可以记住与用户的对话历史,并形成对用户的理解。
 
 ⚠️ 高强度AI编程警告！
 
@@ -19,6 +19,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
   - 检索结果智能判定嵌入上下文
   - 动态生成对话总结
 - 🛠️ 完整的会话管理功能
+- 🖥 提供用户友好的WebUI
 
 ## 技术架构
 
@@ -26,6 +27,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
 - 向量数据库:lancedb
 - 关系数据库:SQLite
 - 开发语言:Python
+- WebUI: Gradio
 
 ## 安装说明
 
@@ -42,7 +44,7 @@ pip install -r requirements.txt
 
 ```ini
 # Debug设置
-DEBUG_MODE=true/false  # 调试模式开关
+DEBUG_MODE=false  # 调试模式开关 true/false
 
 # 基本身份设定
 AI_NAME=Seelenmachine
@@ -69,12 +71,25 @@ RECALL_CONV_NUM=4  # 从相关会话检索的对话数量
 
 ## 使用说明
 
-启动程序:
+直接在终端中进入CLI模式:
 ```bash
 python src/main.py
 ```
 
-### 可用命令
+或者,启动WebUI提供的网页应用:
+
+```bash
+python src/main.py --webui [--host HOST] [--port PORT]
+```
+
+参数说明:
+```
+--webui: 启动Web界面
+--host: 指定主机地址（默认: 127.0.0.1）
+--port: 指定端口号（默认: 7860）
+```
+
+### CLI模式可用命令
 - `/reset`, `/r` - 重置当前会话
 - `/save`, `/s` - 归档当前会话,开始新会话
 - `/saveandexit`, `/sq`  - 归档当前会话,退出程序

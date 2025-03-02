@@ -1,7 +1,9 @@
 import logging
+import argparse
 from config import Config
 from utils import remove_blockquote_tags
 from chatbot import ChatBot
+from webui import launch_webui
 import os
 
 if os.name in ["posix"]:
@@ -23,8 +25,22 @@ def init_logging():
         "httpcore.http11",
         "httpcore.connection",
         "openai",
+        "asyncio",
+        "urllib3.connectionpool",
     ]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Seelenmaschine CLI/WebUI")
+    parser.add_argument("--webui", action="store_true", help="启动Web界面")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Web界面主机地址 (默认: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=7860, help="Web界面端口 (默认: 7860)"
+    )
+    return parser.parse_args()
 
 
 def main():
@@ -127,4 +143,8 @@ def handle_command(command: str, bot: ChatBot) -> bool:
 
 init_logging()
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    if args.webui:
+        launch_webui(args.host, args.port)
+    else:
+        main()

@@ -18,14 +18,18 @@ prompt_builder = PromptBuilder()
 class MemoryManager:
     def __init__(self):
         os.makedirs(os.path.dirname(Config.SQLITE_DB_PATH), exist_ok=True)
-        self.conn = sqlite3.connect(Config.SQLITE_DB_PATH)
         self._init_db()
         self.vector_db = lancedb.connect(Config.LANCEDB_PATH)
         self._init_vector_db()
         self.embedding_cache: Dict[str, List[float]] = {}  # 新增缓存字典
 
+    def _get_db(self):
+        """获取线程安全的数据库连接"""
+        return sqlite3.connect(Config.SQLITE_DB_PATH)
+
     def _init_db(self):
-        cursor = self.conn.cursor()
+        conn = sqlite3.connect(Config.SQLITE_DB_PATH)
+        cursor = conn.cursor()
         # 创建session表
         cursor.execute(
             """
@@ -64,7 +68,8 @@ class MemoryManager:
             )
         """
         )
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def _init_vector_db(self):
         schema = pa.schema(
@@ -90,7 +95,8 @@ class MemoryManager:
         return embedding
 
     def get_or_create_session(self) -> Tuple[str, datetime, int]:
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         # 查找未完成的session
         cursor.execute(
             """
@@ -121,7 +127,8 @@ class MemoryManager:
                     """,
                     (current_time, session_id),
                 )
-                self.conn.commit()
+                conn.commit()
+                conn.close()
                 return session_id, current_time, 0
             else:
                 cursor.execute(
@@ -133,6 +140,7 @@ class MemoryManager:
                     (session_id,),
                 )
                 session_id, start_time, conv_count = cursor.fetchone()
+                conn.close()
                 return session_id, datetime.fromisoformat(start_time), conv_count
         else:
             new_session_id = str(uuid.uuid4())
@@ -143,13 +151,15 @@ class MemoryManager:
             """,
                 (new_session_id, datetime.now(), "active", 0),
             )
-            self.conn.commit()
+            conn.commit()
+            conn.close()
             start_time = datetime.now()
             return new_session_id, start_time, 0
 
     def add_conversation(self, session_id: str, role: str, text: str) -> None:
         text_id = str(uuid.uuid4())
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO conversation 
@@ -168,7 +178,8 @@ class MemoryManager:
             """,
             (session_id,),
         )
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
         # 如果是assistant的回复,移除blockquote标签后再生成向量
         text_for_embedding = (
@@ -198,7 +209,8 @@ class MemoryManager:
             session_id: 会话ID
             summary: 新的摘要内容
         """
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
 
         # 查找现有摘要
         cursor.execute(
@@ -266,7 +278,8 @@ class MemoryManager:
                 ]
             )
 
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def get_recent_conversations(
         self, session_id: str, limit: int, reverse: bool = False
@@ -281,7 +294,8 @@ class MemoryManager:
         Returns:
             对话记录列表,每条记录包含(role, text)
         """
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         # 先按时间倒序获取对话
         cursor.execute(
             """
@@ -293,6 +307,7 @@ class MemoryManager:
             (session_id, limit),
         )
         conversations = cursor.fetchall()
+        conn.close()
 
         # 如果需要按时间从旧到新排序,则反转列表
         if not reverse:
@@ -317,8 +332,8 @@ class MemoryManager:
         related_summaries = []
         related_session_ids = []
         if summary_results:
-            # 获取摘要和对应session的时间信息
-            cursor = self.conn.cursor()
+            conn = self._get_db()
+            cursor = conn.cursor()
             text_ids = [r["text_id"] for r in summary_results]
             session_ids = [r["session_id"] for r in summary_results]
 
@@ -359,6 +374,8 @@ class MemoryManager:
             if summary_logs:
                 logging.debug("相关摘要搜索结果:\n" + "\n".join(summary_logs))
 
+            conn.close()
+
         # 在相关session中搜索对话
         related_conversations = []
         if related_session_ids:
@@ -374,6 +391,8 @@ class MemoryManager:
             )
 
             if conv_results:
+                conn = self._get_db()
+                cursor = conn.cursor()
                 # 获取对话内容和时间戳
                 text_ids = [r["text_id"] for r in conv_results]
                 placeholders = ",".join(["?"] * len(text_ids))
@@ -387,6 +406,7 @@ class MemoryManager:
                     text_ids,
                 )
                 conv_data = cursor.fetchall()
+                conn.close()
 
                 # 记录对话搜索结果
                 conv_logs = []
@@ -406,7 +426,8 @@ class MemoryManager:
         return related_summaries, related_conversations
 
     def _get_summary_texts(self, text_ids: List[str]) -> List[Dict]:
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         placeholders = ",".join(["?"] * len(text_ids))
         cursor.execute(
             f"""
@@ -415,10 +436,13 @@ class MemoryManager:
         """,
             text_ids,
         )
-        return [{"summary": row[0]} for row in cursor.fetchall()]
+        result = [{"summary": row[0]} for row in cursor.fetchall()]
+        conn.close()
+        return result
 
     def _get_conversation_texts(self, text_ids: List[str]) -> List[Dict]:
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         placeholders = ",".join(["?"] * len(text_ids))
         cursor.execute(
             f"""
@@ -427,10 +451,13 @@ class MemoryManager:
         """,
             text_ids,
         )
-        return [{"role": row[0], "text": row[1]} for row in cursor.fetchall()]
+        result = [{"role": row[0], "text": row[1]} for row in cursor.fetchall()]
+        conn.close()
+        return result
 
     def close_session(self, session_id: str) -> None:
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
 
         # 清理assistant回复中的cite标签
         cursor.execute(
@@ -461,10 +488,12 @@ class MemoryManager:
             """,
             (datetime.now(), session_id),
         )
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def reset_session(self, session_id: str) -> None:
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         cursor.execute(
             """
             DELETE FROM conversation WHERE session_id = ?
@@ -485,11 +514,13 @@ class MemoryManager:
         """,
             (session_id,),
         )
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def get_current_summary(self, session_id: str) -> Optional[str]:
         """获取当前会话的最新摘要"""
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         cursor.execute(
             """
             SELECT summary FROM summary 
@@ -500,6 +531,7 @@ class MemoryManager:
             (session_id,),
         )
         result = cursor.fetchone()
+        conn.close()
         return result[0] if result else None
 
     def update_persona_memory(self, new_content: str) -> None:
@@ -530,7 +562,8 @@ class MemoryManager:
 
     def get_conv_count(self, session_id: str) -> int:
         """获取当前会话的对话计数"""
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         cursor.execute(
             """
             SELECT current_conv_count FROM session 
@@ -539,6 +572,7 @@ class MemoryManager:
             (session_id,),
         )
         result = cursor.fetchone()
+        conn.close()
         return result[0] if result else 0
 
     def update_conv_count(self, session_id: str, delta: int) -> int:
@@ -551,7 +585,8 @@ class MemoryManager:
         Returns:
             更新后的对话计数
         """
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         cursor.execute(
             """
             UPDATE session 
@@ -560,17 +595,21 @@ class MemoryManager:
             """,
             (delta, session_id),
         )
-        self.conn.commit()
-        return self.get_conv_count(session_id)
+        conn.commit()
+        result = self.get_conv_count(session_id)
+        conn.close()
+        return result
 
     def clean_vector_db(self) -> None:
         """清理向量数据库中的孤立数据"""
         # 获取所有有效的text_id
-        cursor = self.conn.cursor()
+        conn = self._get_db()
+        cursor = conn.cursor()
         cursor.execute("SELECT text_id FROM conversation")
         valid_conv_ids = {row[0] for row in cursor.fetchall()}
         cursor.execute("SELECT text_id FROM summary")
         valid_summary_ids = {row[0] for row in cursor.fetchall()}
+        conn.close()
 
         # 清理对话向量表
         conv_table = self.vector_db.open_table("conversations")
