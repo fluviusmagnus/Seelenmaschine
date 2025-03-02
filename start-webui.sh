@@ -10,4 +10,4 @@ else
     source .venv/bin/activate
 fi
 
-python3 --webui --host 127.0.0.1 --port 7860
+python3  src/main.py --webui --host 127.0.0.1 --port 7860
