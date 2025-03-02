@@ -31,10 +31,36 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
 - 开发语言:Python
 - WebUI: Gradio
 
-## 安装说明
+## 快速开始
+
+1. 确保已安装好Python
+2. 克隆项目仓库
+   ```bash
+   git clone https://github.com/fluviusmagnus/Seelenmaschine.git
+   ```
+3. 按下文说明配置好`.env`文件
+3. 运行
+   - Windows: `start.bat` 或 `start-webui.bat`
+   - Linux:
+     1. 赋予权限
+       ```bash
+       chmod +x start.sh start-webui.sh
+       ```
+     2. 执行 `start.sh` 或 `start-webui.sh`
+       ```bash
+       ./start.sh
+       ```
+       或者
+       ```bash
+       ./start-webui.sh
+       ```
+4. (WebUI的情况下)浏览器访问`http://localhost:7860`即可
+
+## 手动安装说明
 
 1. 克隆项目仓库
-2. 安装依赖包(需要Python 3.11+)
+2. 建立虚拟环境(可选)
+3. 安装依赖包(需要Python 3.11+)
 ```bash
 pip install -r requirements.txt
 ```
