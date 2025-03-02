@@ -149,4 +149,10 @@ def create_webui():
 
 def launch_webui(host="127.0.0.1", port=7860):
     interface = create_webui()
-    interface.launch(server_name=host, server_port=port, share=False, pwa=True)
+    interface.launch(
+        server_name=host,
+        server_port=port,
+        share=False,
+        pwa=True,
+        favicon_path=Config.BASE_DIR / "static" / "logo-transparent.png",
+    )

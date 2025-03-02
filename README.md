@@ -1,5 +1,7 @@
 # Seelenmaschine
 
+![](static/logo-horizontal.png)
+
 Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能够通过终端或WebUI进行纯文本对话,并具有持久化的记忆系统,可以记住与用户的对话历史,并形成对用户的理解。
 
 ⚠️ 高强度AI编程警告！
