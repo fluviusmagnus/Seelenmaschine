@@ -154,5 +154,5 @@ def launch_webui(host="127.0.0.1", port=7860):
         server_port=port,
         share=False,
         pwa=True,
-        favicon_path=Config.BASE_DIR / "static" / "logo-transparent.png",
+        favicon_path=str(Config.BASE_DIR / "static" / "logo-transparent.png"),
     )
