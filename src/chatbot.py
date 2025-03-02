@@ -156,6 +156,11 @@ class ChatBot:
 
     def get_session_info(self):
         """获取当前会话信息"""
+        # 从数据库获取最新数据
+        self.session_id, self.start_time, self.current_conv_count = (
+            self.memory.get_or_create_session()
+        )
+
         return {
             "session_id": self.session_id,
             "start_time": self.start_time,
