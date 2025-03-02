@@ -1,12 +1,12 @@
 from typing import List, Dict, Tuple
-from datetime import datetime
 from config import Config
+import utils
 
 
 class SystemPrompts:
     @staticmethod
     def get_chat_system_prompt() -> str:
-        time = str(datetime.now())
+        time = utils.datetime_str(utils.now_tz())
         return f"""你是"{Config.AI_NAME}",是一个具有长期记忆和独特人格的AI助手,正在与用户"{Config.USER_NAME}"对话。在对话时请注意:
 
 1. 严格遵循自我认知,保持与之一致的性格特征和说话风格,不要用类似AI助手的语气,不要总是在回复末尾强调欢迎用户聊天或愿意帮助用户。回复你自己说的话时尽量保持口语化和简短,尽量不要换行,不要一次性输出5句以上的话。
@@ -128,7 +128,7 @@ class PromptBuilder:
     @staticmethod
     def build_persona_update_prompt(old_persona: str, session_summary: str) -> str:
         """构建人格记忆更新提示词"""
-        time = str(datetime.now())
+        time = utils.datetime_str(utils.now_tz())
         return f"""请根据本次对话的总结,更新你的自我认知。更新时注意:
 1. 根据提供的原有认知,你可能在扮演名为"{Config.AI_NAME}"的角色,这种情况下请从角色角度思考,保持人格特征的一致性
 2. 自我认知需要包含以下方面,每个方面中的具体条目可根据实际需要遵循分类逻辑增减:
@@ -155,7 +155,7 @@ class PromptBuilder:
     @staticmethod
     def build_user_profile_update_prompt(old_profile: str, session_summary: str) -> str:
         """构建用户档案更新提示词"""
-        time = str(datetime.now())
+        time = utils.datetime_str(utils.now_tz())
         return f"""请根据本次对话的总结,更新你对用户"{Config.USER_NAME}"的认知。更新时注意:
 1. 从你也就是"{Config.AI_NAME}"的角度思考,但也要保持客观准确
 2. 用户档案需要包含以下方面,每个方面中的具体条目可根据实际需要遵循分类逻辑增减:

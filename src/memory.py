@@ -8,7 +8,7 @@ from datetime import datetime
 from config import Config
 from llm import LLMClient
 from prompts import PromptBuilder
-from utils import remove_blockquote_tags
+import utils
 import logging
 
 llm_client = LLMClient()
@@ -30,6 +30,7 @@ class MemoryManager:
     def _init_db(self):
         conn = sqlite3.connect(Config.SQLITE_DB_PATH)
         cursor = conn.cursor()
+        # DATETIME类型字段因SQLite只支持字符串,故一律使用ISO格式保存
         # 创建session表
         cursor.execute(
             """
@@ -118,7 +119,7 @@ class MemoryManager:
 
             if conversation_count == 0:
                 # 如果没有对话记录,更新开始时间为现在
-                current_time = datetime.now()
+                current_time = utils.now_tz()
                 cursor.execute(
                     """
                     UPDATE session 
@@ -149,11 +150,11 @@ class MemoryManager:
                 INSERT INTO session (session_id, start_timestamp, status, current_conv_count)
                 VALUES (?, ?, ?, ?)
             """,
-                (new_session_id, datetime.now(), "active", 0),
+                (new_session_id, utils.now_tz(), "active", 0),
             )
             conn.commit()
             conn.close()
-            start_time = datetime.now()
+            start_time = utils.now_tz()
             return new_session_id, start_time, 0
 
     def add_conversation(self, session_id: str, role: str, text: str) -> None:
@@ -166,7 +167,7 @@ class MemoryManager:
             (session_id, timestamp, role, text, text_id)
             VALUES (?, ?, ?, ?, ?)
         """,
-            (session_id, datetime.now(), role, text, text_id),
+            (session_id, utils.now_tz(), role, text, text_id),
         )
 
         # 更新session的current_conv_count
@@ -183,7 +184,7 @@ class MemoryManager:
 
         # 如果是assistant的回复,移除blockquote标签后再生成向量
         text_for_embedding = (
-            remove_blockquote_tags(text) if role == "assistant" else text
+            utils.remove_blockquote_tags(text) if role == "assistant" else text
         )
         # 保存到向量数据库
         embedding = self._get_embedding_with_cache(text_for_embedding)
@@ -347,7 +348,10 @@ class MemoryManager:
                 """,
                 session_ids,
             )
-            session_times = {sid: (start, end) for sid, start, end in cursor.fetchall()}
+            session_times = {
+                sid: (datetime.fromisoformat(start), datetime.fromisoformat(end))
+                for sid, start, end in cursor.fetchall()
+            }
 
             # 获取摘要内容
             summaries = self._get_summary_texts(text_ids)
@@ -358,7 +362,7 @@ class MemoryManager:
                 sid = r["session_id"]
                 start_time, end_time = session_times[sid]
                 related_summaries.append(
-                    f"[会话时间: {start_time} - {end_time or '进行中'}]\n{summary['summary']}"
+                    f"[会话时间: {utils.datetime_str(start_time)} - {utils.datetime_str(end_time) or '进行中'}]\n{summary['summary']}"
                 )
                 related_session_ids.append(sid)
 
@@ -421,7 +425,9 @@ class MemoryManager:
 
                 related_conversations = []
                 for role, text, timestamp in conv_data:
-                    related_conversations.append(f"[{timestamp}] {role}: {text}")
+                    related_conversations.append(
+                        f"[{utils.datetime_str(datetime.fromisoformat(timestamp))}] {role}: {text}"
+                    )
 
         return related_summaries, related_conversations
 
@@ -469,7 +475,7 @@ class MemoryManager:
             (session_id,),
         )
         for conv_id, text in cursor.fetchall():
-            cleaned_text = remove_blockquote_tags(text)
+            cleaned_text = utils.remove_blockquote_tags(text)
             cursor.execute(
                 """
                 UPDATE conversation 
@@ -486,7 +492,7 @@ class MemoryManager:
             SET end_timestamp = ?, status = 'archived'
             WHERE session_id = ?
             """,
-            (datetime.now(), session_id),
+            (utils.now_tz(), session_id),
         )
         conn.commit()
         conn.close()
@@ -513,7 +519,7 @@ class MemoryManager:
                 start_timestamp = ?
             WHERE session_id = ?
         """,
-            (datetime.now(), session_id),
+            (utils.now_tz(), session_id),
         )
         conn.commit()
         conn.close()

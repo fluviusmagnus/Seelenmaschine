@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 load_dotenv()
 
@@ -48,6 +49,9 @@ class Config:
     RECALL_CONV_NUM = int(
         os.getenv("RECALL_CONV_NUM", "4")
     )  # 从相关session召回的对话数量
+
+    # 时区设置
+    TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Shanghai"))
 
 
 # 确保目录存在

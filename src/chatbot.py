@@ -5,7 +5,7 @@ from config import Config
 from memory import MemoryManager
 from llm import LLMClient
 from prompts import PromptBuilder, SystemPrompts
-from utils import remove_blockquote_tags
+import utils
 
 
 class ChatBot:
@@ -58,7 +58,7 @@ class ChatBot:
         )
         self.memory.update_summary(
             self.session_id,
-            final_summary + " 对话结束于: " + str(datetime.now().date()),
+            final_summary + " 对话结束于: " + utils.date_str(utils.now_tz()),
         )
 
         # 更新人格记忆
@@ -121,7 +121,11 @@ class ChatBot:
                 cleaned_conversations = [
                     (
                         role,
-                        remove_blockquote_tags(text) if role == "assistant" else text,
+                        (
+                            utils.remove_blockquote_tags(text)
+                            if role == "assistant"
+                            else text
+                        ),
                     )
                     for role, text in conversations_to_summarize
                 ]

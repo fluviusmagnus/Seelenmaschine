@@ -1,6 +1,6 @@
 import gradio as gr
 from chatbot import ChatBot
-from utils import remove_blockquote_tags
+from utils import remove_blockquote_tags, datetime_str
 from config import Config
 import logging
 
@@ -23,7 +23,7 @@ def create_webui():
         # 显示会话信息
         session_info = bot.get_session_info()
         initial_info = f"当前会话ID: {session_info['session_id']}\n"
-        initial_info += f"开始时间: {session_info['start_time']}\n\n"
+        initial_info += f"开始时间: {datetime_str(session_info['start_time'])}\n\n"
 
         # 显示历史对话
         existing_conv = bot.get_conversation_history()
@@ -73,7 +73,7 @@ def create_webui():
                 session_info = bot.reset_session()
                 info = "当前会话已重置\n"
                 info += f"当前会话ID: {session_info['session_id']}\n"
-                info += f"开始时间: {session_info['start_time']}"
+                info += f"开始时间: {datetime_str(session_info['start_time'])}"
                 return info, []
             except Exception as e:
                 logging.error(f"重置会话错误: {str(e)}")
@@ -84,7 +84,7 @@ def create_webui():
                 session_info = bot.finalize_session()
                 info = "当前会话已归档,创建新会话\n"
                 info += f"当前会话ID: {session_info['session_id']}\n"
-                info += f"开始时间: {session_info['start_time']}"
+                info += f"开始时间: {datetime_str(session_info['start_time'])}"
                 return info, []
             except Exception as e:
                 logging.error(f"归档会话错误: {str(e)}")

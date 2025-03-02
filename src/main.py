@@ -1,7 +1,7 @@
 import logging
 import argparse
 from config import Config
-from utils import remove_blockquote_tags
+from utils import remove_blockquote_tags, datetime_str
 from chatbot import ChatBot
 from webui import launch_webui
 import os
@@ -27,6 +27,7 @@ def init_logging():
         "openai",
         "asyncio",
         "urllib3.connectionpool",
+        "PIL.PngImagePlugin",
     ]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
@@ -51,7 +52,7 @@ def main():
         session_info = bot.get_session_info()
         logging.debug(f"初始化应用并载入会话ID: {session_info['session_id']}")
         print(f"\n当前会话ID: {session_info['session_id']}")
-        print(f"开始时间: {session_info['start_time']}")
+        print(f"开始时间: {datetime_str(session_info['start_time'])}")
 
         # 显示历史对话
         existing_conv = bot.get_conversation_history()
@@ -119,14 +120,14 @@ def handle_command(command: str, bot: ChatBot) -> bool:
         session_info = bot.reset_session()
         print("\n当前会话已重置")
         print(f"当前会话ID: {session_info['session_id']}")
-        print(f"开始时间: {session_info['start_time']}")
+        print(f"开始时间: {datetime_str(session_info['start_time'])}")
         return True
     elif command in {"/save", "/s"}:
         print("\n正在归档,请耐心等待……")
         session_info = bot.finalize_session()
         print("当前会话已归档,创建新会话")
         print(f"当前会话ID: {session_info['session_id']}")
-        print(f"开始时间: {session_info['start_time']}")
+        print(f"开始时间: {datetime_str(session_info['start_time'])}")
         return True
     elif command in {"/saveandexit", "/sq"}:
         print("\n正在归档,请耐心等待……")

@@ -1,4 +1,6 @@
 import re
+from config import Config
+from datetime import datetime
 
 
 def remove_blockquote_tags(text: str) -> str:
@@ -11,3 +13,18 @@ def remove_blockquote_tags(text: str) -> str:
         清理过的文本
     """
     return re.sub(r"<blockquote>.*?</blockquote>\n*", "", text, flags=re.DOTALL).strip()
+
+
+def now_tz() -> datetime:
+    """获取当前时区的时间日期"""
+    return datetime.now(Config.TIMEZONE)
+
+
+def datetime_str(dt: datetime) -> str:
+    """格式化完整时间日期"""
+    return dt.strftime("%Y-%m-%d %a %H:%M:%S %Z")
+
+
+def date_str(dt: datetime) -> str:
+    """格式化日期"""
+    return dt.strftime("%Y-%m-%d %a")
