@@ -219,5 +219,6 @@ class ChatBot:
         # 保存AI响应并更新计数
         self.memory.add_conversation(self.session_id, "assistant", response)
         self.current_conv_count = self.memory.get_conv_count(self.session_id)
+        logging.debug(f"当前对话轮数: {self.current_conv_count}")
 
         return response

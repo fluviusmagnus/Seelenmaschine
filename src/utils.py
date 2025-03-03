@@ -28,3 +28,13 @@ def datetime_str(dt: datetime) -> str:
 def date_str(dt: datetime) -> str:
     """格式化日期"""
     return dt.strftime("%Y-%m-%d %a")
+
+
+def datetime_to_timestamp(dt: datetime) -> int:
+    """转换datetime为UNIX时间戳"""
+    return int(dt.timestamp())
+
+
+def timestamp_to_datetime(ts: int) -> datetime:
+    """转换UNIX时间戳为datetime"""
+    return datetime.fromtimestamp(ts, Config.TIMEZONE)

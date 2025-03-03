@@ -30,16 +30,28 @@ class MemoryManager:
     def _init_db(self):
         conn = sqlite3.connect(Config.SQLITE_DB_PATH)
         cursor = conn.cursor()
-        # DATETIME类型字段因SQLite只支持字符串,故一律使用ISO格式保存
-        # 创建session表
+        # 使用INTEGER存储UNIX时间戳
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS session (
                 session_id TEXT PRIMARY KEY,
-                start_timestamp DATETIME NOT NULL,
-                end_timestamp DATETIME,
+                start_timestamp INTEGER NOT NULL,
+                end_timestamp INTEGER,
                 status TEXT CHECK(status IN ('active', 'archived')),
                 current_conv_count INTEGER DEFAULT 0
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversation (
+                conversation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                text TEXT NOT NULL,
+                text_id TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES session(session_id)
             )
         """
         )
@@ -50,20 +62,6 @@ class MemoryManager:
                 summary_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
                 summary TEXT NOT NULL,
-                text_id TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES session(session_id)
-            )
-        """
-        )
-        # 创建conversation表
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS conversation (
-                conversation_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                timestamp DATETIME NOT NULL,
-                role TEXT NOT NULL,
-                text TEXT NOT NULL,
                 text_id TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES session(session_id)
             )
@@ -126,7 +124,7 @@ class MemoryManager:
                     SET start_timestamp = ? 
                     WHERE session_id = ?
                     """,
-                    (current_time, session_id),
+                    (utils.datetime_to_timestamp(current_time), session_id),
                 )
                 conn.commit()
                 conn.close()
@@ -142,15 +140,21 @@ class MemoryManager:
                 )
                 session_id, start_time, conv_count = cursor.fetchone()
                 conn.close()
-                return session_id, datetime.fromisoformat(start_time), conv_count
+                return session_id, utils.timestamp_to_datetime(start_time), conv_count
         else:
             new_session_id = str(uuid.uuid4())
+            current_time = utils.now_tz()
             cursor.execute(
                 """
                 INSERT INTO session (session_id, start_timestamp, status, current_conv_count)
                 VALUES (?, ?, ?, ?)
             """,
-                (new_session_id, utils.now_tz(), "active", 0),
+                (
+                    new_session_id,
+                    utils.datetime_to_timestamp(current_time),
+                    "active",
+                    0,
+                ),
             )
             conn.commit()
             conn.close()
@@ -159,6 +163,7 @@ class MemoryManager:
 
     def add_conversation(self, session_id: str, role: str, text: str) -> None:
         text_id = str(uuid.uuid4())
+        current_time = utils.now_tz()
         conn = self._get_db()
         cursor = conn.cursor()
         cursor.execute(
@@ -167,7 +172,13 @@ class MemoryManager:
             (session_id, timestamp, role, text, text_id)
             VALUES (?, ?, ?, ?, ?)
         """,
-            (session_id, utils.now_tz(), role, text, text_id),
+            (
+                session_id,
+                utils.datetime_to_timestamp(current_time),
+                role,
+                text,
+                text_id,
+            ),
         )
 
         # 更新session的current_conv_count
@@ -349,7 +360,10 @@ class MemoryManager:
                 session_ids,
             )
             session_times = {
-                sid: (datetime.fromisoformat(start), datetime.fromisoformat(end))
+                sid: (
+                    utils.timestamp_to_datetime(start),
+                    utils.timestamp_to_datetime(end),
+                )
                 for sid, start, end in cursor.fetchall()
             }
 
@@ -426,7 +440,7 @@ class MemoryManager:
                 related_conversations = []
                 for role, text, timestamp in conv_data:
                     related_conversations.append(
-                        f"[{utils.datetime_str(datetime.fromisoformat(timestamp))}] {role}: {text}"
+                        f"[{utils.datetime_str(utils.timestamp_to_datetime(timestamp))}] {role}: {text}"
                     )
 
         return related_summaries, related_conversations
@@ -452,12 +466,19 @@ class MemoryManager:
         placeholders = ",".join(["?"] * len(text_ids))
         cursor.execute(
             f"""
-            SELECT role, text FROM conversation 
+            SELECT role, text, timestamp FROM conversation 
             WHERE text_id IN ({placeholders})
         """,
             text_ids,
         )
-        result = [{"role": row[0], "text": row[1]} for row in cursor.fetchall()]
+        result = [
+            {
+                "role": row[0],
+                "text": row[1],
+                "timestamp": utils.timestamp_to_datetime(row[2]),
+            }
+            for row in cursor.fetchall()
+        ]
         conn.close()
         return result
 
@@ -486,13 +507,14 @@ class MemoryManager:
             )
 
         # 更新session状态
+        current_time = utils.now_tz()
         cursor.execute(
             """
             UPDATE session 
             SET end_timestamp = ?, status = 'archived'
             WHERE session_id = ?
             """,
-            (utils.now_tz(), session_id),
+            (utils.datetime_to_timestamp(current_time), session_id),
         )
         conn.commit()
         conn.close()
@@ -519,7 +541,7 @@ class MemoryManager:
                 start_timestamp = ?
             WHERE session_id = ?
         """,
-            (utils.now_tz(), session_id),
+            (utils.datetime_to_timestamp(utils.now_tz()), session_id),
         )
         conn.commit()
         conn.close()
