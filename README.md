@@ -24,6 +24,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
   - 动态生成对话总结
 - 🛠️ 完整的会话管理功能
 - 🖥 提供用户友好的WebUI
+- 🛜 自动判断并调用实时网络搜索功能
 
 ## 技术架构
 
@@ -32,6 +33,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
 - 关系数据库:SQLite
 - 开发语言:Python
 - WebUI: Gradio
+- 网络搜索: Jina Deepsearch
 
 ## 快速开始
 
@@ -80,10 +82,16 @@ DEBUG_MODE=false  # 调试模式开关 true/false
 AI_NAME=Seelenmachine
 USER_NAME=User
 
+# Timezone settings
+# 用户的时区,尤其注意服务器时间与用户时间不同的情况
+# 中国标准时间默认填写 `Asia/Shanghai``
+# 时区代码可参考 https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+TIMEZONE=Asia/Shanghai
+
 # OpenAI API设置
 OPENAI_API_KEY=your_api_key
 OPENAI_API_BASE=your_api_base
-CHAT_MODEL=your_preferred_model  # 例如:anthropic/claude-3.5-haiku
+CHAT_MODEL=your_preferred_model  # 例如:gpt-4o。如要使用搜索等功能,需支持工具调用
 TOOL_MODEL=your_tool_model  # 用于记忆管理。建议使用推理模型,例如:deepdeek/deepseek-r1
 EMBEDDING_MODEL=your_embedding_model  # 例如:text-embedding-3-small
 EMBEDDING_DIMENSION=1536
@@ -93,6 +101,12 @@ MAX_CONV_NUM=20  # 最大对话轮数
 REFRESH_EVERY_CONV_NUM=10  # 每次总结的对话轮数
 RECALL_SESSION_NUM=2  # 检索相关会话数量
 RECALL_CONV_NUM=4  # 从相关会话检索的对话数量
+
+# Tools settings
+# 使用Jina Deepsearch API进行网络搜索
+ENABLE_WEB_SEARCH=false
+# 可留空,因目前允许免费使用
+JINA_API_KEY=
 ```
 
 3. (可选) 在`data`文件夹中创建`persona_memory.txt`和`user_profile.txt`,填入人格记忆和用户形象

@@ -31,8 +31,8 @@ class Config:
     # OpenAI配置
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
-    TOOL_MODEL = os.getenv("TOOL_MODEL", "gpt-3.5-turbo")
+    CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4o")
+    TOOL_MODEL = os.getenv("TOOL_MODEL", "gpt-4o")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
     # 嵌入模型配置
@@ -52,6 +52,10 @@ class Config:
 
     # 时区设置
     TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Asia/Shanghai"))
+
+    # 工具配置
+    ENABLE_WEB_SEARCH = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
+    JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 
 
 # 确保目录存在

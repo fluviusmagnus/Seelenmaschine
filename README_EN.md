@@ -19,6 +19,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It can eng
   - Dynamically generates conversation summaries
 - 🛠️ Complete session management functionality
 - 🖥 Provides a user-friendly WebUI
+- 🛜 Automatically execute websearch if needed
 
 ## Technical Architecture
 - Language models: Any model compatible with OpenAI API
@@ -26,6 +27,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It can eng
 - Relational database: SQLite
 - Development language: Python
 - WebUI: Gradio
+- Websearch: Jina Deepsearch
 
 ## Quick Start
 1. Ensure Python is installed
@@ -68,10 +70,14 @@ DEBUG_MODE=false  # Debug mode toggle true/false
 # Basic identity settings
 AI_NAME=Seelenmachine
 USER_NAME=User
+# Timezone settings
+# Timezone of the user. May be different from server time.
+# More codes see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+TIMEZONE=Asia/Shanghai
 # OpenAI API settings
 OPENAI_API_KEY=your_api_key
 OPENAI_API_BASE=your_api_base
-CHAT_MODEL=your_preferred_model  # For example: anthropic/claude-3.5-haiku
+CHAT_MODEL=your_preferred_model  # For example: gpt-4o. With tool calling enabled.
 TOOL_MODEL=your_tool_model  # For memory management. Recommend using a reasoning model, e.g.: deepdeek/deepseek-r1
 EMBEDDING_MODEL=your_embedding_model  # For example: text-embedding-3-small
 EMBEDDING_DIMENSION=1536
@@ -80,6 +86,10 @@ MAX_CONV_NUM=20  # Maximum conversation turns
 REFRESH_EVERY_CONV_NUM=10  # Number of conversation turns for each summary
 RECALL_SESSION_NUM=2  # Number of relevant sessions to retrieve
 RECALL_CONV_NUM=4  # Number of conversations to retrieve from relevant sessions
+# Tools settings
+ENABLE_WEB_SEARCH=false
+# Optional, while free API is available
+JINA_API_KEY=
 ```
 3. (Optional) Create `persona_memory.txt` and `user_profile.txt` in the `data` folder, fill in personality memory and user image
 
