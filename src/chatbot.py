@@ -6,6 +6,7 @@ from memory import MemoryManager
 from llm import LLMClient
 from prompts import PromptBuilder, SystemPrompts
 import utils
+from time import sleep, perf_counter
 
 
 class ChatBot:
@@ -185,6 +186,8 @@ class ChatBot:
         self.current_conv_count = self.memory.get_conv_count(self.session_id)
         logging.debug(f"当前对话轮数: {self.current_conv_count}")
 
+        exe_start = perf_counter()
+
         # 更新对话总结
         self._update_summaries()
 
@@ -215,6 +218,11 @@ class ChatBot:
         )
 
         response = self.llm.generate_response(Config.CHAT_MODEL, messages)
+
+        # 防止LLM速度过快导致秒级时间戳出错
+        exe_end = perf_counter()
+        if exe_end - exe_start < 1:
+            sleep(1)
 
         # 保存AI响应并更新计数
         self.memory.add_conversation(self.session_id, "assistant", response)
