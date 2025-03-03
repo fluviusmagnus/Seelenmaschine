@@ -103,7 +103,10 @@ def create_webui():
                 )
 
             chatbot = gr.Chatbot(
-                value=history, label="对话历史", type="messages"  # 使用新的消息格式
+                value=history,
+                label="对话历史",
+                type="messages",
+                autosave=True,  # 启用自动保存
             )
 
             msg = gr.Textbox(
@@ -155,4 +158,5 @@ def launch_webui(host="127.0.0.1", port=7860):
         share=False,
         pwa=True,
         favicon_path=str(Config.BASE_DIR / "static" / "logo-transparent.png"),
+        state_directory=str(Config.BASE_DIR / "states"),  # 添加状态存储目录
     )
