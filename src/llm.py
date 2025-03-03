@@ -12,10 +12,12 @@ class LLMClient:
             api_key=Config.OPENAI_API_KEY, base_url=Config.OPENAI_API_BASE
         )
 
-    def generate_response(self, model, messages: List[Dict]) -> str:
+    def generate_response(
+        self, model: str, messages: List[Dict], use_tools: bool = True
+    ) -> str:
         try:
             logging.debug(f"完整提示词: {messages}")
-            if Config.ENABLE_WEB_SEARCH or False:  # 列举所有工具
+            if use_tools and (Config.ENABLE_WEB_SEARCH or False):  # 列举所有工具
                 while True:
                     response = self.client.chat.completions.create(
                         model=model,
@@ -64,12 +66,14 @@ class LLMClient:
                 response = self.client.chat.completions.create(
                     model=model, messages=messages
                 )
+
             if hasattr(response.choices[0].message, "reasoning_content"):
                 logging.debug(
                     f"检测到推理: {response.choices[0].message.reasoning_content}"
                 )
             logging.debug(f"生成的回复: {response.choices[0].message.content}")
             return response.choices[0].message.content
+
         except Exception as e:
             raise Exception(f"API请求失败 使用模型 {model}: {str(e)}")
 
