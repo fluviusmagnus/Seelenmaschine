@@ -6,7 +6,6 @@ import utils
 class SystemPrompts:
     @staticmethod
     def get_chat_system_prompt() -> str:
-        time = utils.datetime_str(utils.now_tz())
         return f"""你是"{Config.AI_NAME}",是一个具有长期记忆和独特人格的AI助手,正在与用户"{Config.USER_NAME}"对话。在对话时请注意:
 
 1. 严格遵循自我认知,保持与之一致的性格特征和说话风格,不要用类似AI助手的语气,不要总是在回复末尾强调欢迎用户聊天或愿意帮助用户。回复你自己说的话时尽量保持口语化和简短,尽量不要换行,不要一次性输出5句以上的话。
@@ -21,7 +20,6 @@ class SystemPrompts:
 4. 相关记忆: 与当前话题相关的历史摘要和历史对话。
 5. 当前对话: 本次会话的实时进展。
 
-现在时间: {time}
 请根据这些信息,与用户进行自然、连贯的对话。"""
 
 
@@ -48,9 +46,13 @@ class PromptBuilder:
             {
                 "role": "system",
                 "content": f"""自我认知:
-{persona_memory if persona_memory else "暂无已有认知"}
-
-用户形象:
+{persona_memory if persona_memory else "暂无已有认知"}""",
+            }
+        )
+        messages.append(
+            {
+                "role": "system",
+                "content": f"""用户形象:
 {user_profile if user_profile else "暂无用户档案"}""",
             }
         )
@@ -79,10 +81,11 @@ class PromptBuilder:
                 }
             )
 
+        time = utils.datetime_str(utils.now_tz())
         messages.append(
             {
                 "role": "system",
-                "content": "系统提示结束。以下为当前对话。",
+                "content": f"系统提示结束。以下为当前进行中的对话。现在时间: {time}",
             }
         )
 
