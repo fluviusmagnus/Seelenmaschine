@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 class Config:
