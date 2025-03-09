@@ -7,6 +7,7 @@ from llm import LLMClient
 from prompts import PromptBuilder, SystemPrompts
 import utils
 from time import sleep, perf_counter
+import threading
 
 
 class ChatBot:
@@ -63,37 +64,47 @@ class ChatBot:
             final_summary + " 对话结束于: " + utils.date_str(utils.now_tz()),
         )
 
-        # 更新人格记忆
-        updated_persona = self.llm.generate_response(
-            Config.TOOL_MODEL,
-            [
-                {
-                    "role": "user",
-                    "content": self.prompt_builder.build_persona_update_prompt(
-                        self.persona_memory, final_summary
-                    ),
-                }
-            ],
-            use_tools=False,
-        )
-        self.memory.update_persona_memory(updated_persona)
-        self.persona_memory = self.memory.get_persona_memory()
+        # 多线程更新人格记忆和用户档案
+        def _update_persona(self):
+            """更新人格记忆"""
+            updated_persona = self.llm.generate_response(
+                Config.TOOL_MODEL,
+                [
+                    {
+                        "role": "user",
+                        "content": self.prompt_builder.build_persona_update_prompt(
+                            self.persona_memory, final_summary
+                        ),
+                    }
+                ],
+                use_tools=False,
+            )
+            self.memory.update_persona_memory(updated_persona)
+            self.persona_memory = self.memory.get_persona_memory()
 
-        # 更新用户档案
-        updated_profile = self.llm.generate_response(
-            Config.TOOL_MODEL,
-            [
-                {
-                    "role": "user",
-                    "content": self.prompt_builder.build_user_profile_update_prompt(
-                        self.user_profile, final_summary
-                    ),
-                }
-            ],
-            use_tools=False,
-        )
-        self.memory.update_user_profile(updated_profile)
-        self.user_profile = self.memory.get_user_profile()
+        def _update_profile(self):
+            """更新用户档案"""
+            updated_profile = self.llm.generate_response(
+                Config.TOOL_MODEL,
+                [
+                    {
+                        "role": "user",
+                        "content": self.prompt_builder.build_user_profile_update_prompt(
+                            self.user_profile, final_summary
+                        ),
+                    }
+                ],
+                use_tools=False,
+            )
+            self.memory.update_user_profile(updated_profile)
+            self.user_profile = self.memory.get_user_profile()
+
+        t1 = threading.Thread(target=_update_persona, args=(self,))
+        t2 = threading.Thread(target=_update_profile, args=(self,))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         # 清理embedding缓存
         self.memory.embedding_cache = {}
