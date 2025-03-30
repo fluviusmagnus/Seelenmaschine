@@ -63,6 +63,25 @@ class PromptBuilder:
                 {"role": "system", "content": f"当前对话摘要:\n{current_summary}"}
             )
 
+        messages.append(
+            {
+                "role": "system",
+                "content": f"以下为当前进行中的对话:\n",
+            }
+        )
+        # 当前对话历史
+        for role, text in current_conversations:
+            messages.append(
+                {"role": "user" if role == "user" else "assistant", "content": text}
+            )
+
+        messages.append(
+            {
+                "role": "system",
+                "content": f"以上为当前进行中的对话。\n",
+            }
+        )
+
         # 相关历史记忆
         if related_summaries:
             messages.append(
@@ -85,15 +104,9 @@ class PromptBuilder:
         messages.append(
             {
                 "role": "system",
-                "content": f"系统提示结束。以下为当前进行中的对话。现在时间: {time}",
+                "content": f"系统提示结束。请参考当前进行中的对话以及历史信息(如有提供),回复用户最后输入的内容。现在时间: {time}",
             }
         )
-
-        # 当前对话历史
-        for role, text in current_conversations:
-            messages.append(
-                {"role": "user" if role == "user" else "assistant", "content": text}
-            )
 
         return messages
 
