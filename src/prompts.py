@@ -70,6 +70,9 @@ class PromptBuilder:
                 "content": f"以下为当前进行中的对话:\n",
             }
         )
+
+        # TODO: 此处以前可以设置显式的缓存
+
         # 当前对话历史
         for role, text in current_conversations:
             messages.append(
