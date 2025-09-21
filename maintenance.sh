@@ -15,6 +15,16 @@ echo "Seelenmaschine 数据库维护工具"
 echo "========================================"
 echo
 
+if [ ! -d ".venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv .venv
+    source .venv/bin/activate
+    echo "Installing dependencies..."
+    pip install -r requirements.txt
+else
+    source .venv/bin/activate
+fi
+
 # 检查Python是否可用
 if ! command -v python3 &> /dev/null && ! command -v python &> /dev/null; then
     echo "错误：未找到Python，请确保Python已安装"

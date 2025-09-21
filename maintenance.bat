@@ -13,6 +13,16 @@ echo Seelenmaschine Database Maintenance Tool
 echo ========================================
 echo.
 
+IF NOT EXIST ".venv" (
+    echo Creating virtual environment...
+    python -m venv .venv
+    call .\.venv\Scripts\activate.bat
+    echo Installing dependencies...
+    pip install -r requirements.txt
+) ELSE (
+    call .\.venv\Scripts\activate.bat
+)
+
 REM Check if Python is available
 python --version >nul 2>&1
 if errorlevel 1 (
