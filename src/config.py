@@ -57,6 +57,15 @@ class Config:
     ENABLE_WEB_SEARCH = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
     JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 
+    # 性能优化配置
+    EMBEDDING_CACHE_SIZE = int(os.getenv("EMBEDDING_CACHE_SIZE", "1000"))  # LRU缓存大小
+    DB_CONNECTION_POOL_SIZE = int(
+        os.getenv("DB_CONNECTION_POOL_SIZE", "10")
+    )  # 数据库连接池大小
+    ENABLE_PERFORMANCE_LOGGING = (
+        os.getenv("ENABLE_PERFORMANCE_LOGGING", "false").lower() == "true"
+    )
+
 
 # 确保目录存在
 os.makedirs(Config.DATA_DIR, exist_ok=True)

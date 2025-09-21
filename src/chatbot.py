@@ -8,6 +8,7 @@ from prompts import PromptBuilder, SystemPrompts
 import utils
 from time import sleep, perf_counter
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 
 class ChatBot:
@@ -64,50 +65,18 @@ class ChatBot:
             final_summary + " 对话结束于: " + utils.date_str(utils.now_tz()),
         )
 
-        # 多线程更新人格记忆和用户档案
-        def _update_persona(self):
-            """更新人格记忆"""
-            updated_persona = self.llm.generate_response(
-                Config.TOOL_MODEL,
-                [
-                    {
-                        "role": "user",
-                        "content": self.prompt_builder.build_persona_update_prompt(
-                            self.persona_memory, final_summary
-                        ),
-                    }
-                ],
-                use_tools=False,
-            )
-            self.memory.update_persona_memory(updated_persona)
-            self.persona_memory = self.memory.get_persona_memory()
+        # 使用线程池并行更新人格记忆和用户档案
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # 提交任务到线程池
+            persona_future = executor.submit(self._update_persona_memory, final_summary)
+            profile_future = executor.submit(self._update_user_profile, final_summary)
 
-        def _update_profile(self):
-            """更新用户档案"""
-            updated_profile = self.llm.generate_response(
-                Config.TOOL_MODEL,
-                [
-                    {
-                        "role": "user",
-                        "content": self.prompt_builder.build_user_profile_update_prompt(
-                            self.user_profile, final_summary
-                        ),
-                    }
-                ],
-                use_tools=False,
-            )
-            self.memory.update_user_profile(updated_profile)
-            self.user_profile = self.memory.get_user_profile()
-
-        t1 = threading.Thread(target=_update_persona, args=(self,))
-        t2 = threading.Thread(target=_update_profile, args=(self,))
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
+            # 等待所有任务完成
+            self.persona_memory = persona_future.result()
+            self.user_profile = profile_future.result()
 
         # 清理embedding缓存
-        self.memory.embedding_cache = {}
+        self.memory.embedding_cache.clear()
 
         # 清理向量数据库
         self.memory.clean_vector_db()
@@ -118,6 +87,40 @@ class ChatBot:
         )
         logging.debug(f"创建新会话 {self.session_id}")
         return self.get_session_info()
+
+    def _update_persona_memory(self, final_summary: str) -> str:
+        """更新人格记忆"""
+        updated_persona = self.llm.generate_response(
+            Config.TOOL_MODEL,
+            [
+                {
+                    "role": "user",
+                    "content": self.prompt_builder.build_persona_update_prompt(
+                        self.persona_memory, final_summary
+                    ),
+                }
+            ],
+            use_tools=False,
+        )
+        self.memory.update_persona_memory(updated_persona)
+        return self.memory.get_persona_memory()
+
+    def _update_user_profile(self, final_summary: str) -> str:
+        """更新用户档案"""
+        updated_profile = self.llm.generate_response(
+            Config.TOOL_MODEL,
+            [
+                {
+                    "role": "user",
+                    "content": self.prompt_builder.build_user_profile_update_prompt(
+                        self.user_profile, final_summary
+                    ),
+                }
+            ],
+            use_tools=False,
+        )
+        self.memory.update_user_profile(updated_profile)
+        return self.memory.get_user_profile()
 
     def _update_summaries(self) -> None:
         """更新对话总结"""
