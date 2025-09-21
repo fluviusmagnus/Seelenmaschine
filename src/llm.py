@@ -64,7 +64,9 @@ class LLMClient:
                         )
             else:
                 response = self.client.chat.completions.create(
-                    model=model, messages=messages
+                    model=model,
+                    messages=messages,
+                    reasoning_effort=Config.REASONING_EFFORT,
                 )
 
             if hasattr(response.choices[0].message, "reasoning_content"):

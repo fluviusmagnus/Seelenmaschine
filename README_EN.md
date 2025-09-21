@@ -79,6 +79,7 @@ OPENAI_API_KEY=your_api_key
 OPENAI_API_BASE=your_api_base
 CHAT_MODEL=your_preferred_model  # For example: gpt-4o. With tool calling enabled.
 TOOL_MODEL=your_tool_model  # For memory management. Recommend using a reasoning model, e.g.: deepdeek/deepseek-r1
+REASONING_EFFORT=low # See documentation of your API provider 
 EMBEDDING_MODEL=your_embedding_model  # For example: text-embedding-3-small
 EMBEDDING_DIMENSION=1536
 # Memory system settings
