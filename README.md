@@ -23,7 +23,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
   - 检索结果智能判定嵌入上下文
   - 动态生成对话总结
 - 🛠️ 完整的会话管理功能
-- 🖥 提供用户友好的WebUI
+- 🖥 提供用户友好的WebUI (Flask界面)
 - 🛜 自动判断并调用实时网络搜索功能
 
 ## 技术架构
@@ -32,7 +32,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
 - 向量数据库:lancedb
 - 关系数据库:SQLite
 - 开发语言:Python
-- WebUI: Gradio
+- WebUI: Flask
 - 网络搜索: Jina Deepsearch
 
 ## 快速开始
@@ -44,19 +44,19 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
    ```
 3. 按下文说明配置好`.env`文件
 3. 运行
-   - Windows: `start.bat` 或 `start-webui.bat`
+   - Windows: `start.bat` 或 `start-flask-webui.bat`
    - Linux:
      1. 赋予权限
        ```bash
-       chmod +x start.sh start-webui.sh
+       chmod +x start.sh start-flask-webui.sh
        ```
-     2. 执行 `start.sh` 或 `start-webui.sh`
+     2. 执行 `start.sh` 或 `start-flask-webui.sh`
        ```bash
        ./start.sh
        ```
        或者
        ```bash
-       ./start-webui.sh
+       ./start-flask-webui.sh
        ```
 4. (WebUI的情况下)浏览器访问`http://localhost:7860`即可
 
@@ -123,16 +123,33 @@ python src/main.py
 
 或者,启动WebUI提供的网页应用:
 
+**Flask界面:**
 ```bash
-python src/main.py --webui [--host HOST] [--port PORT]
+python src/main.py --flask [--host HOST] [--port PORT]
 ```
+
+或者使用便捷启动脚本:
+- Windows: `start-flask-webui.bat`
+- Linux/macOS: `start-flask-webui.sh`
 
 参数说明:
 ```
---webui: 启动Web界面
+--flask: 启动Flask Web界面
 --host: 指定主机地址（默认: 127.0.0.1）
 --port: 指定端口号（默认: 7860）
 ```
+
+### Web界面特性
+
+**Flask界面**:
+- 🎨 现代化响应式设计
+- ⚡ 实时WebSocket通信
+- 🌓 深色/浅色主题切换
+- 📱 移动端友好
+- 🔄 实时状态指示器
+- ✨ 优雅的动画效果
+- 📝 Markdown渲染支持
+-  完整的CLI功能复刻
 
 ### CLI模式可用命令
 - `/reset`, `/r` - 重置当前会话

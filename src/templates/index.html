@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ai_name }} - Seelenmaschine{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-column h-100">
+    <!-- Chat messages area -->
+    <div class="flex-grow-1 overflow-auto" id="chat-container">
+        <div class="p-3">
+            <div id="chat-messages">
+                <!-- Load existing conversation history -->
+                {% for msg in history %}
+                <div class="message-container mb-3" data-timestamp="{{ msg.timestamp }}">
+                    <div class="message {{ 'ai-message' if msg.role == 'assistant' else 'user-message' }}">
+                        <div class="message-header">
+                            {% if msg.role == 'assistant' %}
+                            <div class="avatar user-avatar" style="background: var(--primary-color);">
+                                <i class="bi bi-robot"></i>
+                            </div>
+                            <span class="sender-name">{{ ai_name }}</span>
+                            {% else %}
+                            <div class="avatar user-avatar">
+                                <i class="bi bi-person-fill"></i>
+                            </div>
+                            <span class="sender-name">{{ user_name }}</span>
+                            {% endif %}
+                            <span class="timestamp">历史消息</span>
+                        </div>
+                        <div class="message-content">
+                            {% if msg.role == 'assistant' %}
+                            <div class="markdown-content">{{ msg.content | safe }}</div>
+                            {% else %}
+                            <div class="text-content">{{ msg.content }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Typing indicator -->
+            <div id="typing-indicator" class="message-container mb-3" style="display: none;">
+                <div class="message ai-message">
+                    <div class="message-header">
+                        <div class="avatar user-avatar" style="background: var(--primary-color);">
+                            <i class="bi bi-robot"></i>
+                        </div>
+                        <span class="sender-name">{{ ai_name }}</span>
+                        <span class="timestamp">正在输入...</span>
+                    </div>
+                    <div class="message-content">
+                        <div class="typing-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input area -->
+    <div class="border-top bg-white p-3">
+        <div class="input-group">
+            <textarea id="message-input" class="form-control" placeholder="输入您的消息... (Enter发送，Shift+Enter换行)" rows="3"
+                style="resize: none;"></textarea>
+            <button id="send-btn" class="btn btn-primary" type="button">
+                <i class="bi bi-send-fill"></i>
+                <span class="d-none d-sm-inline ms-1">发送</span>
+            </button>
+        </div>
+
+        <!-- Input controls -->
+        <div class="d-flex justify-content-between align-items-center mt-2">
+            <div class="text-muted small">
+                <i class="bi bi-info-circle me-1"></i>
+                支持Markdown格式
+            </div>
+            <div class="text-muted small">
+                <span id="char-count">0</span> 字符
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirmModalLabel">确认操作</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="confirmModalBody">
+                您确定要执行此操作吗？
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="confirmModalConfirm">确认</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Initialize chat functionality when page loads
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize chat
+        if (typeof initializeChat === 'function') {
+            initializeChat();
+        }
+
+        // Render existing messages as markdown
+        document.querySelectorAll('.markdown-content').forEach(function (element) {
+            if (element.textContent.trim()) {
+                element.innerHTML = marked.parse(element.textContent);
+                // Highlight code blocks
+                element.querySelectorAll('pre code').forEach(function (block) {
+                    hljs.highlightElement(block);
+                });
+            }
+        });
+
+        // Auto-scroll to bottom
+        const chatContainer = document.getElementById('chat-container');
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    });
+</script>
+{% endblock %}

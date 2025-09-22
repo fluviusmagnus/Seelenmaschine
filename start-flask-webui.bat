@@ -9,4 +9,7 @@ IF NOT EXIST ".venv" (
     call .\.venv\Scripts\activate.bat
 )
 
-python src\main.py --webui --host 127.0.0.1 --port 7860
+echo 启动 Seelenmaschine Flask Web UI...
+cd src
+python main.py --flask --host 127.0.0.1 --port 7860
+pause

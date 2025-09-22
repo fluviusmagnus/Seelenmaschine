@@ -10,4 +10,6 @@ else
     source .venv/bin/activate
 fi
 
-python3  src/main.py --webui --host 127.0.0.1 --port 7860
+echo "启动 Seelenmaschine Flask Web UI..."
+cd src
+python3 main.py --flask --host 127.0.0.1 --port 7860

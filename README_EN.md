@@ -26,7 +26,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It can eng
 - Vector database: lancedb
 - Relational database: SQLite
 - Development language: Python
-- WebUI: Gradio
+- WebUI: Flask
 - Websearch: Jina Deepsearch
 
 ## Quick Start
@@ -37,19 +37,19 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It can eng
    ```
 3. Configure the `.env` file as described below
 3. Run
-   - Windows: `start.bat` or `start-webui.bat`
+   - Windows: `start.bat` or `start-flask-webui.bat`
    - Linux:
      1. Grant permissions
        ```bash
-       chmod +x start.sh start-webui.sh
+       chmod +x start.sh start-flask-webui.sh
        ```
-     2. Execute `start.sh` or `start-webui.sh`
+     2. Execute `start.sh` or `start-flask-webui.sh`
        ```bash
        ./start.sh
        ```
        or
        ```bash
-       ./start-webui.sh
+       ./start-flask-webui.sh
        ```
 4. (For WebUI) Access `http://localhost:7860` in your browser
 
@@ -103,11 +103,11 @@ python src/main.py
 ```
 Or, launch the web application provided by WebUI:
 ```bash
-python src/main.py --webui [--host HOST] [--port PORT]
+python src/main.py --flask [--host HOST] [--port PORT]
 ```
 Parameter description:
 ```
---webui: Launch the Web interface
+--flask: Launch the Flask Web interface
 --host: Specify the host address (default: 127.0.0.1)
 --port: Specify the port number (default: 7860)
 ```

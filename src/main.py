@@ -3,7 +3,7 @@ import argparse
 from config import Config
 from utils import remove_blockquote_tags, datetime_str
 from chatbot import ChatBot
-from webui import launch_webui
+from flask_webui import launch_flask_webui
 import os
 
 if os.name in ["posix"]:
@@ -34,7 +34,7 @@ def init_logging():
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Seelenmaschine CLI/WebUI")
-    parser.add_argument("--webui", action="store_true", help="启动Web界面")
+    parser.add_argument("--flask", action="store_true", help="启动Flask Web界面")
     parser.add_argument(
         "--host", default="127.0.0.1", help="Web界面主机地址 (默认: 127.0.0.1)"
     )
@@ -145,7 +145,7 @@ def handle_command(command: str, bot: ChatBot) -> bool:
 init_logging()
 if __name__ == "__main__":
     args = parse_args()
-    if args.webui:
-        launch_webui(args.host, args.port)
+    if args.flask:
+        launch_flask_webui(args.host, args.port)
     else:
         main()
