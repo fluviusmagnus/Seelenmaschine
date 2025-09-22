@@ -16,6 +16,23 @@ def get_bot():
     return _bot
 
 
+def get_formatted_history():
+    """获取格式化的历史记录"""
+    bot = get_bot()
+    existing_conv = bot.get_conversation_history()
+    history = []
+    if existing_conv:
+        for role, text in existing_conv:
+            # 非调试模式下显示清理后的文本
+            display_text = (
+                remove_blockquote_tags(text)
+                if role == "assistant" and not Config.DEBUG_MODE
+                else text
+            )
+            history.append({"role": role, "content": display_text})
+    return history
+
+
 def create_webui():
     try:
         bot = get_bot()
@@ -26,18 +43,9 @@ def create_webui():
         initial_info += f"开始时间: {datetime_str(session_info['start_time'])}\n\n"
 
         # 显示历史对话
-        existing_conv = bot.get_conversation_history()
-        history = []
-        if existing_conv:
-            initial_info += f"已载入最后{len(existing_conv)}条历史对话"
-            for role, text in existing_conv:
-                # 非调试模式下显示清理后的文本
-                display_text = (
-                    remove_blockquote_tags(text)
-                    if role == "assistant" and not Config.DEBUG_MODE
-                    else text
-                )
-                history.append({"role": role, "content": display_text})
+        history = get_formatted_history()
+        if history:
+            initial_info += f"已载入最后{len(history)}条历史对话"
 
         def process_message(message, history):
             if not message:
@@ -90,6 +98,27 @@ def create_webui():
                 logging.error(f"归档会话错误: {str(e)}")
                 return "发生错误,请检查日志文件", []
 
+        def handle_refresh_history():
+            """刷新历史记录"""
+            try:
+                # 重新获取会话信息
+                session_info = bot.get_session_info()
+                info = f"历史记录已刷新\n"
+                info += f"当前会话ID: {session_info['session_id']}\n"
+                info += f"开始时间: {datetime_str(session_info['start_time'])}\n\n"
+
+                # 重新获取历史记录
+                refreshed_history = get_formatted_history()
+                if refreshed_history:
+                    info += f"已载入最后{len(refreshed_history)}条历史对话"
+                else:
+                    info += "当前会话暂无历史对话"
+
+                return info, refreshed_history
+            except Exception as e:
+                logging.error(f"刷新历史记录错误: {str(e)}")
+                return "刷新历史记录时发生错误,请检查日志文件", []
+
         # 创建聊天界面
         with gr.Blocks(title=f"Seelenmaschine - {Config.AI_NAME}") as interface:
             gr.Markdown(f"# Seelenmaschine - 与{Config.AI_NAME}对话")
@@ -116,6 +145,7 @@ def create_webui():
             with gr.Row():
                 submit = gr.Button("发送消息", variant="primary")
                 clear_btn = gr.Button("清除消息")
+                refresh_btn = gr.Button("刷新历史记录")
                 save_btn = gr.Button("归档会话")
                 reset_btn = gr.Button("重置会话", variant="stop")
 
@@ -139,6 +169,8 @@ def create_webui():
             reset_btn.click(fn=handle_reset, outputs=[info, chatbot])
 
             save_btn.click(fn=handle_save, outputs=[info, chatbot])
+
+            refresh_btn.click(fn=handle_refresh_history, outputs=[info, chatbot])
 
         return interface
 
