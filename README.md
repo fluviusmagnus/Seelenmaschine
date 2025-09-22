@@ -23,7 +23,7 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
   - 检索结果智能判定嵌入上下文
   - 动态生成对话总结
 - 🛠️ 完整的会话管理功能
-- 🖥 提供用户友好的WebUI
+- 🖥 提供用户友好的WebUI (支持Gradio和Flask两种界面)
 - 🛜 自动判断并调用实时网络搜索功能
 
 ## 技术架构
@@ -123,16 +123,43 @@ python src/main.py
 
 或者,启动WebUI提供的网页应用:
 
+**Gradio界面 (原版):**
 ```bash
 python src/main.py --webui [--host HOST] [--port PORT]
 ```
 
+**Flask界面 (新版):**
+```bash
+python src/main.py --flask [--host HOST] [--port PORT]
+```
+
+或者使用便捷启动脚本:
+- Windows: `start-flask-webui.bat`
+- Linux/macOS: `start-flask-webui.sh`
+
 参数说明:
 ```
---webui: 启动Web界面
+--webui: 启动Gradio Web界面
+--flask: 启动Flask Web界面 (推荐)
 --host: 指定主机地址（默认: 127.0.0.1）
 --port: 指定端口号（默认: 7860）
 ```
+
+### Web界面特性对比
+
+**Flask界面 (推荐)**:
+- 🎨 现代化响应式设计
+- ⚡ 实时WebSocket通信
+- 🌓 深色/浅色主题切换
+- 📱 移动端友好
+- 🔄 实时状态指示器
+- ✨ 优雅的动画效果
+- 📝 Markdown渲染支持
+- 🎯 完整的CLI功能复刻
+
+**Gradio界面 (传统)**:
+- 📋 简洁的界面设计
+- 🔧 基础功能支持
 
 ### CLI模式可用命令
 - `/reset`, `/r` - 重置当前会话
