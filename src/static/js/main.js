@@ -343,7 +343,7 @@ function addMessage(role, content, timestamp) {
             <div class="avatar user-avatar" style="background: var(--primary-color);">
                 <i class="bi bi-robot"></i>
             </div>
-            <span class="sender-name">Seelenmaschine</span>
+            <span class="sender-name">${window.AI_NAME || 'Seelenmaschine'}</span>
             <span class="timestamp">${formatTimestamp(timestamp)}</span>
         `;
     } else {
@@ -351,7 +351,7 @@ function addMessage(role, content, timestamp) {
             <div class="avatar user-avatar">
                 <i class="bi bi-person-fill"></i>
             </div>
-            <span class="sender-name">用户</span>
+            <span class="sender-name">${window.USER_NAME || '用户'}</span>
             <span class="timestamp">${formatTimestamp(timestamp)}</span>
         `;
     }

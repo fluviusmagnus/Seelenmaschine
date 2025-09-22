@@ -106,6 +106,10 @@
 
 {% block extra_scripts %}
 <script>
+    // Pass server-side variables to JavaScript
+    window.AI_NAME = "{{ ai_name }}";
+    window.USER_NAME = "{{ user_name }}";
+
     // Initialize chat functionality when page loads
     document.addEventListener('DOMContentLoaded', function () {
         // Initialize chat
