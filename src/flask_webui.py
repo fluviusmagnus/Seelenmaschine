@@ -109,7 +109,7 @@ def handle_message(data):
         logging.debug(f"收到用户消息: {user_input}")
 
         # 发送状态更新
-        emit("status", {"type": "processing", "message": "AI正在思考中..."})
+        emit("status", {"type": "processing", "message": "正在思考中..."})
 
         bot = get_bot()
 
