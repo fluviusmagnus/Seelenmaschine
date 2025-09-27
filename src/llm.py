@@ -37,6 +37,8 @@ class LLMClient:
                     if not message.tool_calls:
                         if hasattr(message, "reasoning_content"):
                             logging.debug(f"检测到推理: {message.reasoning_content}")
+                        if hasattr(message, "reasoning"):
+                            logging.debug(f"检测到推理: {message.reasoning}")
                         logging.debug(f"生成的回复: {message.content}")
                         return message.content
 
@@ -78,6 +80,8 @@ class LLMClient:
                 logging.debug(
                     f"检测到推理: {response.choices[0].message.reasoning_content}"
                 )
+            if hasattr(response.choices[0].message, "reasoning"):
+                logging.debug(f"检测到推理: {response.choices[0].message.reasoning}")
             logging.debug(f"生成的回复: {response.choices[0].message.content}")
             return response.choices[0].message.content
 
