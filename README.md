@@ -93,7 +93,8 @@ OPENAI_API_KEY=your_api_key
 OPENAI_API_BASE=your_api_base
 CHAT_MODEL=your_preferred_model  # 例如:gpt-4o。如要使用搜索等功能,需支持工具调用
 TOOL_MODEL=your_tool_model  # 用于记忆管理。建议使用推理模型,例如:deepdeek/deepseek-r1
-REASONING_EFFORT=low # 参考API供应商的提示
+CHAT_REASONING_EFFORT=low # 参考API供应商的提示
+TOOL_REASONING_EFFORT=medium
 EMBEDDING_MODEL=your_embedding_model  # 例如:text-embedding-3-small
 EMBEDDING_DIMENSION=1536
 

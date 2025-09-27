@@ -13,7 +13,11 @@ class LLMClient:
         )
 
     def generate_response(
-        self, model: str, messages: List[Dict], use_tools: bool = True
+        self,
+        model: str,
+        messages: List[Dict],
+        use_tools: bool = True,
+        reasoning_effort: str = "low",
     ) -> str:
         try:
             logging.debug(f"完整提示词: {messages}")
@@ -24,6 +28,7 @@ class LLMClient:
                         messages=messages,
                         tools=tools.tools_list,
                         tool_choice="auto",
+                        reasoning_effort=reasoning_effort,
                     )
 
                     message = response.choices[0].message
@@ -66,7 +71,7 @@ class LLMClient:
                 response = self.client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    reasoning_effort=Config.REASONING_EFFORT,
+                    reasoning_effort=reasoning_effort,
                 )
 
             if hasattr(response.choices[0].message, "reasoning_content"):

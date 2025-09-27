@@ -58,6 +58,7 @@ class ChatBot:
                 }
             ],
             use_tools=False,
+            reasoning_effort=Config.TOOL_REASONING_EFFORT,
         )
         self.memory.update_summary(
             self.session_id,
@@ -78,6 +79,7 @@ class ChatBot:
                     }
                 ],
                 use_tools=False,
+                reasoning_effort=Config.TOOL_REASONING_EFFORT,
             )
             self.memory.update_persona_memory(updated_persona)
             self.persona_memory = self.memory.get_persona_memory()
@@ -95,6 +97,7 @@ class ChatBot:
                     }
                 ],
                 use_tools=False,
+                reasoning_effort=Config.TOOL_REASONING_EFFORT,
             )
             self.memory.update_user_profile(updated_profile)
             self.user_profile = self.memory.get_user_profile()
@@ -164,6 +167,7 @@ class ChatBot:
                         }
                     ],
                     use_tools=False,
+                    reasoning_effort=Config.TOOL_REASONING_EFFORT,
                 )
                 self.memory.update_summary(self.session_id, new_summary)
                 logging.debug(f"更新会话 {self.session_id} 的总结")
@@ -232,7 +236,11 @@ class ChatBot:
             user_input=user_input,
         )
 
-        response = self.llm.generate_response(Config.CHAT_MODEL, messages)
+        response = self.llm.generate_response(
+            Config.CHAT_MODEL,
+            messages,
+            reasoning_effort=Config.CHAT_REASONING_EFFORT,
+        )
 
         # 防止LLM速度过快导致秒级时间戳出错
         exe_end = perf_counter()
