@@ -33,7 +33,8 @@ class Config:
     OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4o")
     TOOL_MODEL = os.getenv("TOOL_MODEL", "gpt-4o")
-    REASONING_EFFORT = os.getenv("REASONING_EFFORT", "low")
+    CHAT_REASONING_EFFORT = os.getenv("CHAT_REASONING_EFFORT", "low")
+    TOOL_REASONING_EFFORT = os.getenv("TOOL_REASONING_EFFORT", "medium")
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
     # 嵌入模型配置
