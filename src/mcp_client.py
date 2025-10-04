@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from fastmcp import Client
 import asyncio
-from .config import Config
+from config import Config
 
 
 class MCPClient:
