@@ -92,6 +92,13 @@ RECALL_CONV_NUM=4  # Number of conversations to retrieve from relevant sessions
 ENABLE_WEB_SEARCH=false
 # Optional, while free API is available
 JINA_API_KEY=
+
+# MCP settings
+# Enable MCP (Model Context Protocol) support
+ENABLE_MCP=true
+# MCP configuration file path
+MCP_CONFIG_PATH=mcp_servers.json
+
 ```
 3. (Optional) Create `persona_memory.txt` and `user_profile.txt` in the `data` folder, fill in personality memory and user image
 

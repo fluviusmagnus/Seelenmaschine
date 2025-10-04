@@ -109,6 +109,13 @@ RECALL_CONV_NUM=4  # 从相关会话检索的对话数量
 ENABLE_WEB_SEARCH=false
 # 可留空,因目前允许免费使用
 JINA_API_KEY=
+
+# MCP settings
+# 启用MCP (Model Context Protocol) 支持
+ENABLE_MCP=true
+# MCP服务器配置文件路径
+MCP_CONFIG_PATH=mcp_servers.json
+
 ```
 
 3. (可选) 在`data`文件夹中创建`persona_memory.txt`和`user_profile.txt`,填入人格记忆和用户形象
