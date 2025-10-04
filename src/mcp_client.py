@@ -132,26 +132,39 @@ class MCPClient:
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """调用工具并返回结果文本"""
+        logging.debug(f"MCPClient.call_tool 开始: {tool_name}, 参数: {arguments}")
+
         if not self.client:
-            return "错误: MCP客户端未连接"
+            error_msg = "错误: MCP客户端未连接"
+            logging.error(error_msg)
+            return error_msg
 
         try:
+            logging.debug(f"准备调用 fastmcp client.call_tool: {tool_name}")
             # 使用 fastmcp.Client 调用工具
             result = await self.client.call_tool(tool_name, arguments)
+            logging.debug(f"fastmcp client.call_tool 返回成功: {tool_name}")
 
             # 提取文本内容
             if result.content and len(result.content) > 0:
                 # fastmcp 返回的内容可能是 TextContent 或其他类型
                 first_content = result.content[0]
                 if hasattr(first_content, "text"):
-                    return first_content.text
+                    result_text = first_content.text
+                    logging.debug(f"工具调用成功，返回文本长度: {len(result_text)}")
+                    return result_text
                 else:
-                    return str(first_content)
+                    result_text = str(first_content)
+                    logging.debug(f"工具调用成功，返回字符串长度: {len(result_text)}")
+                    return result_text
 
+            logging.warning(f"工具调用成功但无返回内容: {tool_name}")
             return "工具调用成功但无返回内容"
         except Exception as e:
             error_msg = f"工具调用失败: {str(e)}"
-            logging.error(f"{error_msg} (tool={tool_name}, args={arguments})")
+            logging.error(
+                f"{error_msg} (tool={tool_name}, args={arguments})", exc_info=True
+            )
             return error_msg
 
 
