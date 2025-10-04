@@ -61,9 +61,7 @@ class Config:
 
     # MCP 配置
     ENABLE_MCP = os.getenv("ENABLE_MCP", "false").lower() == "true"
-    MCP_CONFIG_PATH = os.getenv(
-        BASE_DIR / "MCP_CONFIG_PATH", BASE_DIR / "mcp_servers.json"
-    )
+    MCP_CONFIG_PATH = os.getenv("MCP_CONFIG_PATH", BASE_DIR / "mcp_servers.json")
 
 
 # 确保目录存在
