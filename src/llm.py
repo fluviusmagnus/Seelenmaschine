@@ -1,6 +1,6 @@
 from openai import OpenAI
 from config import Config
-from typing import List, Dict
+from typing import List, Dict, Optional
 import logging
 import json
 import asyncio
@@ -12,22 +12,32 @@ class LLMClient:
         self.client = OpenAI(
             api_key=Config.OPENAI_API_KEY, base_url=Config.OPENAI_API_BASE
         )
-        self.mcp_client = None
+        self.mcp_client: Optional[MCPClient] = None
         self._tools_cache = None
-        self._mcp_initialized = False
+        self._event_loop = None
 
     def _get_event_loop(self):
-        """获取或创建事件循环"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
+        """获取或创建事件循环（复用同一个事件循环）"""
+        if self._event_loop is None or self._event_loop.is_closed():
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                self._event_loop = loop
+            except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-            return loop
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
+                self._event_loop = loop
+        return self._event_loop
+
+    async def _ensure_mcp_connected(self):
+        """确保 MCP 客户端已连接（延迟初始化 + 连接复用）"""
+        if self.mcp_client is None:
+            logging.info("初始化 MCP 客户端连接...")
+            self.mcp_client = MCPClient(Config.MCP_CONFIG_PATH)
+            await self.mcp_client.__aenter__()
+            logging.info("MCP 客户端连接已建立")
 
     def _get_tools(self) -> List[Dict]:
         """获取所有可用工具（MCP + 本地）"""
@@ -40,8 +50,9 @@ class LLMClient:
         # 尝试从 MCP 获取工具
         if Config.ENABLE_MCP:
             try:
-                # 使用隔离的方式获取工具列表，避免连接状态问题
-                mcp_tools = asyncio.run(self._fetch_mcp_tools_isolated())
+                # 使用复用的连接获取工具列表
+                loop = self._get_event_loop()
+                mcp_tools = loop.run_until_complete(self._fetch_mcp_tools())
                 all_tools.extend(mcp_tools)
                 logging.info(f"从MCP获取到 {len(mcp_tools)} 个工具")
             except Exception as e:
@@ -58,11 +69,10 @@ class LLMClient:
         logging.info(f"工具列表已缓存，共 {len(all_tools)} 个工具")
         return all_tools
 
-    async def _fetch_mcp_tools_isolated(self) -> List[Dict]:
-        """使用隔离连接获取 MCP 工具列表"""
-        mcp = MCPClient(Config.MCP_CONFIG_PATH)
-        async with mcp:
-            return await mcp.list_tools()
+    async def _fetch_mcp_tools(self) -> List[Dict]:
+        """使用复用的连接获取 MCP 工具列表"""
+        await self._ensure_mcp_connected()
+        return await self.mcp_client.list_tools()
 
     def _call_tool(self, tool_name: str, arguments: Dict) -> str:
         """调用工具（MCP 或本地）"""
@@ -72,8 +82,11 @@ class LLMClient:
         if Config.ENABLE_MCP:
             try:
                 logging.debug(f"尝试使用MCP调用工具: {tool_name}")
-                # 使用 asyncio.run() 完全隔离每次调用
-                result = asyncio.run(self._call_mcp_tool_isolated(tool_name, arguments))
+                # 使用复用的连接调用工具
+                loop = self._get_event_loop()
+                result = loop.run_until_complete(
+                    self._call_mcp_tool(tool_name, arguments)
+                )
                 logging.debug(f"MCP工具调用成功: {tool_name}")
                 return result
             except Exception as e:
@@ -91,17 +104,17 @@ class LLMClient:
         logging.error(error_msg)
         return error_msg
 
-    async def _call_mcp_tool_isolated(self, tool_name: str, arguments: Dict) -> str:
-        """完全隔离的异步MCP工具调用 - 每次调用都建立新连接"""
-        logging.debug(f"_call_mcp_tool_isolated 开始: {tool_name}")
+    async def _call_mcp_tool(self, tool_name: str, arguments: Dict) -> str:
+        """使用复用的连接调用 MCP 工具"""
+        logging.debug(f"_call_mcp_tool 开始: {tool_name}")
 
-        # 每次调用都创建新的MCP客户端
-        mcp = MCPClient(Config.MCP_CONFIG_PATH)
-        async with mcp:
-            logging.debug(f"MCP客户端连接成功，开始调用工具: {tool_name}")
-            result = await mcp.call_tool(tool_name, arguments)
-            logging.debug(f"MCP工具调用完成: {tool_name}, 结果长度: {len(str(result))}")
-            return result
+        # 确保连接已建立
+        await self._ensure_mcp_connected()
+
+        logging.debug(f"使用复用的MCP客户端调用工具: {tool_name}")
+        result = await self.mcp_client.call_tool(tool_name, arguments)
+        logging.debug(f"MCP工具调用完成: {tool_name}, 结果长度: {len(str(result))}")
+        return result
 
     def generate_response(
         self,
@@ -196,12 +209,20 @@ class LLMClient:
         except Exception as e:
             raise Exception(f"嵌入生成失败: {str(e)}")
 
-    def __del__(self):
-        """清理 MCP 客户端连接"""
-        if self._mcp_initialized and self.mcp_client:
+    def cleanup(self):
+        """清理 MCP 客户端连接（显式调用）"""
+        if self.mcp_client:
             try:
                 loop = self._get_event_loop()
                 loop.run_until_complete(self.mcp_client.__aexit__(None, None, None))
+                self.mcp_client = None
                 logging.info("MCP 客户端连接已关闭")
             except Exception as e:
                 logging.error(f"关闭 MCP 客户端连接失败: {e}")
+
+    def __del__(self):
+        """析构函数 - 尝试清理资源"""
+        try:
+            self.cleanup()
+        except Exception:
+            pass  # 忽略析构时的错误
