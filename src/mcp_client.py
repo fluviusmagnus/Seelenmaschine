@@ -27,8 +27,8 @@ class MCPClient:
         # 确保数据目录存在
         data_dir.mkdir(parents=True, exist_ok=True)
 
-        # 返回数据目录的绝对路径字符串
-        return [str(data_dir.absolute())]
+        # 返回数据目录的 file:// URI
+        return [data_dir.as_uri()]
 
     def _load_config(self) -> Dict:
         """加载MCP服务器配置"""
