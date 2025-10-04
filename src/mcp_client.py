@@ -4,15 +4,34 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from fastmcp import Client
 import asyncio
+from .config import Config
 
 
 class MCPClient:
     """使用 fastmcp.Client 的 MCP 客户端封装"""
 
-    def __init__(self, config_path: str = "mcp_servers.json"):
+    def __init__(
+        self,
+        config_path: str = "mcp_servers.json",
+        roots: Optional[List[Dict[str, str]]] = None,
+    ):
         self.config_path = Path(config_path)
         self.client: Optional[Client] = None
         self._config = self._load_config()
+        # 设置 roots 配置
+        self.roots = roots or self._get_default_roots()
+
+    def _get_default_roots(self) -> List[Dict[str, str]]:
+        """获取默认的 roots 配置 - 使用数据目录"""
+        data_dir = Config.DATA_DIR
+        # 确保数据目录存在
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # 转换为 file:// URI 格式
+        # Windows 路径需要特殊处理
+        data_uri = data_dir.as_uri()
+
+        return [{"uri": data_uri, "name": "数据目录"}]
 
     def _load_config(self) -> Dict:
         """加载MCP服务器配置"""
@@ -40,11 +59,27 @@ class MCPClient:
         # 预处理配置：将 bearerToken 转换为 headers
         processed_config = self._process_config(self._config)
 
+        # 创建客户端配置，包含 roots 支持
+        client_config = {
+            **processed_config,
+            "capabilities": {"roots": {"listChanged": False}},  # 暂不支持动态变化
+        }
+
         # 使用 fastmcp.Client 连接到所有配置的服务器
-        self.client = Client(processed_config)
+        self.client = Client(client_config)
+
+        # 如果 client 支持设置 roots handler，设置它
+        if hasattr(self.client, "set_roots_handler"):
+            self.client.set_roots_handler(self._handle_roots_request)
+
         await self.client.__aenter__()
-        logging.info("MCP客户端已连接")
+        logging.info(f"MCP客户端已连接，roots: {[r['name'] for r in self.roots]}")
         return self
+
+    async def _handle_roots_request(self) -> Dict:
+        """处理服务器的 roots/list 请求"""
+        logging.debug(f"服务器请求 roots 列表，返回 {len(self.roots)} 个 roots")
+        return {"roots": self.roots}
 
     def _process_config(self, config: Dict) -> Dict:
         """处理配置，将 bearerToken 转换为 Authorization header"""
@@ -168,6 +203,16 @@ class MCPClient:
             return error_msg
 
 
-def create_mcp_client(config_path: str = "mcp_servers.json") -> MCPClient:
-    """创建 MCP 客户端实例的工厂函数"""
-    return MCPClient(config_path)
+def create_mcp_client(
+    config_path: str = "mcp_servers.json", roots: Optional[List[Dict[str, str]]] = None
+) -> MCPClient:
+    """创建 MCP 客户端实例的工厂函数
+
+    Args:
+        config_path: MCP服务器配置文件路径
+        roots: 可选的 roots 列表，如果不提供则使用数据目录
+
+    Returns:
+        MCPClient 实例
+    """
+    return MCPClient(config_path, roots)
