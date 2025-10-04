@@ -59,6 +59,10 @@ class Config:
     ENABLE_WEB_SEARCH = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
     JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 
+    # MCP 配置
+    ENABLE_MCP = os.getenv("ENABLE_MCP", "false").lower() == "true"
+    MCP_CONFIG_PATH = os.getenv("MCP_CONFIG_PATH", BASE_DIR / "mcp_servers.json")
+
 
 # 确保目录存在
 os.makedirs(Config.DATA_DIR, exist_ok=True)

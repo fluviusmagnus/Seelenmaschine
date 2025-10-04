@@ -35,3 +35,4 @@ ENV/
 data/
 .env
 *.log
+mcp_servers.json
