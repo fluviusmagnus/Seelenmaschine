@@ -20,6 +20,11 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It can eng
 - 🛠️ Complete session management functionality
 - 🖥 Provides a user-friendly WebUI
 - 🛜 Automatically execute websearch if needed
+- 🔌 **MCP (Model Context Protocol) Support**
+  - Dynamically connect to external tools and data sources
+  - Supports multiple transport methods (stdio, HTTP, SSE)
+  - Tools are decoupled from the main application for easy extension
+  - See [MCP Usage Guide](MCP_USAGE.md) for details
 
 ## Technical Architecture
 - Language models: Any model compatible with OpenAI API
@@ -129,15 +134,44 @@ Parameter description:
 
 ## Project Structure
 ```
-src/
-├── main.py          # Main program entry, controls flow
-├── chatbot.py       # Chat logic implementation
-├── llm.py           # Large language model interface
-├── memory.py        # Memory system implementation
-├── config.py        # Configuration management
-├── prompts.py       # Prompt templates
-└── utils.py         # Utility functions
-data/                # Data storage directory
+Seelenmaschine/
+├── src/                          # Source code directory
+│   ├── main.py                  # Main program entry
+│   ├── chatbot.py               # Core chat logic
+│   ├── llm.py                   # LLM interface
+│   ├── memory.py                # Memory management
+│   ├── config.py                # Configuration management
+│   ├── prompts.py               # Prompt templates
+│   ├── tools.py                 # Tool implementations
+│   ├── mcp_client.py            # MCP client
+│   ├── flask_webui.py           # Flask Web interface
+│   ├── utils.py                 # Utility functions
+│   ├── templates/               # HTML templates
+│   │   ├── base.html
+│   │   └── index.html
+│   └── static/                  # Static resources
+│       ├── css/
+│       │   └── main.css
+│       └── js/
+│           └── main.js
+├── data/                         # Data storage directory
+│   ├── persona_memory.txt       # Self-awareness
+│   ├── user_profile.txt         # User profile
+│   ├── chat_sessions.db         # SQLite database
+│   └── lancedb/                 # LanceDB vector database
+├── database_maintenance.py       # Database maintenance script
+├── maintenance.sh / .bat         # Maintenance script shortcuts
+├── start.sh / .bat              # CLI startup scripts
+├── start-flask-webui.sh / .bat  # Web interface startup scripts
+├── requirements.txt              # Python dependencies
+├── mcp_servers.json             # MCP server configuration
+├── .env                         # Environment configuration
+├── .env.example                 # Configuration example
+├── README.md                    # Project documentation (Chinese)
+├── README_EN.md                 # Project documentation (English)
+├── MCP_USAGE.md                 # MCP usage guide
+├── DATABASE_MAINTENANCE_README.md  # Database maintenance guide
+└── LICENSE                      # License
 ```
 
 ## Memory System Description

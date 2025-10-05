@@ -25,6 +25,11 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
 - 🛠️ 完整的会话管理功能
 - 🖥 提供用户友好的WebUI (Flask界面)
 - 🛜 自动判断并调用实时网络搜索功能
+- 🔌 **MCP (Model Context Protocol) 支持**
+  - 动态连接外部工具和数据源
+  - 支持多种传输方式（stdio、HTTP、SSE）
+  - 工具与主应用解耦，易于扩展
+  - 详见 [MCP使用指南](MCP_USAGE.md)
 
 ## 技术架构
 
@@ -169,16 +174,44 @@ python src/main.py --flask [--host HOST] [--port PORT]
 ## 项目结构
 
 ```
-src/
-├── main.py          # 主程序入口,控制流程
-├── chatbot.py       # 聊天逻辑实现
-├── llm.py           # 大语言模型接口
-├── memory.py        # 记忆系统实现
-├── config.py        # 配置管理
-├── prompts.py       # 提示词模板
-└── utils.py         # 工具函数
-
-data/               # 数据存储目录
+Seelenmaschine/
+├── src/                          # 源代码目录
+│   ├── main.py                  # 程序入口
+│   ├── chatbot.py               # 聊天核心逻辑
+│   ├── llm.py                   # LLM接口
+│   ├── memory.py                # 记忆管理
+│   ├── config.py                # 配置管理
+│   ├── prompts.py               # 提示词模板
+│   ├── tools.py                 # 工具实现
+│   ├── mcp_client.py            # MCP客户端
+│   ├── flask_webui.py           # Flask Web界面
+│   ├── utils.py                 # 工具函数
+│   ├── templates/               # HTML模板
+│   │   ├── base.html
+│   │   └── index.html
+│   └── static/                  # 静态资源
+│       ├── css/
+│       │   └── main.css
+│       └── js/
+│           └── main.js
+├── data/                         # 数据存储目录
+│   ├── persona_memory.txt       # 自我认知
+│   ├── user_profile.txt         # 用户形象
+│   ├── chat_sessions.db         # SQLite数据库
+│   └── lancedb/                 # LanceDB向量数据库
+├── database_maintenance.py       # 数据库维护脚本
+├── maintenance.sh / .bat         # 维护脚本快捷方式
+├── start.sh / .bat              # CLI启动脚本
+├── start-flask-webui.sh / .bat  # Web界面启动脚本
+├── requirements.txt              # Python依赖
+├── mcp_servers.json             # MCP服务器配置
+├── .env                         # 环境配置
+├── .env.example                 # 配置示例
+├── README.md                    # 项目说明（中文）
+├── README_EN.md                 # 项目说明（英文）
+├── MCP_USAGE.md                 # MCP使用指南
+├── DATABASE_MAINTENANCE_README.md  # 数据库维护说明
+└── LICENSE                      # 许可证
 ```
 
 ## 记忆系统说明
