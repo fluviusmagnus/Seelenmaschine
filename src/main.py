@@ -28,6 +28,8 @@ def init_logging():
         "asyncio",
         "urllib3.connectionpool",
         "PIL.PngImagePlugin",
+        "mcp.server.lowlevel.server",
+        "mcp.client.streamable_http",
     ]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
