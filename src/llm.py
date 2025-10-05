@@ -54,7 +54,6 @@ class LLMClient:
                 loop = self._get_event_loop()
                 mcp_tools = loop.run_until_complete(self._fetch_mcp_tools())
                 all_tools.extend(mcp_tools)
-                logging.info(f"从MCP获取到 {len(mcp_tools)} 个工具")
             except Exception as e:
                 logging.error(f"从MCP获取工具失败: {e}", exc_info=True)
 
@@ -63,10 +62,9 @@ class LLMClient:
             import tools
 
             all_tools = tools.tools_list
-            logging.info(f"使用本地工具: {len(all_tools)} 个")
 
         self._tools_cache = all_tools
-        logging.info(f"工具列表已缓存，共 {len(all_tools)} 个工具")
+
         return all_tools
 
     async def _fetch_mcp_tools(self) -> List[Dict]:
@@ -76,7 +74,6 @@ class LLMClient:
 
     def _call_tool(self, tool_name: str, arguments: Dict) -> str:
         """调用工具（MCP 或本地）"""
-        logging.debug(f"开始调用工具: {tool_name}")
 
         # 先尝试 MCP
         if Config.ENABLE_MCP:
@@ -87,7 +84,6 @@ class LLMClient:
                 result = loop.run_until_complete(
                     self._call_mcp_tool(tool_name, arguments)
                 )
-                logging.debug(f"MCP工具调用成功: {tool_name}")
                 return result
             except Exception as e:
                 logging.error(f"MCP工具调用失败: {e}", exc_info=True)
@@ -106,14 +102,10 @@ class LLMClient:
 
     async def _call_mcp_tool(self, tool_name: str, arguments: Dict) -> str:
         """使用复用的连接调用 MCP 工具"""
-        logging.debug(f"_call_mcp_tool 开始: {tool_name}")
 
         # 确保连接已建立
         await self._ensure_mcp_connected()
-
-        logging.debug(f"使用复用的MCP客户端调用工具: {tool_name}")
         result = await self.mcp_client.call_tool(tool_name, arguments)
-        logging.debug(f"MCP工具调用完成: {tool_name}, 结果长度: {len(str(result))}")
         return result
 
     def generate_response(
@@ -129,8 +121,6 @@ class LLMClient:
             # 获取所有可用工具
             available_tools = self._get_tools() if use_tools else []
             logging.debug(f"available_tools 数量: {len(available_tools)}")
-            if available_tools:
-                logging.debug(f"工具列表前2个: {available_tools[:2]}")
 
             if available_tools:
                 while True:
@@ -144,7 +134,6 @@ class LLMClient:
                         tool_choice="auto",
                         reasoning_effort=reasoning_effort,
                     )
-                    logging.debug(f"OpenAI API 返回成功")
 
                     message = response.choices[0].message
 
@@ -216,7 +205,6 @@ class LLMClient:
                 loop = self._get_event_loop()
                 loop.run_until_complete(self.mcp_client.__aexit__(None, None, None))
                 self.mcp_client = None
-                logging.info("MCP 客户端连接已关闭")
             except Exception as e:
                 logging.error(f"关闭 MCP 客户端连接失败: {e}")
 

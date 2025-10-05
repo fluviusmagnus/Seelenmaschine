@@ -39,9 +39,6 @@ class MCPClient:
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                logging.info(
-                    f"已加载 {len(config.get('mcpServers', {}))} 个MCP服务器配置"
-                )
                 return config
         except Exception as e:
             logging.error(f"加载MCP配置失败: {e}")
@@ -60,7 +57,6 @@ class MCPClient:
         self.client = Client(processed_config, roots=self.roots)
 
         await self.client.__aenter__()
-        logging.info(f"MCP客户端已连接，roots: {self.roots}")
         return self
 
     def _process_config(self, config: Dict) -> Dict:
@@ -86,7 +82,6 @@ class MCPClient:
         """异步上下文管理器退出"""
         if self.client:
             await self.client.__aexit__(exc_type, exc_val, exc_tb)
-            logging.info("MCP客户端已断开")
 
     async def list_tools(self) -> List[Dict]:
         """列出所有可用的工具，转换为 OpenAI function calling 格式"""
@@ -140,8 +135,6 @@ class MCPClient:
                     },
                 }
                 formatted_tools.append(formatted_tool)
-
-            logging.info(f"获取到 {len(formatted_tools)} 个MCP工具")
             return formatted_tools
         except Exception as e:
             logging.error(f"列出工具失败: {e}", exc_info=True)
@@ -149,7 +142,6 @@ class MCPClient:
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """调用工具并返回结果文本"""
-        logging.debug(f"MCPClient.call_tool 开始: {tool_name}, 参数: {arguments}")
 
         if not self.client:
             error_msg = "错误: MCP客户端未连接"
@@ -157,10 +149,8 @@ class MCPClient:
             return error_msg
 
         try:
-            logging.debug(f"准备调用 fastmcp client.call_tool: {tool_name}")
             # 使用 fastmcp.Client 调用工具
             result = await self.client.call_tool(tool_name, arguments)
-            logging.debug(f"fastmcp client.call_tool 返回成功: {tool_name}")
 
             # 提取文本内容
             if result.content and len(result.content) > 0:
@@ -168,11 +158,9 @@ class MCPClient:
                 first_content = result.content[0]
                 if hasattr(first_content, "text"):
                     result_text = first_content.text
-                    logging.debug(f"工具调用成功，返回文本长度: {len(result_text)}")
                     return result_text
                 else:
                     result_text = str(first_content)
-                    logging.debug(f"工具调用成功，返回字符串长度: {len(result_text)}")
                     return result_text
 
             logging.warning(f"工具调用成功但无返回内容: {tool_name}")
