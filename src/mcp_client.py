@@ -23,7 +23,7 @@ class MCPClient:
 
     def _get_default_roots(self) -> List[str]:
         """获取默认的 roots 配置 - 使用数据目录"""
-        data_dir = Config.DATA_DIR / "filesystem"
+        data_dir = Config.MCP_FILESYS
         # 确保数据目录存在
         data_dir.mkdir(parents=True, exist_ok=True)
 

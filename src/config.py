@@ -11,6 +11,7 @@ class Config:
     BASE_DIR = Path(__file__).parent.parent
     DATA_DIR = BASE_DIR / "data"
     LOGS_DIR = BASE_DIR
+    MCP_FILESYS = DATA_DIR / "filesystem"
 
     # 数据库配置
     SQLITE_DB_PATH = DATA_DIR / "chat_sessions.db"
