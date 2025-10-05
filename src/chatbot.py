@@ -21,6 +21,24 @@ class ChatBot:
         self.persona_memory = self.memory.get_persona_memory()
         self.user_profile = self.memory.get_user_profile()
 
+        # 运行时工具调用开关（临时设置）
+        # 注意：这与Config中的ENABLE_WEB_SEARCH/ENABLE_MCP不同
+        # Config中的是配置级开关，控制工具是否默认被使用
+        # 这里的是运行时的临时开关，控制已加载的工具在当前对话中是否实际被调用
+        self.allow_tool_calls = Config.ENABLE_WEB_SEARCH or Config.ENABLE_MCP
+
+    def toggle_tool_calls(self):
+        """切换工具调用权限（临时设置）"""
+        self.allow_tool_calls = not self.allow_tool_calls
+        logging.debug(
+            f"工具调用权限切换为: {'允许' if self.allow_tool_calls else '禁止'}"
+        )
+        return self.allow_tool_calls
+
+    def get_tool_calls_status(self):
+        """获取工具调用权限状态"""
+        return self.allow_tool_calls
+
     def reset_session(self):
         """重置当前会话"""
         self.memory.reset_session(self.session_id)
@@ -236,9 +254,15 @@ class ChatBot:
             user_input=user_input,
         )
 
+        # 只有当配置启用了工具 AND 运行时允许工具调用时，才实际使用工具
+        use_tools = (
+            Config.ENABLE_WEB_SEARCH or Config.ENABLE_MCP
+        ) and self.allow_tool_calls
+
         response = self.llm.generate_response(
             Config.CHAT_MODEL,
             messages,
+            use_tools=use_tools,
             reasoning_effort=Config.CHAT_REASONING_EFFORT,
         )
 

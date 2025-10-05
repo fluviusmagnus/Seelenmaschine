@@ -30,6 +30,7 @@ def init_logging():
         "PIL.PngImagePlugin",
         "mcp.server.lowlevel.server",
         "mcp.client.streamable_http",
+        "werkzeug",
     ]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
@@ -55,6 +56,10 @@ def main():
         logging.debug(f"初始化应用并载入会话ID: {session_info['session_id']}")
         print(f"\n当前会话ID: {session_info['session_id']}")
         print(f"开始时间: {datetime_str(session_info['start_time'])}")
+
+        # 显示工具调用状态
+        tools_status = bot.get_tool_calls_status()
+        print(f"工具调用权限: {'允许 ✓' if tools_status else '禁止 ✗'} (临时设置)")
 
         # 显示历史对话
         existing_conv = bot.get_conversation_history()
@@ -116,7 +121,12 @@ def handle_command(command: str, bot: ChatBot) -> bool:
         print("/save, /s          - 归档当前会话,开始新会话")
         print("/saveandexit, /sq  - 归档当前会话,退出程序")
         print("/exit, /quit, /q   - 暂存当前状态并退出程序")
+        print("/tools, /t         - 切换工具调用权限(临时设置)")
         print("/help, /h          - 显示此帮助信息")
+        return True
+    elif command in {"/tools", "/t"}:
+        status = bot.toggle_tool_calls()
+        print(f"\n工具调用权限: {'允许 ✓' if status else '禁止 ✗'} (临时设置)")
         return True
     elif command in {"/reset", "/r"}:
         session_info = bot.reset_session()

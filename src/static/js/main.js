@@ -21,6 +21,7 @@ const elements = {
     clearInputBtn: null,
     darkModeToggle: null,
     autoScrollToggle: null,
+    toolsToggle: null,
     charCount: null,
     confirmModal: null,
     confirmModalBody: null,
@@ -70,6 +71,7 @@ function initializeElements() {
     elements.clearInputBtn = document.getElementById('clear-input-btn');
     elements.darkModeToggle = document.getElementById('dark-mode-toggle');
     elements.autoScrollToggle = document.getElementById('auto-scroll-toggle');
+    elements.toolsToggle = document.getElementById('tools-toggle');
     elements.charCount = document.getElementById('char-count');
     elements.confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
     elements.confirmModalBody = document.getElementById('confirmModalBody');
@@ -147,6 +149,15 @@ function initializeSocket() {
         showSuccessToast('会话已归档，新会话已创建');
     });
 
+    // 工具调用状态切换
+    socket.on('tools_toggled', function (data) {
+        console.log('工具调用状态已切换:', data);
+        if (elements.toolsToggle) {
+            elements.toolsToggle.checked = data.tools_enabled;
+        }
+        showSuccessToast(data.message);
+    });
+
     // 错误处理
     socket.on('error', function (data) {
         console.error('服务器错误:', data);
@@ -206,6 +217,13 @@ function bindEventListeners() {
         elements.autoScrollToggle.addEventListener('change', function () {
             autoScroll = this.checked;
             localStorage.setItem('autoScroll', autoScroll);
+        });
+    }
+
+    // 工具调用开关
+    if (elements.toolsToggle) {
+        elements.toolsToggle.addEventListener('change', function () {
+            toggleTools();
         });
     }
 
@@ -272,6 +290,9 @@ function initializeSettings() {
         }
     }
 
+    // 获取工具调用状态
+    fetchToolsStatus();
+
     // 更新字符计数
     updateCharCount();
 }
@@ -323,6 +344,31 @@ function saveSession() {
     console.log('归档会话');
     socket.emit('save_session');
     setButtonState(elements.saveBtn, false);
+}
+
+// 切换工具调用权限
+function toggleTools() {
+    if (!isConnected) {
+        showErrorToast('未连接到服务器');
+        return;
+    }
+
+    console.log('切换工具调用权限');
+    socket.emit('toggle_tools');
+}
+
+// 获取工具调用状态
+function fetchToolsStatus() {
+    fetch('/api/tools_status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && elements.toolsToggle) {
+                elements.toolsToggle.checked = data.data.tools_enabled;
+            }
+        })
+        .catch(error => {
+            console.error('获取工具状态失败:', error);
+        });
 }
 
 // 添加消息到聊天界面

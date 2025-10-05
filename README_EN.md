@@ -130,7 +130,24 @@ Parameter description:
 - `/save`, `/s` - Archive the current session, start a new session
 - `/saveandexit`, `/sq` - Archive the current session, exit the program
 - `/exit`, `/quit`, `/q` - Save the current state and exit the program
+- `/tools`, `/t` - Toggle tool calling permission (temporary setting)
 - `/help`, `/h` - Display this help information
+
+### Tool Control
+
+The system provides a two-level tool control mechanism:
+
+**Configuration-level switches** (requires restart to take effect):
+- `ENABLE_WEB_SEARCH`: Controls whether to load web search tools
+- `ENABLE_MCP`: Controls whether to load MCP tools
+
+**Runtime switch** (takes effect immediately, temporary setting):
+- **CLI mode**: Use `/t` or `/tools` command to toggle tool calling permission
+- **Web mode**: Toggle the "Tool Calling" switch in the sidebar settings panel
+
+The runtime switch allows you to temporarily disable or enable tool calling during a conversation without modifying configuration files or restarting the application. This is useful for pure text conversations or testing different scenarios.
+
+**Note**: The runtime switch only works when configuration-level tools are enabled. If no tools are enabled in the configuration, the runtime switch will have no effect.
 
 ## Project Structure
 ```

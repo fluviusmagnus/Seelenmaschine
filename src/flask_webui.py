@@ -84,6 +84,18 @@ def get_session_info():
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/api/tools_status")
+def get_tools_status():
+    """获取工具调用状态API"""
+    try:
+        bot = get_bot()
+        tools_status = bot.get_tool_calls_status()
+        return jsonify({"success": True, "data": {"tools_enabled": tools_status}})
+    except Exception as e:
+        logging.error(f"获取工具状态错误: {str(e)}")
+        return jsonify({"success": False, "error": str(e)})
+
+
 @socketio.on("connect")
 def handle_connect():
     """客户端连接处理"""
@@ -241,6 +253,27 @@ def handle_save_session():
     except Exception as e:
         logging.error(f"归档会话处理错误: {str(e)}")
         emit("error", {"message": f"归档会话失败: {str(e)}"})
+
+
+@socketio.on("toggle_tools")
+def handle_toggle_tools():
+    """切换工具调用权限"""
+    try:
+        logging.debug("收到切换工具调用权限请求")
+        bot = get_bot()
+        new_status = bot.toggle_tool_calls()
+
+        emit(
+            "tools_toggled",
+            {
+                "tools_enabled": new_status,
+                "message": f"工具调用权限: {'允许' if new_status else '禁止'} (临时设置)",
+            },
+        )
+
+    except Exception as e:
+        logging.error(f"切换工具调用权限错误: {str(e)}")
+        emit("error", {"message": f"切换工具调用权限失败: {str(e)}"})
 
 
 def launch_flask_webui(host="127.0.0.1", port=7860, debug=False):
