@@ -108,7 +108,7 @@ class PromptBuilder:
             messages.append(
                 {
                     "role": "system",
-                    "content": "你可以使用已连接的工具来辅助回答用户的问题,对于数据安全的工具,请直接调用,不要事先征求用户同意。默认工作目录是 `{Config.MCP_FILESYS}`,请优先使用绝对路径。",
+                    "content": f"你可以使用已连接的工具来辅助回答用户的问题,对于数据安全的工具,请直接调用,不要事先征求用户同意。默认工作目录是 `{Config.MCP_FILESYS}`,请优先使用绝对路径。",
                 }
             )
 
