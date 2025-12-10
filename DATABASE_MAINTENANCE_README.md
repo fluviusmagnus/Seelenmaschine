@@ -26,10 +26,25 @@
 
 ### 基本语法
 ```bash
-python database_maintenance.py [选项]
+python database_maintenance.py <profile> [选项]
 ```
 
-### 命令行选项
+或使用便捷脚本（推荐）：
+```bash
+# Linux/macOS
+./maintenance.sh <profile> [选项]
+
+# Windows
+maintenance.bat <profile> [选项]
+```
+
+### 必需参数
+
+| 参数        | 描述                                     |
+| ----------- | ---------------------------------------- |
+| `<profile>` | 指定使用的配置文件（如 dev, production） |
+
+### 可选参数
 
 | 选项              | 描述                             |
 | ----------------- | -------------------------------- |
@@ -40,31 +55,73 @@ python database_maintenance.py [选项]
 | `--verbose`, `-v` | 详细输出模式                     |
 | `--help`, `-h`    | 显示帮助信息                     |
 
+**注意：** Shell 包装脚本已改进，现在支持组合多个选项，与 Python 脚本完全一致。
+
 ### 使用示例
 
-#### 1. 完整维护（推荐）
+#### 1. 使用便捷脚本（推荐）
+
+**基本用法：**
 ```bash
-python database_maintenance.py --all
+# Linux/macOS - 完整维护
+./maintenance.sh dev
+
+# Windows - 完整维护
+maintenance.bat dev
+
+# 显式指定维护所有数据库
+./maintenance.sh dev --all
+maintenance.bat dev --all
 ```
 
-#### 2. 只维护 SQLite 数据库
+**组合选项（新功能）：**
 ```bash
-python database_maintenance.py --sqlite
+# 干运行模式 + 只维护 SQLite
+./maintenance.sh dev --sqlite --dry-run
+maintenance.bat dev --sqlite --dry-run
+
+# 干运行模式 + 只维护 LanceDB
+./maintenance.sh production --lancedb --dry-run
+maintenance.bat production --lancedb --dry-run
+
+# 完整维护 + 干运行 + 详细输出
+./maintenance.sh dev --all --dry-run --verbose
+maintenance.bat dev --all --dry-run --verbose
+
+# 只维护 SQLite + 详细输出
+./maintenance.sh production --sqlite --verbose
+maintenance.bat production --sqlite --verbose
 ```
 
-#### 3. 只维护 LanceDB 数据库
+**查看帮助：**
 ```bash
-python database_maintenance.py --lancedb
+./maintenance.sh help
+maintenance.bat help
 ```
 
-#### 4. 干运行模式（预览操作）
-```bash
-python database_maintenance.py --all --dry-run
-```
+#### 2. 直接运行 Python 脚本
 
-#### 5. 详细输出模式
 ```bash
-python database_maintenance.py --all --verbose
+# 完整维护（默认）
+python database_maintenance.py dev
+python database_maintenance.py dev --all
+
+# 只维护 SQLite 数据库
+python database_maintenance.py production --sqlite
+
+# 只维护 LanceDB 数据库
+python database_maintenance.py dev --lancedb
+
+# 干运行模式（预览操作）
+python database_maintenance.py dev --all --dry-run
+python database_maintenance.py dev --sqlite --dry-run
+
+# 详细输出模式
+python database_maintenance.py production --all --verbose
+
+# 组合多个选项
+python database_maintenance.py dev --sqlite --dry-run --verbose
+python database_maintenance.py production --lancedb --dry-run --verbose
 ```
 
 ## 维护操作详情
@@ -140,9 +197,36 @@ python database_maintenance.py --all --verbose
 
 ### 预防措施
 1. **首次使用**：先运行 `--dry-run` 模式查看将要执行的操作
+   ```bash
+   # 预览完整维护操作
+   ./maintenance.sh dev --all --dry-run
+   
+   # 预览只维护 SQLite 的操作
+   ./maintenance.sh dev --sqlite --dry-run
+   ```
+
 2. **重要数据**：手动备份重要数据文件
+
 3. **磁盘空间**：确保有足够的磁盘空间进行备份和操作
+
 4. **权限检查**：确保脚本有读写数据库文件的权限
+
+### 参数组合建议
+
+推荐的参数组合方式：
+
+```bash
+# 生产环境：先预览，再执行
+./maintenance.sh production --all --dry-run --verbose    # 步骤1：预览
+./maintenance.sh production --all --verbose              # 步骤2：执行
+
+# 开发环境：快速维护
+./maintenance.sh dev --all
+
+# 针对性维护：只优化特定数据库
+./maintenance.sh dev --sqlite --dry-run     # 预览 SQLite 维护
+./maintenance.sh dev --sqlite               # 执行 SQLite 维护
+```
 
 ## 故障排除
 

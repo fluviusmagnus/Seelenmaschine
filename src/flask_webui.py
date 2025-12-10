@@ -287,13 +287,25 @@ def launch_flask_webui(host="127.0.0.1", port=7860, debug=False):
 
 
 if __name__ == "__main__":
-    # 初始化日志
     import sys
+    import argparse
 
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from main import init_logging
+    from config import init_config
 
+    # 解析参数
+    parser = argparse.ArgumentParser(description="Seelenmaschine Flask Web UI")
+    parser.add_argument("profile", help="使用指定的`<profile>.env`配置文件")
+    parser.add_argument("--host", default="127.0.0.1", help="主机地址")
+    parser.add_argument("--port", type=int, default=7860, help="端口")
+    args = parser.parse_args()
+
+    # 初始化配置
+    init_config(args.profile)
+
+    # 初始化日志
     init_logging()
 
     # 启动应用
-    launch_flask_webui(debug=Config.DEBUG_MODE)
+    launch_flask_webui(host=args.host, port=args.port, debug=Config.DEBUG_MODE)

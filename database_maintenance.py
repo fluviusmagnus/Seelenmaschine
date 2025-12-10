@@ -18,7 +18,7 @@ import lancedb
 # 添加src目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
-from config import Config
+from config import Config, init_config
 
 
 class DatabaseMaintenance:
@@ -430,6 +430,7 @@ class DatabaseMaintenance:
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="Seelenmaschine数据库维护工具")
+    parser.add_argument("profile", help="使用指定的`<profile>.env`配置文件")
     parser.add_argument("--sqlite", action="store_true", help="只维护SQLite数据库")
     parser.add_argument("--lancedb", action="store_true", help="只维护LanceDB数据库")
     parser.add_argument("--all", action="store_true", help="维护所有数据库")
@@ -439,6 +440,9 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="详细输出")
 
     args = parser.parse_args()
+
+    # 初始化配置
+    init_config(args.profile)
 
     # 设置日志级别
     if args.verbose:

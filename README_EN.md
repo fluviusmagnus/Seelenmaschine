@@ -40,23 +40,30 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It can eng
    ```bash
    git clone https://github.com/fluviusmagnus/Seelenmaschine.git
    ```
-3. Configure the `.env` file as described below
-3. Run
-   - Windows: `start.bat` or `start-flask-webui.bat`
+3. Configure the `<profile>.env` file as described below (e.g., `dev.env` or `production.env`)
+4. Run
+   - Windows: `start.bat <profile>` or `start-flask-webui.bat <profile>`
+     ```cmd
+     start.bat dev
+     ```
+     or
+     ```cmd
+     start-flask-webui.bat dev
+     ```
    - Linux:
      1. Grant permissions
        ```bash
        chmod +x start.sh start-flask-webui.sh
        ```
-     2. Execute `start.sh` or `start-flask-webui.sh`
+     2. Execute `start.sh <profile>` or `start-flask-webui.sh <profile>`
        ```bash
-       ./start.sh
+       ./start.sh dev
        ```
        or
        ```bash
-       ./start-flask-webui.sh
+       ./start-flask-webui.sh dev
        ```
-4. (For WebUI) Access `http://localhost:7860` in your browser
+5. (For WebUI) Access `http://localhost:7860` in your browser
 
 ## Manual Installation Instructions
 1. Clone the project repository
@@ -67,8 +74,14 @@ pip install -r requirements.txt
 ```
 
 ## Configuration Instructions
-1. Copy the `.env.example` file and rename it to `.env`
-2. Configure the following parameters in the `.env` file:
+
+### Profile Configuration System
+
+Seelenmaschine supports multi-environment configuration. Using the profile parameter, you can use different configurations and data directories.
+
+1. Copy the `.env.example` file and rename it to `<profile>.env` (e.g., `dev.env`, `production.env`)
+2. Each profile will use an independent data directory: `data/<profile>/`
+3. Configure the following parameters in the `<profile>.env` file:
 ```ini
 # Debug settings
 DEBUG_MODE=false  # Debug mode toggle true/false
@@ -89,8 +102,8 @@ TOOL_REASONING_EFFORT=medium
 EMBEDDING_MODEL=your_embedding_model  # For example: text-embedding-3-small
 EMBEDDING_DIMENSION=1536
 # Memory system settings
-MAX_CONV_NUM=20  # Maximum conversation turns
-REFRESH_EVERY_CONV_NUM=10  # Number of conversation turns for each summary
+MAX_CONV_NUM=20  # Maximum conversation messages
+REFRESH_EVERY_CONV_NUM=10  # Number of conversation messages for each summary
 RECALL_SESSION_NUM=2  # Number of relevant sessions to retrieve
 RECALL_CONV_NUM=4  # Number of conversations to retrieve from relevant sessions
 # Tools settings
@@ -110,16 +123,56 @@ MCP_CONFIG_PATH=mcp_servers.json
 For more configuration suggestions and usage tips, please refer to the project [Wiki](https://github.com/fluviusmagnus/Seelenmaschine/wiki/%E4%BD%BF%E7%94%A8%E6%8A%80%E5%B7%A7).
 
 ## Usage Instructions
+
+### CLI Mode
+
 Enter CLI mode directly in the terminal:
 ```bash
-python src/main.py
+python src/main.py <profile>
 ```
-Or, launch the web application provided by WebUI:
+
+Examples:
 ```bash
-python src/main.py --flask [--host HOST] [--port PORT]
+python src/main.py dev
+python src/main.py production
 ```
+
+Or use the startup scripts:
+```bash
+# Linux/macOS
+./start.sh dev
+
+# Windows
+start.bat dev
+```
+
+### Web UI Mode
+
+Launch the Flask Web interface:
+```bash
+python src/main.py <profile> --flask [--host HOST] [--port PORT]
+```
+
+Examples:
+```bash
+python src/main.py dev --flask
+python src/main.py production --flask --host 0.0.0.0 --port 8080
+```
+
+Or use the convenient startup scripts:
+```bash
+# Linux/macOS
+./start-flask-webui.sh dev
+./start-flask-webui.sh dev --host 0.0.0.0 --port 8080
+
+# Windows
+start-flask-webui.bat dev
+start-flask-webui.bat dev --host 0.0.0.0 --port 8080
+```
+
 Parameter description:
 ```
+<profile>: Required parameter, specifies the configuration file to use (e.g., dev, production)
 --flask: Launch the Flask Web interface
 --host: Specify the host address (default: 127.0.0.1)
 --port: Specify the port number (default: 7860)

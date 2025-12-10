@@ -1,6 +1,6 @@
 import logging
 import argparse
-from config import Config
+from config import Config, init_config
 from utils import remove_blockquote_tags, datetime_str
 from chatbot import ChatBot
 from flask_webui import launch_flask_webui
@@ -44,6 +44,7 @@ def parse_args():
     parser.add_argument(
         "--port", type=int, default=7860, help="Web界面端口 (默认: 7860)"
     )
+    parser.add_argument("profile", help="使用指定的`<profile>.env`配置文件")
     return parser.parse_args()
 
 
@@ -154,9 +155,15 @@ def handle_command(command: str, bot: ChatBot) -> bool:
     return False
 
 
-init_logging()
 if __name__ == "__main__":
     args = parse_args()
+
+    # 先初始化配置
+    init_config(args.profile)
+
+    # 再初始化日志
+    init_logging()
+
     if args.flask:
         launch_flask_webui(args.host, args.port)
     else:

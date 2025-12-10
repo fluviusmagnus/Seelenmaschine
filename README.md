@@ -47,23 +47,30 @@ Seelenmaschine是一个具有记忆和人格的LLM聊天机器人项目。它能
    ```bash
    git clone https://github.com/fluviusmagnus/Seelenmaschine.git
    ```
-3. 按下文说明配置好`.env`文件
-3. 运行
-   - Windows: `start.bat` 或 `start-flask-webui.bat`
+3. 按下文说明配置好`<profile>.env`文件（例如 `dev.env` 或 `production.env`）
+4. 运行
+   - Windows: `start.bat <profile>` 或 `start-flask-webui.bat <profile>`
+     ```cmd
+     start.bat dev
+     ```
+     或者
+     ```cmd
+     start-flask-webui.bat dev
+     ```
    - Linux:
      1. 赋予权限
        ```bash
        chmod +x start.sh start-flask-webui.sh
        ```
-     2. 执行 `start.sh` 或 `start-flask-webui.sh`
+     2. 执行 `start.sh <profile>` 或 `start-flask-webui.sh <profile>`
        ```bash
-       ./start.sh
+       ./start.sh dev
        ```
        或者
        ```bash
-       ./start-flask-webui.sh
+       ./start-flask-webui.sh dev
        ```
-4. (WebUI的情况下)浏览器访问`http://localhost:7860`即可
+5. (WebUI的情况下)浏览器访问`http://localhost:7860`即可
 
 ## 手动安装说明
 
@@ -76,8 +83,13 @@ pip install -r requirements.txt
 
 ## 配置说明
 
-1. 复制`.env.example`文件并重命名为`.env`
-2. 在`.env`文件中配置以下参数:
+### Profile 配置系统
+
+Seelenmaschine 支持多环境配置，通过 profile 参数可以使用不同的配置和数据目录。
+
+1. 复制`.env.example`文件并重命名为`<profile>.env`（例如 `dev.env`, `production.env`）
+2. 每个 profile 将使用独立的数据目录：`data/<profile>/`
+3. 在 `<profile>.env` 文件中配置以下参数:
 
 ```ini
 # Debug设置
@@ -104,8 +116,8 @@ EMBEDDING_MODEL=your_embedding_model  # 例如:text-embedding-3-small
 EMBEDDING_DIMENSION=1536
 
 # 记忆系统设置
-MAX_CONV_NUM=20  # 最大对话轮数
-REFRESH_EVERY_CONV_NUM=10  # 每次总结的对话轮数
+MAX_CONV_NUM=20  # 最大对话条数
+REFRESH_EVERY_CONV_NUM=10  # 每次总结的对话条数
 RECALL_SESSION_NUM=2  # 检索相关会话数量
 RECALL_CONV_NUM=4  # 从相关会话检索的对话数量
 
@@ -129,24 +141,55 @@ MCP_CONFIG_PATH=mcp_servers.json
 
 ## 使用说明
 
+### CLI 模式
+
 直接在终端中进入CLI模式:
 ```bash
-python src/main.py
+python src/main.py <profile>
 ```
 
-或者,启动WebUI提供的网页应用:
-
-**Flask界面:**
+示例:
 ```bash
-python src/main.py --flask [--host HOST] [--port PORT]
+python src/main.py dev
+python src/main.py production
 ```
 
-或者使用便捷启动脚本:
-- Windows: `start-flask-webui.bat`
-- Linux/macOS: `start-flask-webui.sh`
+或使用启动脚本:
+```bash
+# Linux/macOS
+./start.sh dev
+
+# Windows
+start.bat dev
+```
+
+### Web UI 模式
+
+启动 Flask Web 界面:
+```bash
+python src/main.py <profile> --flask [--host HOST] [--port PORT]
+```
+
+示例:
+```bash
+python src/main.py dev --flask
+python src/main.py production --flask --host 0.0.0.0 --port 8080
+```
+
+或使用便捷启动脚本:
+```bash
+# Linux/macOS
+./start-flask-webui.sh dev
+./start-flask-webui.sh dev --host 0.0.0.0 --port 8080
+
+# Windows
+start-flask-webui.bat dev
+start-flask-webui.bat dev --host 0.0.0.0 --port 8080
+```
 
 参数说明:
 ```
+<profile>: 必需参数，指定使用的配置文件（例如: dev, production）
 --flask: 启动Flask Web界面
 --host: 指定主机地址（默认: 127.0.0.1）
 --port: 指定端口号（默认: 7860）
