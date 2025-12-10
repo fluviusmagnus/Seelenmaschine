@@ -33,6 +33,6 @@ ENV/
 
 # Project specific
 data/
-.env
+*.env
 *.log
 mcp_servers.json
