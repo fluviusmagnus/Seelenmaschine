@@ -1,10 +1,10 @@
 import logging
 import argparse
+import os
+
+# 先导入配置相关的模块
 from config import Config, init_config
 from utils import remove_blockquote_tags, datetime_str
-from chatbot import ChatBot
-from flask_webui import launch_flask_webui
-import os
 
 if os.name in ["posix"]:
     import readline
@@ -113,7 +113,7 @@ def main():
         print("初始化过程中发生错误,请检查日志文件")
 
 
-def handle_command(command: str, bot: ChatBot) -> bool:
+def handle_command(command: str, bot) -> bool:
     """处理用户命令"""
     logging.debug(f"处理用户命令: {command}")
     if command in {"/help", "/h"}:
@@ -163,6 +163,10 @@ if __name__ == "__main__":
 
     # 再初始化日志
     init_logging()
+
+    # 配置加载后再导入需要配置的模块
+    from chatbot import ChatBot
+    from flask_webui import launch_flask_webui
 
     if args.flask:
         launch_flask_webui(args.host, args.port)

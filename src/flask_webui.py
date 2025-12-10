@@ -291,7 +291,6 @@ if __name__ == "__main__":
     import argparse
 
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from main import init_logging
     from config import init_config
 
     # 解析参数
@@ -303,6 +302,9 @@ if __name__ == "__main__":
 
     # 初始化配置
     init_config(args.profile)
+
+    # 导入 init_logging (它依赖于 Config)
+    from main import init_logging
 
     # 初始化日志
     init_logging()

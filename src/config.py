@@ -61,6 +61,7 @@ def init_config(profile: str):
     """根据 profile 初始化配置"""
     # 1. 加载对应的 .env 文件
     env_file = Config.BASE_DIR / f"{profile}.env"
+
     if not env_file.exists():
         print(f"错误: 配置文件 {env_file} 不存在")
         exit(1)
