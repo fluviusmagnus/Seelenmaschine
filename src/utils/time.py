@@ -23,7 +23,9 @@ def timestamp_to_datetime(timestamp: int, tz: Optional[ZoneInfo] = None) -> date
     return datetime.fromtimestamp(timestamp, tz)
 
 
-def timestamp_to_str(timestamp: int, format_str: str = "%Y-%m-%d %H:%M:%S", tz: Optional[ZoneInfo] = None) -> str:
+def timestamp_to_str(
+    timestamp: int, format_str: str = "%Y-%m-%d %H:%M:%S", tz: Optional[ZoneInfo] = None
+) -> str:
     dt = timestamp_to_datetime(timestamp, tz)
     return dt.strftime(format_str)
 
@@ -35,7 +37,7 @@ def datetime_to_timestamp(dt: datetime) -> int:
 def format_relative_time(timestamp: int, tz: Optional[ZoneInfo] = None) -> str:
     now = get_current_timestamp()
     diff = now - timestamp
-    
+
     if diff < 60:
         return "just now"
     elif diff < 3600:
@@ -66,20 +68,23 @@ def validate_timestamp(timestamp: int) -> bool:
 
 def parse_time_expression(time_expr: str) -> Optional[int]:
     """Parse a time expression to Unix timestamp
-    
+
     Supports:
     - Unix timestamp: "1234567890"
     - ISO datetime: "2025-01-28T14:30:00"
-    - Relative time: "in 2 hours", "in 30m", "tomorrow"
-    
+    - Relative time: "in 2 hours", "in 30m", "3m", "180s", "tomorrow"
+    - Simple duration: "30s", "5m", "2h", "1d", "1w"
+
     Args:
         time_expr: Time expression string
-        
+
     Returns:
         Unix timestamp or None if invalid
     """
     time_expr = time_expr.strip()
-    
+    time_expr_lower = time_expr.lower()
+    current_time = get_current_timestamp()
+
     # Try parsing as unix timestamp
     try:
         timestamp = int(time_expr)
@@ -87,7 +92,7 @@ def parse_time_expression(time_expr: str) -> Optional[int]:
             return timestamp
     except ValueError:
         pass
-    
+
     # Try parsing as ISO datetime
     try:
         dt = datetime.fromisoformat(time_expr)
@@ -97,51 +102,70 @@ def parse_time_expression(time_expr: str) -> Optional[int]:
         return datetime_to_timestamp(dt)
     except ValueError:
         pass
-    
-    # Try parsing relative time expressions
-    time_expr_lower = time_expr.lower()
-    current_time = get_current_timestamp()
-    
-    # "in X hours/minutes/days"
-    match = re.match(r'in\s+(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days|w|week|weeks)', time_expr_lower)
+
+    # Try parsing simple duration format (e.g., "30s", "5m", "2h", "1d", "1w")
+    # This must come before the "in X" pattern to match first
+    match = re.match(r"^(\d+)\s*(s|m|h|d|w)$", time_expr_lower)
     if match:
         amount = int(match.group(1))
         unit = match.group(2)
-        
-        if unit in ['s', 'sec', 'second', 'seconds']:
+
+        if unit == "s":
             return current_time + amount
-        elif unit in ['m', 'min', 'minute', 'minutes']:
+        elif unit == "m":
             return current_time + amount * 60
-        elif unit in ['h', 'hour', 'hours']:
+        elif unit == "h":
             return current_time + amount * 3600
-        elif unit in ['d', 'day', 'days']:
+        elif unit == "d":
             return current_time + amount * 86400
-        elif unit in ['w', 'week', 'weeks']:
+        elif unit == "w":
             return current_time + amount * 604800
-    
+
+    # "in X hours/minutes/days" format
+    match = re.match(
+        r"^in\s+(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days|w|week|weeks)$",
+        time_expr_lower,
+    )
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+
+        if unit in ["s", "sec", "second", "seconds"]:
+            return current_time + amount
+        elif unit in ["m", "min", "minute", "minutes"]:
+            return current_time + amount * 60
+        elif unit in ["h", "hour", "hours"]:
+            return current_time + amount * 3600
+        elif unit in ["d", "day", "days"]:
+            return current_time + amount * 86400
+        elif unit in ["w", "week", "weeks"]:
+            return current_time + amount * 604800
+
     # Special keywords
-    if time_expr_lower == 'tomorrow':
+    if time_expr_lower == "tomorrow":
         return current_time + 86400
-    elif time_expr_lower == 'next week':
+    elif time_expr_lower == "next week":
         return current_time + 604800
-    
+
     return None
 
 
-def format_timestamp(timestamp: int, include_date: bool = True, include_time: bool = True) -> str:
+def format_timestamp(
+    timestamp: int, include_date: bool = True, include_time: bool = True
+) -> str:
     """Format timestamp to human-readable string
-    
+
     Args:
         timestamp: Unix timestamp
         include_date: Whether to include date
         include_time: Whether to include time
-        
+
     Returns:
         Formatted string
     """
     if not timestamp:
         return "N/A"
-    
+
     if include_date and include_time:
         return timestamp_to_str(timestamp, "%Y-%m-%d %H:%M:%S")
     elif include_date:

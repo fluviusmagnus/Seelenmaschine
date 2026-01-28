@@ -12,6 +12,7 @@ from llm.reranker import RerankerClient
 from tools.skill_manager import SkillManager
 from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
+from tools.scheduled_task_tool import ScheduledTaskTool
 from llm.client import LLMClient
 from utils.logger import get_logger
 
@@ -43,9 +44,11 @@ class MessageHandler:
         # Initialize skill manager and load skills
         self.skill_manager = SkillManager()
         
-        # Load scheduled task skill with scheduler
+        # Initialize scheduled task tool with scheduler
+        self.scheduled_task_tool = None
+        self.scheduled_task_tool_def = None
         if self.config.ENABLE_SKILLS:
-            self._register_scheduled_task_skill()
+            self._register_scheduled_task_tool()
         
         # Initialize LLM client
         self.llm_client = LLMClient()
@@ -59,17 +62,23 @@ class MessageHandler:
         
         logger.info("MessageHandler initialized")
     
-    def _register_scheduled_task_skill(self):
-        """Register the scheduled task skill with scheduler instance"""
+    def _register_scheduled_task_tool(self):
+        """Register the scheduled task tool with scheduler instance"""
         try:
-            from skills.scheduled_task_skill import ScheduledTaskSkill
-            scheduled_task_skill = ScheduledTaskSkill(self.scheduler)
-            self.skill_manager._skills[scheduled_task_skill.name] = scheduled_task_skill
-            # Clear tools cache to force rebuild
-            self.skill_manager._tools_cache = None
-            logger.info("Registered scheduled_task skill with scheduler")
+            self.scheduled_task_tool = ScheduledTaskTool(self.scheduler)
+            self.scheduled_task_tool_def = {
+                "type": "function",
+                "function": {
+                    "name": self.scheduled_task_tool.name,
+                    "description": self.scheduled_task_tool.description,
+                    "parameters": self.scheduled_task_tool.parameters
+                }
+            }
+            logger.info("Registered scheduled_task tool with scheduler")
         except Exception as e:
-            logger.error(f"Failed to register scheduled_task skill: {e}")
+            logger.error(f"Failed to register scheduled_task tool: {e}")
+            self.scheduled_task_tool = None
+            self.scheduled_task_tool_def = None
     
     def _handle_scheduled_message(self, message: str):
         """Handle messages from scheduled tasks"""
@@ -87,6 +96,11 @@ class MessageHandler:
             skill_tools = self.skill_manager.get_tools()
             tools.extend(skill_tools)
             logger.info(f"Added {len(skill_tools)} skill tools")
+        
+        # Add scheduled task tool
+        if self.scheduled_task_tool_def:
+            tools.append(self.scheduled_task_tool_def)
+            logger.info("Added scheduled_task tool")
         
         # Add MCP tools (will be initialized async later)
         if self.config.ENABLE_MCP:
@@ -137,6 +151,8 @@ class MessageHandler:
                 all_tools = []
                 if self.config.ENABLE_SKILLS:
                     all_tools.extend(self.skill_manager.get_tools())
+                if self.scheduled_task_tool_def:
+                    all_tools.append(self.scheduled_task_tool_def)
                 all_tools.extend(mcp_tools)
                 
                 # Add memory search tool
@@ -169,6 +185,10 @@ class MessageHandler:
         # Check if it's the memory search tool
         if tool_name == self.memory_search_tool.name:
             return await self.memory_search_tool.execute(**arguments)
+        
+        # Check if it's the scheduled task tool
+        if self.scheduled_task_tool and tool_name == self.scheduled_task_tool.name:
+            return await self.scheduled_task_tool.execute(**arguments)
         
         # Check if it's a skill
         if tool_name in self.skill_manager._skills:
