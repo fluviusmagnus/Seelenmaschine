@@ -34,5 +34,27 @@ ENV/
 # Project specific
 data/
 *.env
+!.env.example
 *.log
 mcp_servers.json
+scheduled_tasks.json
+
+# Backup files
+*.backup
+*.bak
+backup_*/
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Migration backups (in data directories)
+data/*/backup_*/
+data/*/chatbot.db.backup*
