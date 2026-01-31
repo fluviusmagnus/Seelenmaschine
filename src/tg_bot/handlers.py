@@ -126,6 +126,12 @@ class MessageHandler:
         #    If we switch to HTML, **bold** won't render as bold unless we convert it.
         #    We should try to support basic markdown bold.
 
+        from config import Config
+        from utils.text import strip_blockquotes
+
+        if not Config.DEBUG_MODE:
+            text = strip_blockquotes(text)
+
         # Step 1: Extract blockquotes
         placeholders = []
 

@@ -8,6 +8,7 @@ from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
 from utils.time import get_current_timestamp
 from utils.logger import get_logger
+from utils.text import strip_blockquotes
 
 logger = get_logger()
 
@@ -310,7 +311,9 @@ class MemoryManager:
         session_id = self.get_current_session_id()
 
         if embedding is None:
-            embedding = self.embedding_client.get_embedding(text)
+            # Vectorization always strips blockquotes
+            text_for_embedding = strip_blockquotes(text)
+            embedding = self.embedding_client.get_embedding(text_for_embedding)
 
         conversation_id = self.db.insert_conversation(
             session_id=session_id,
@@ -337,7 +340,11 @@ class MemoryManager:
         session_id = self.get_current_session_id()
 
         if embedding is None:
-            embedding = await self.embedding_client.get_embedding_async(text)
+            # Vectorization always strips blockquotes
+            text_for_embedding = strip_blockquotes(text)
+            embedding = await self.embedding_client.get_embedding_async(
+                text_for_embedding
+            )
 
         conversation_id = self.db.insert_conversation(
             session_id=session_id,
@@ -359,19 +366,28 @@ class MemoryManager:
         timestamp = get_current_timestamp()
         session_id = self.get_current_session_id()
 
+        # Check if we should strip blockquotes for storage based on DEBUG_MODE
+        from config import Config
+
+        text_for_storage = text
+        if not Config.DEBUG_MODE:
+            text_for_storage = strip_blockquotes(text)
+
         if embedding is None:
-            embedding = self.embedding_client.get_embedding(text)
+            # Vectorization always strips blockquotes
+            text_for_embedding = strip_blockquotes(text)
+            embedding = self.embedding_client.get_embedding(text_for_embedding)
 
         conversation_id = self.db.insert_conversation(
             session_id=session_id,
             timestamp=timestamp,
             role="assistant",
-            text=text,
+            text=text_for_storage,
             embedding=embedding,
         )
 
         self.context_window.add_message(
-            role="assistant", text=text, embedding=embedding
+            role="assistant", text=text_for_storage, embedding=embedding
         )
 
         summary_id, summarized_messages = self._check_and_create_summary()
@@ -389,19 +405,30 @@ class MemoryManager:
         timestamp = get_current_timestamp()
         session_id = self.get_current_session_id()
 
+        # Check if we should strip blockquotes for storage based on DEBUG_MODE
+        from config import Config
+
+        text_for_storage = text
+        if not Config.DEBUG_MODE:
+            text_for_storage = strip_blockquotes(text)
+
         if embedding is None:
-            embedding = await self.embedding_client.get_embedding_async(text)
+            # Vectorization always strips blockquotes
+            text_for_embedding = strip_blockquotes(text)
+            embedding = await self.embedding_client.get_embedding_async(
+                text_for_embedding
+            )
 
         conversation_id = self.db.insert_conversation(
             session_id=session_id,
             timestamp=timestamp,
             role="assistant",
-            text=text,
+            text=text_for_storage,
             embedding=embedding,
         )
 
         self.context_window.add_message(
-            role="assistant", text=text, embedding=embedding
+            role="assistant", text=text_for_storage, embedding=embedding
         )
 
         summary_id, summarized_messages = await self._check_and_create_summary_async()
