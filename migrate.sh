@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-MIGRATOR="$SCRIPT_DIR/migration/migrator.py"
+MIGRATOR="$SCRIPT_DIR/migration/migrate.py"
 
 # Check if Python is available
 if ! command -v python &> /dev/null && ! command -v python3 &> /dev/null; then
@@ -21,19 +21,12 @@ fi
 
 # Check if profile argument is provided
 if [ $# -eq 0 ]; then
-    echo "Usage: ./migrate.sh <profile> [options]"
+    echo "Usage: ./migrate.sh <profile>"
     echo ""
-    echo "Options:"
-    echo "  --auto       Automatically run all needed migrations"
-    echo "  --force      Force re-run migrations"
-    echo "  --no-backup  Skip automatic backup (not recommended)"
+    echo "Example:"
+    echo "  ./migrate.sh hy"
     echo ""
-    echo "Examples:"
-    echo "  ./migrate.sh test              # Interactive mode"
-    echo "  ./migrate.sh test --auto       # Auto-detect and migrate"
-    echo "  ./migrate.sh test --force      # Force migration"
-    echo ""
-    echo "For more information, see MIGRATION_GUIDE.md"
+    echo "For more information, see migration/README.md"
     exit 1
 fi
 

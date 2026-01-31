@@ -30,7 +30,6 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
 - 🔌 **MCP (Model Context Protocol) 支持**：
   - 动态连接外部工具和数据源
   - 支持多种传输方式（stdio、HTTP、SSE）
-- ⚡ **独立 Skills 插件系统**：本地工具集扩展
 - ⏰ **定时任务**：支持一次性任务和间隔任务
 
 ## 技术架构
@@ -221,7 +220,6 @@ Seelenmaschine/
 │   │   └── reranker.py           # Rerank 客户端
 │   ├── tools/                    # 工具系统
 │   │   ├── mcp_client.py         # MCP 客户端
-│   │   ├── skill_manager.py      # Skills 管理器
 │   │   ├── memory_search.py      # 自我查询工具
 │   │   └── internal/             # 内置工具
 │   ├── tg_bot/                   # Telegram Bot 界面
@@ -234,9 +232,7 @@ Seelenmaschine/
 │   └── utils/                    # 工具函数
 │       ├── time.py               # 时间处理
 │       └── logger.py             # 日志工具
-├── skills/                       # Skills 插件
-│   ├── __init__.py
-│   └── base_skill.py
+
 ├── template/                     # 模板目录
 │   └── seele.json                # 长期记忆模板
 ├── tests/                        # 单元测试
@@ -246,10 +242,7 @@ Seelenmaschine/
 │   ├── test_retriever.py
 │   └── test_llm.py
 ├── migration/                    # 数据迁移工具
-│   ├── migrator.py               # 统一迁移工具
-│   ├── migrate.py                # 旧版迁移脚本（已弃用）
-│   ├── remigrate.py              # 旧数据库迁移（已弃用）
-│   ├── converter.py              # 文本转换工具
+│   ├── migrate.py                # 统一迁移工具
 │   └── README.md                 # 迁移工具文档
 ├── data/                         # 数据存储目录
 │   └── <profile>/                # Profile 数据目录
@@ -263,8 +256,6 @@ Seelenmaschine/
 ├── migrate.sh                    # 迁移工具快捷脚本（Linux/macOS）
 ├── migrate.bat                   # 迁移工具快捷脚本（Windows）
 ├── AGENTS.md                     # AI 辅助开发指南
-├── BREAKING.md                   # 升级计划（历史参考）
-├── MIGRATION_GUIDE.md            # 数据迁移指南
 ├── README.md                     # 项目说明
 └── LICENSE                       # 许可证
 ```
@@ -307,25 +298,22 @@ pytest tests/ --cov=src            # 测试覆盖率
 
 ## 数据迁移
 
-使用统一迁移工具从旧版本迁移数据：
+重新按要求配置好环境变量后，使用统一迁移工具从旧版本迁移数据：
 
 ```bash
-# 交互式模式
-python migration/migrator.py <profile>
+# 执行迁移
+python migration/migrate.py <profile>
+
 # 或使用快捷脚本
 ./migrate.sh <profile>
-
-# 自动模式
-python migration/migrator.py <profile> --auto
 ```
 
 迁移工具会：
-1. 自动检测需要的迁移类型（FTS5 升级、旧数据库迁移、文本转 JSON）
+1. 自动检测需要的迁移任务（旧数据库迁移、文本转 JSON、FTS5 升级）
 2. 自动备份现有数据
-3. 执行所需的迁移
-4. 验证迁移结果
+3. 执行迁移并验证结果
 
-详见 [迁移指南](MIGRATION_GUIDE.md)。
+详见 [迁移指南](migration/README.md)。
 
 ## 许可证
 

@@ -163,9 +163,11 @@ class TestMemorySearchTool:
         """Test executing search with time period filter."""
         mock_db.search_conversations_by_keyword.return_value = []
 
-        # Mock Config.TIMEZONE to return a string for pytz.timezone()
+        # Mock Config.TIMEZONE to return a ZoneInfo object
         with patch("tools.memory_search.Config") as mock_config:
-            mock_config.TIMEZONE = "Asia/Shanghai"
+            from zoneinfo import ZoneInfo
+
+            mock_config.TIMEZONE = ZoneInfo("Asia/Shanghai")
             mock_config.TIMEZONE_STR = "Asia/Shanghai"
 
             result = await memory_search_tool.execute(

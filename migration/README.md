@@ -1,200 +1,63 @@
-# Seelenmaschine Migration Tools
+# 数据迁移工具
 
-This directory contains migration tools for upgrading Seelenmaschine databases and data files.
+本目录包含 Seelenmaschine 的数据迁移工具，用于将旧版本的数据（Legacy Database 和 Text Profiles）升级到最新的 3.1 版本。
 
-## Quick Start
+## 统一迁移工具 (`migrate.py`)
 
-Use the unified migration tool:
+`migration/migrate.py` 是现在推荐使用的统一迁移工具。它会自动检测并执行所需的迁移任务。
 
-```bash
-# Check migration status
-python migration/migrator.py <profile>
+### 主要功能
 
-# Auto-detect and migrate
-python migration/migrator.py <profile> --auto
+1.  **自动检测源文件**：自动在 `data/<profile>/` 或 `data/<profile>/backup/` 中查找旧数据。
+2.  **文本转 JSON**：利用 LLM 将旧的 `persona_memory.txt` 和 `user_profile.txt` 转换为新的 `seele.json` 格式。
+3.  **数据库迁移**：将旧的 `chat_sessions.db` 迁移到新的 `chatbot.db`，并应用 3.1 版本的最新 Schema（支持 FTS5 全文搜索等）。
+4.  **自动备份**：在修改前会自动将现有数据备份到 `migration_backup_YYYYMMDD_HHMMSS` 目录。
 
-# Force re-run migration
-python migration/migrator.py <profile> --force
-```
+### 如何使用
 
-## Files
-
-- **migrator.py** - Unified migration tool (recommended)
-- **migrate.py** - Legacy v2 migration (deprecated, use migrator.py)
-- **remigrate.py** - Legacy database migration (deprecated, use migrator.py)
-- **converter.py** - Text to JSON converter (used by migrator.py)
-
-## Migration Types
-
-### 1. FTS5 Upgrade (Schema v2.0 → v3.0)
-
-Adds full-text search capabilities:
-- Creates FTS5 virtual tables
-- Creates auto-sync triggers
-- Backfills existing data
-
-### 2. Legacy Database Migration
-
-Migrates from old `chat_sessions.db` to new `chatbot.db`:
-- Creates new schema
-- Migrates sessions, conversations, summaries
-- Remaps session IDs
-
-### 3. Text to JSON Conversion
-
-Converts old text files to structured JSON:
-- `persona_memory.txt` → `seele.json["bot"]`
-- `user_profile.txt` → `seele.json["user"]`
-
-## Usage Examples
-
-### Interactive Mode
+例如对于 `test.env` 配置文件，在按最新要求重新设置环境变量后，你可以通过以下命令运行迁移：
 
 ```bash
-# Run with interactive prompts
-python migration/migrator.py test
-
-# Output:
-# Migration Status for Profile: test
-# ...
-# ⚠ Migrations Needed:
-#   - fts5_upgrade
-# 
-# Options:
-#   a - Run all migrations
-#   1, 2, 3... - Run specific migration
-#   q - Quit
+# 迁移特定配置文件 (例如 test)
+python migration/migrate.py test
 ```
 
-### Automatic Mode
+或者使用项目根目录下的快捷脚本：
 
 ```bash
-# Auto-detect and run all needed migrations
-python migration/migrator.py test --auto
+# Linux/macOS
+./migrate.sh test
 
-# Output:
-# 🤖 Auto mode: Running 1 migration(s)...
-# 📦 Creating backup...
-# ✓ Backup created at: data/test/backup_20260128_143025
-# ...
-# ✓ All migrations completed successfully!
+# Windows
+migrate.bat test
 ```
 
-### Force Mode
+## 验证迁移
 
-```bash
-# Force re-run migration even if already done
-python migration/migrator.py test --force
-```
+迁移完成后，可以通过以下步骤验证：
 
-### Skip Backup (Not Recommended)
+1.  **检查数据库版本**：
+    ```bash
+    sqlite3 data/<profile>/chatbot.db "SELECT value FROM meta WHERE key='schema_version';"
+    # 应输出: 3.1
+    ```
 
-```bash
-# Skip automatic backup creation
-python migration/migrator.py test --auto --no-backup
-```
+2.  **检查全文搜索表**：
+    ```bash
+    sqlite3 data/<profile>/chatbot.db "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'fts_%';"
+    # 应输出:
+    # fts_conversations
+    # fts_summaries
+    ```
 
-## Backup and Recovery
+3.  **检查数据**：
+    使用 SQLite 查看器检查 `conversations` 和 `summaries` 表，确认历史记录已成功搬迁。
 
-### Automatic Backups
+## 备份与恢复
 
-By default, the migration tool creates automatic backups:
+虽然迁移工具会自动创建备份，但我们仍建议在操作前手动备份 `data/<profile>/` 目录。如果迁移失败，你可以从生成的备份目录中恢复文件。
 
-```
-data/<profile>/backup_20260128_143025/
-├── chatbot.db
-├── chat_sessions.db
-├── seele.json
-├── persona_memory.txt
-└── user_profile.txt
-```
+## 下拉菜单 (旧文档参考)
 
-### Manual Recovery
-
-```bash
-# Find latest backup
-ls -lt data/<profile>/backup_*
-
-# Restore database
-cp data/<profile>/backup_YYYYMMDD_HHMMSS/chatbot.db data/<profile>/chatbot.db
-
-# Restore memory files
-cp data/<profile>/backup_YYYYMMDD_HHMMSS/seele.json data/<profile>/seele.json
-```
-
-## Validation
-
-After migration, verify the results:
-
-```bash
-# Check migration status again
-python migration/migrator.py <profile>
-
-# Expected output:
-# ✓ No migrations needed
-
-# Verify FTS5 tables
-sqlite3 data/<profile>/chatbot.db \
-  "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'fts_%';"
-
-# Expected output:
-# fts_conversations
-# fts_summaries
-```
-
-## Troubleshooting
-
-### Migration Failed
-
-1. Check error message in output
-2. Restore from backup:
-   ```bash
-   cp data/<profile>/backup_*/chatbot.db data/<profile>/chatbot.db
-   ```
-3. Re-run with `--force` if needed
-4. Report issue with error log
-
-### FTS5 Tables Not Created
-
-```bash
-# Force re-run FTS5 migration
-python migration/migrator.py <profile> --force
-```
-
-### Missing Dependencies
-
-```bash
-# Install required packages
-pip install -r requirements.txt
-
-# Ensure sqlite-vec is available
-python -c "import sqlite_vec; print(sqlite_vec.loadable_path())"
-```
-
-## Development
-
-### Adding New Migration Types
-
-1. Add to `MigrationType` enum in `migrator.py`
-2. Implement detection in `MigrationStatus.needs_migration()`
-3. Implement execution in `Migrator._run_migration()`
-4. Update documentation
-
-### Testing
-
-```bash
-# Create test profile
-mkdir -p data/test_migration
-
-# Run migration
-python migration/migrator.py test_migration --auto
-
-# Verify
-python migration/migrator.py test_migration
-```
-
-## See Also
-
-- [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) - Detailed migration guide
-- [BREAKING.md](../BREAKING.md) - Breaking changes and upgrade plan
-- [README.md](../README.md) - Main project README
+- [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) (已删除，其内容已整合至此)
+- [README.md](../README.md) - 项目主说明文档

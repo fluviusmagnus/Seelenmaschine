@@ -24,16 +24,26 @@ class ScheduledTaskTool:
 
     @property
     def description(self) -> str:
-        return """Manage scheduled tasks (reminders, recurring messages).
-        
-Actions:
-- add: Create a new task (once or interval)
-- list: List all active tasks
-- get: Get details of a specific task
-- cancel: Cancel a task
-- pause: Pause a task
-- resume: Resume a paused task
-"""
+        return """Manage scheduled tasks like reminders and recurring messages.
+
+WHEN TO USE:
+- User asks to set a reminder, alarm, or notification for future time
+- User wants recurring messages (daily, weekly, etc.)
+- User needs to be reminded about something later
+- User asks to cancel, pause, or check existing reminders/tasks
+- User mentions "remind me", "set a timer", "every day at..."
+
+AVAILABLE ACTIONS:
+- add: Create a new task (one-time or recurring)
+- list: Show all active tasks
+- get: View details of a specific task
+- cancel: Delete a task permanently
+- pause: Temporarily stop a task (can be resumed)
+- resume: Reactivate a paused task
+
+TIME FORMATS:
+- One-time tasks: "30m" (30 minutes), "2h" (2 hours), "1d" (1 day), "1w" (1 week), or specific datetime
+- Recurring tasks: Use interval format like "1h" (every hour), "1d" (daily), "7d" (weekly)"""
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -43,25 +53,25 @@ Actions:
                 "action": {
                     "type": "string",
                     "enum": ["add", "list", "get", "cancel", "pause", "resume"],
-                    "description": "Action to perform",
+                    "description": "Action to perform on tasks. Use 'add' to create new task, 'list' to see all tasks, 'get' for details, 'cancel' to delete, 'pause' to temporarily stop, 'resume' to reactivate.",
                 },
                 "task_id": {
                     "type": "string",
-                    "description": "Task ID (for get/cancel/pause/resume)",
+                    "description": "Unique task identifier. Required for 'get', 'cancel', 'pause', and 'resume' actions. Get the ID from the 'list' action.",
                 },
-                "name": {"type": "string", "description": "Task name (for add)"},
+                "name": {"type": "string", "description": "Task name to identify it. Use descriptive names like 'Morning reminder', 'Project deadline alert' (required for 'add' action)"},
                 "trigger_type": {
                     "type": "string",
                     "enum": ["once", "interval"],
-                    "description": "Type of trigger: 'once' for one-time, 'interval' for recurring",
+                    "description": "Task trigger type. 'once' = single reminder (e.g., 'in 30 minutes'), 'interval' = recurring (e.g., 'every day at 9am'). Required for 'add' action.",
                 },
                 "time": {
                     "type": "string",
-                    "description": "Time for trigger. For 'once' (one-time): can be a duration like '30s', '3m', '2h', '1d', '1w', or ISO datetime, or timestamp. For 'interval' (recurring): use duration format like '30s', '5m', '1h', '1d', '1w'",
+                    "description": "When the task should trigger. Required for 'add' action.\n\nFor 'once' tasks:\n- Duration: '30s' (30 sec), '5m' (5 min), '2h' (2 hours), '1d' (1 day), '1w' (1 week)\n- Specific time: ISO datetime like '2026-02-01 14:30:00'\n\nFor 'interval' (recurring) tasks:\n- Use interval format: '30s', '5m', '1h', '1d', '7d' (weekly), etc.\n\nExamples: '30m' (in 30 min), '1d' (in 1 day), '24h' (every 24 hours)",
                 },
                 "message": {
                     "type": "string",
-                    "description": "Message to send when task triggers",
+                    "description": "The reminder message to send when the task triggers. Required for 'add' action. Keep it clear and actionable. Example: 'Time for your daily standup meeting!'",
                 },
             },
             "required": ["action"],

@@ -36,57 +36,67 @@ def retriever(mock_db, mock_embedding_client, mock_reranker_client):
     return MemoryRetriever(
         db=mock_db,
         embedding_client=mock_embedding_client,
-        reranker_client=mock_reranker_client
+        reranker_client=mock_reranker_client,
     )
 
 
 class TestMemoryRetriever:
     """Test MemoryRetriever functionality."""
 
-    def test_initialization(self, retriever, mock_db, mock_embedding_client, mock_reranker_client):
+    def test_initialization(
+        self, retriever, mock_db, mock_embedding_client, mock_reranker_client
+    ):
         """Test retriever initializes correctly."""
         assert retriever.db == mock_db
         assert retriever.embedding_client == mock_embedding_client
         assert retriever.reranker_client == mock_reranker_client
 
-    def test_retrieve_retrieve_memories_without_reranker(self, retriever, mock_db, mock_embedding_client, monkeypatch):
+    def test_retrieve_retrieve_memories_without_reranker(
+        self, retriever, mock_db, mock_embedding_client, monkeypatch
+    ):
         """Test retrieving memories without reranker."""
         # Mock Config values
         from config import Config
-        monkeypatch.setattr(Config, 'RECALL_SUMMARY_PER_QUERY', 3)
-        monkeypatch.setattr(Config, 'RECALL_CONV_PER_SUMMARY', 4)
-        monkeypatch.setattr(Config, 'RERANK_TOP_SUMMARIES', 3)
-        monkeypatch.setattr(Config, 'RERANK_TOP_CONVS', 6)
-        
-        mock_db.search_summaries.return_value = [
-            (1, "Summary 1", 100, 200, 0.5)
-        ]
-        mock_db.search_conversations.return_value = [
-            (1, 150, "user", "Test message", 0.5)
+
+        monkeypatch.setattr(Config, "RECALL_SUMMARY_PER_QUERY", 3)
+        monkeypatch.setattr(Config, "RECALL_CONV_PER_SUMMARY", 4)
+        monkeypatch.setattr(Config, "RERANK_TOP_SUMMARIES", 3)
+        monkeypatch.setattr(Config, "RERANK_TOP_CONVS", 6)
+
+        mock_db.search_summaries.return_value = [(1, "Summary 1", 100, 200, 0.5)]
+        # Use get_conversations_by_time_range instead of search_conversations
+        mock_db.get_conversations_by_time_range.return_value = [
+            (1, 150, "user", "Test message")  # No distance score in time-range search
         ]
 
-        summaries, conversations = retriever.retrieve_related_memories("test query", None)
+        summaries, conversations = retriever.retrieve_related_memories(
+            "test query", None
+        )
 
         assert len(summaries) == 1
         assert len(conversations) == 1
         assert summaries[0].summary == "Summary 1"
         assert conversations[0].text == "Test message"
 
-    def test_retrieve_memories_with_bot_message(self, retriever, mock_db, mock_embedding_client, monkeypatch):
+    def test_retrieve_memories_with_bot_message(
+        self, retriever, mock_db, mock_embedding_client, monkeypatch
+    ):
         """Test retrieving memories with bot message."""
         # Mock Config values
         from config import Config
-        monkeypatch.setattr(Config, 'RECALL_SUMMARY_PER_QUERY', 3)
-        monkeypatch.setattr(Config, 'RECALL_CONV_PER_SUMMARY', 4)
-        monkeypatch.setattr(Config, 'RERANK_TOP_SUMMARIES', 3)
-        monkeypatch.setattr(Config, 'RERANK_TOP_CONVS', 6)
-        
-        mock_db.search_summaries.return_value = [
-            (1, "Summary 1", 100, 200, 0.5)
-        ]
-        mock_db.search_conversations.return_value = []
 
-        summaries, conversations = retriever.retrieve_related_memories("test query", "bot response")
+        monkeypatch.setattr(Config, "RECALL_SUMMARY_PER_QUERY", 3)
+        monkeypatch.setattr(Config, "RECALL_CONV_PER_SUMMARY", 4)
+        monkeypatch.setattr(Config, "RERANK_TOP_SUMMARIES", 3)
+        monkeypatch.setattr(Config, "RERANK_TOP_CONVS", 6)
+
+        mock_db.search_summaries.return_value = [(1, "Summary 1", 100, 200, 0.5)]
+        # Use get_conversations_by_time_range instead of search_conversations
+        mock_db.get_conversations_by_time_range.return_value = []
+
+        summaries, conversations = retriever.retrieve_related_memories(
+            "test query", "bot response"
+        )
 
         assert mock_db.search_summaries.call_count == 2
 
@@ -94,10 +104,17 @@ class TestMemoryRetriever:
         """Test formatting summaries for prompt."""
         # Mock Config values with ZoneInfo object
         from config import Config
-        monkeypatch.setattr(Config, 'TIMEZONE', ZoneInfo('UTC'))
-        
+
+        monkeypatch.setattr(Config, "TIMEZONE", ZoneInfo("UTC"))
+
         summaries = [
-            RetrievedSummary(summary_id=1, summary="Test summary", first_timestamp=100, last_timestamp=200, score=0.5)
+            RetrievedSummary(
+                summary_id=1,
+                summary="Test summary",
+                first_timestamp=100,
+                last_timestamp=200,
+                score=0.5,
+            )
         ]
 
         formatted = retriever.format_summaries_for_prompt(summaries)
@@ -108,10 +125,17 @@ class TestMemoryRetriever:
         """Test formatting conversations for prompt."""
         # Mock Config values with ZoneInfo object
         from config import Config
-        monkeypatch.setattr(Config, 'TIMEZONE', ZoneInfo('UTC'))
-        
+
+        monkeypatch.setattr(Config, "TIMEZONE", ZoneInfo("UTC"))
+
         conversations = [
-            RetrievedConversation(conversation_id=1, timestamp=150, role="user", text="Test message", score=0.5)
+            RetrievedConversation(
+                conversation_id=1,
+                timestamp=150,
+                role="user",
+                text="Test message",
+                score=0.5,
+            )
         ]
 
         formatted = retriever.format_conversations_for_prompt(conversations)

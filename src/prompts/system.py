@@ -193,6 +193,8 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
    - Current conversation: Real-time progress of this session
    - Related memories: Historical summaries and conversations (when provided)
 
+6. **Use available tools when appropriate**: You have access to tools like memory search (for recalling past conversations) and task scheduling (for reminders). When a user's request clearly indicates tool usage is needed (e.g., asking about past conversations, setting reminders), use the appropriate tool proactively. Always wait for tool results before responding when you invoke a tool.
+
 ---"""
     )
 
@@ -428,6 +430,12 @@ def get_summary_prompt(existing_summary: str | None, new_conversations: str) -> 
     # Each summary is independent - we don't use existing_summary
     return f"""You are a summarizer, summarizing a conversation between {bot_name} and {user_name}.
 
+**CRITICAL**: This is an INDEPENDENT summary for ONLY the specific conversations provided below. 
+- Summarize ONLY the conversations shown in this prompt
+- Do NOT include content from any previous summaries or earlier conversations
+- This summary will be stored separately and retrieved by relevance later
+- Focus exclusively on the new information in the conversations below
+
 Please summarize the core content of the following conversation, requiring:
 1. Within 300 words
 2. Include key information points
@@ -440,38 +448,49 @@ Please summarize the core content of the following conversation, requiring:
    - If mixed, use the language that appears most frequently
 7. Output only the summary itself, no additional text
 
-Conversations:
+Conversations to summarize (focus ONLY on these):
 {new_conversations}
 
 Summary:"""
 
 
-def get_memory_update_prompt(messages: str, first_timestamp: int | None = None, last_timestamp: int | None = None) -> str:
+def get_memory_update_prompt(
+    messages: str,
+    current_seele_json: str,
+    first_timestamp: int | None = None,
+    last_timestamp: int | None = None,
+) -> str:
     """Build memory update prompt that generates a JSON Patch.
-    
+
     This prompt generates a JSON Patch to update seele.json based on
     the summarized conversations.
-    
+
     Args:
         messages: The conversation messages to analyze
+        current_seele_json: The current seele.json content
         first_timestamp: Unix timestamp of first message in this conversation batch
         last_timestamp: Unix timestamp of last message in this conversation batch
     """
     from datetime import datetime
     from config import Config
-    
-    seele_data = load_seele_json()
+
+    seele_data = json.loads(current_seele_json)
     bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
-    
+    user_name = seele_data.get("user", {}).get("name", "User")
+
     # Format timestamps
     time_info = ""
     if first_timestamp and last_timestamp:
         tz = Config.TIMEZONE
-        start_time = datetime.fromtimestamp(first_timestamp, tz).strftime("%Y-%m-%d %H:%M:%S")
-        end_time = datetime.fromtimestamp(last_timestamp, tz).strftime("%Y-%m-%d %H:%M:%S")
+        start_time = datetime.fromtimestamp(first_timestamp, tz).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        end_time = datetime.fromtimestamp(last_timestamp, tz).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         time_info = f"\n**TIME CONTEXT**: These conversations occurred between {start_time} and {end_time}. Use this temporal context when updating time-sensitive fields like short_term emotions/needs or memorable_events.\n"
-    
-    return f"""You are {bot_name}, an AI assistant. Based on the conversation summary, generate a JSON Patch (RFC 6902) to update seele.json.
+
+    return f"""You are {bot_name}, an AI assistant. Based on the conversation history between {bot_name} and {user_name}, generate a JSON Patch (RFC 6902) to update seele.json.
 {time_info}
 
 The seele.json structure:
@@ -558,6 +577,9 @@ Invalid examples (DO NOT output like these):
 ❌ {{"user": {{"name": "John"}}}} (this is not JSON Patch format)
 ❌ Any text before or after the JSON array
 
+CURRENT seele.json:
+{current_seele_json}
+
 Conversations to analyze:
 {messages}
 
@@ -565,11 +587,11 @@ JSON Patch array (remember: pure JSON array only, starting with '[' and ending w
 
 
 def get_complete_memory_json_prompt(
-    messages: str, 
-    current_seele_json: str, 
+    messages: str,
+    current_seele_json: str,
     error_message: str,
     first_timestamp: int | None = None,
-    last_timestamp: int | None = None
+    last_timestamp: int | None = None,
 ) -> str:
     """Build prompt for generating complete seele.json when JSON Patch fails.
 
@@ -585,16 +607,20 @@ def get_complete_memory_json_prompt(
     """
     from datetime import datetime
     from config import Config
-    
+
     seele_data = json.loads(current_seele_json)
     bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
-    
+
     # Format timestamps
     time_info = ""
     if first_timestamp and last_timestamp:
         tz = Config.TIMEZONE
-        start_time = datetime.fromtimestamp(first_timestamp, tz).strftime("%Y-%m-%d %H:%M:%S")
-        end_time = datetime.fromtimestamp(last_timestamp, tz).strftime("%Y-%m-%d %H:%M:%S")
+        start_time = datetime.fromtimestamp(first_timestamp, tz).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        end_time = datetime.fromtimestamp(last_timestamp, tz).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         time_info = f"\n**TIME CONTEXT**: These conversations occurred between {start_time} and {end_time}. Use this temporal context when updating time-sensitive fields.\n"
 
     return f"""You are {bot_name}, an AI assistant. The previous JSON Patch operation failed with this error:

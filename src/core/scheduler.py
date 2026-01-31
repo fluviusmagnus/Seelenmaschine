@@ -29,28 +29,37 @@ class TaskScheduler:
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._message_callback: Optional[Callable] = None
+        self._instance_id = str(uuid.uuid4())[:8]
+        logger.debug(f"TaskScheduler {self._instance_id} initialized")
 
     def set_message_callback(self, callback: Callable) -> None:
         """Set callback for sending messages (can be sync or async)"""
         self._message_callback = callback
+        logger.debug(f"TaskScheduler {self._instance_id}: message callback set")
 
     async def run_forever(self) -> None:
         """Run the scheduler loop forever (to be used as Application job)"""
+        if self._running:
+            logger.warning(
+                f"TaskScheduler {self._instance_id} is already running, skipping start"
+            )
+            return
+
         self._running = True
-        logger.info("Task scheduler started")
+        logger.info(f"Task scheduler {self._instance_id} started")
 
         while self._running:
             try:
                 await self._check_and_run_tasks()
                 await asyncio.sleep(10)
             except asyncio.CancelledError:
-                logger.info("Task scheduler cancelled")
+                logger.info(f"Task scheduler {self._instance_id} cancelled")
                 break
             except Exception as e:
-                logger.error(f"Error in task scheduler loop: {e}")
+                logger.error(f"Error in task scheduler {self._instance_id} loop: {e}")
                 await asyncio.sleep(10)
 
-        logger.info("Task scheduler stopped")
+        logger.info(f"Task scheduler {self._instance_id} stopped")
 
     def stop(self) -> None:
         """Stop the scheduler loop"""
@@ -66,13 +75,22 @@ class TaskScheduler:
     async def _check_and_run_tasks(self) -> None:
         current_time = get_current_timestamp()
 
-        due_tasks = self.db.get_due_tasks(current_time)
+        # Atomically claim tasks so no other scheduler instance picks them up
+        due_tasks = self.db.claim_due_tasks(current_time)
+        if due_tasks:
+            logger.info(
+                f"TaskScheduler {self._instance_id}: Claimed {len(due_tasks)} due tasks"
+            )
 
         for task_data in due_tasks:
             try:
                 await self._execute_task(task_data)
             except Exception as e:
-                logger.error(f"Failed to execute task {task_data['task_id']}: {e}")
+                logger.error(
+                    f"TaskScheduler {self._instance_id}: Failed to execute task {task_data['task_id']}: {e}"
+                )
+                # Reset status to active if it failed, so it can be retried later
+                self.db.update_task_status(task_data["task_id"], "active")
 
     async def _execute_task(self, task_data: Dict[str, Any]) -> None:
         task_id = task_data["task_id"]
@@ -80,7 +98,9 @@ class TaskScheduler:
         trigger_config = task_data["trigger_config"]
         message = task_data["message"]
 
-        logger.info(f"Executing task: {task_id} - {task_data['name']}")
+        logger.info(
+            f"TaskScheduler {self._instance_id} executing task: {task_id} - {task_data['name']}"
+        )
 
         if self._message_callback:
             # Support both sync and async callbacks
@@ -135,41 +155,6 @@ class TaskScheduler:
 
         logger.info(f"Added task: {task_id} - {name}")
         return task_id
-
-    def load_tasks_from_file(self, file_path: str) -> None:
-        import json
-        from pathlib import Path
-
-        path = Path(file_path)
-        if not path.exists():
-            logger.warning(f"Task config file not found: {file_path}")
-            return
-
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                tasks_config = json.load(f)
-
-            if isinstance(tasks_config, list):
-                for task_config in tasks_config:
-                    self.add_task(
-                        name=task_config.get("name", ""),
-                        trigger_type=task_config.get("trigger_type", "once"),
-                        trigger_config=task_config.get("trigger_config", {}),
-                        message=task_config.get("message", ""),
-                    )
-
-            logger.info(f"Loaded tasks from {file_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to load tasks from {file_path}: {e}")
-
-    def load_default_tasks(self) -> None:
-        from config import Config
-
-        config = Config()
-        tasks_path = config.DATA_DIR / "scheduled_tasks.json"
-        if tasks_path.exists():
-            self.load_tasks_from_file(str(tasks_path))
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         return self.db.get_task(task_id)

@@ -72,7 +72,7 @@ class DatabaseManager:
                 )
 
                 cursor.execute(
-                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '2.0')"
+                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3.1')"
                 )
 
                 cursor.execute(
@@ -241,7 +241,7 @@ class DatabaseManager:
                         created_at INTEGER NOT NULL,
                         next_run_at INTEGER NOT NULL,
                         last_run_at INTEGER,
-                        status TEXT CHECK(status IN ('active', 'paused', 'completed')) DEFAULT 'active'
+                        status TEXT CHECK(status IN ('active', 'paused', 'completed', 'running')) DEFAULT 'active'
                     )
                 """
                 )
@@ -253,11 +253,191 @@ class DatabaseManager:
                 conn.commit()
                 logger.info("Database schema initialized successfully")
 
+            # Run any pending migrations
+            self._run_migrations()
+
+    def _run_migrations(self):
+        """Run database migrations based on schema version"""
+        current_version = self.get_schema_version()
+        if current_version == "unknown":
+            return
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Migration 2.0 -> 3.0: Add FTS5 tables if they don't exist
+            if current_version == "2.0":
+                logger.info("Migrating database from version 2.0 to 3.0 (Adding FTS5)")
+
+                # Check if FTS tables exist
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='fts_conversations'"
+                )
+                if cursor.fetchone() is None:
+                    # Create FTS5 tables and triggers (omitted for brevity, but logically same as _initialize_schema)
+                    # For a robust implementation, we should call a specific method or repeat the SQL here
+                    # Since we are moving through versions, let's do it properly
+                    self._upgrade_to_3_0(cursor)
+
+                cursor.execute(
+                    "UPDATE meta SET value = '3.0' WHERE key = 'schema_version'"
+                )
+                current_version = "3.0"
+
+            # Migration 3.0 -> 3.1: Add 'running' to scheduled_tasks status CHECK constraint
+            if current_version == "3.0":
+                logger.info(
+                    "Migrating database from version 3.0 to 3.1 (Updating scheduled_tasks constraint)"
+                )
+
+                # Recreate scheduled_tasks table to update CHECK constraint
+                cursor.execute("PRAGMA foreign_keys=OFF")
+
+                cursor.execute(
+                    """
+                    CREATE TABLE scheduled_tasks_new (
+                        task_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        trigger_type TEXT NOT NULL CHECK(trigger_type IN ('once', 'interval')),
+                        trigger_config TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        next_run_at INTEGER NOT NULL,
+                        last_run_at INTEGER,
+                        status TEXT CHECK(status IN ('active', 'paused', 'completed', 'running')) DEFAULT 'active'
+                    )
+                """
+                )
+
+                cursor.execute(
+                    "INSERT INTO scheduled_tasks_new SELECT * FROM scheduled_tasks"
+                )
+                cursor.execute("DROP TABLE scheduled_tasks")
+                cursor.execute(
+                    "ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks"
+                )
+                cursor.execute(
+                    "CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at, status)"
+                )
+
+                cursor.execute("PRAGMA foreign_keys=ON")
+
+                cursor.execute(
+                    "UPDATE meta SET value = '3.1' WHERE key = 'schema_version'"
+                )
+                logger.info("Successfully migrated to version 3.1")
+
+    def _upgrade_to_3_0(self, cursor):
+        """Helper to create FTS5 tables and triggers for 2.0 -> 3.0 migration"""
+        # Create FTS5 tables
+        cursor.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_conversations USING fts5(
+                conversation_id UNINDEXED,
+                text,
+                content=conversations,
+                content_rowid=conversation_id
+            )
+        """
+        )
+        cursor.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_summaries USING fts5(
+                summary_id UNINDEXED,
+                summary,
+                content=summaries,
+                content_rowid=summary_id
+            )
+        """
+        )
+
+        # Triggers (AI, AD, AU for conversations and summaries)
+        # Using INSERT OR IGNORE and CREATE TRIGGER IF NOT EXISTS for safety
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
+                INSERT INTO fts_conversations(rowid, conversation_id, text)
+                VALUES (new.conversation_id, new.conversation_id, new.text);
+            END
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
+                INSERT INTO fts_conversations(fts_conversations, rowid, conversation_id, text)
+                VALUES('delete', old.conversation_id, old.conversation_id, old.text);
+            END
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
+                INSERT INTO fts_conversations(fts_conversations, rowid, conversation_id, text)
+                VALUES('delete', old.conversation_id, old.conversation_id, old.text);
+                INSERT INTO fts_conversations(rowid, conversation_id, text)
+                VALUES (new.conversation_id, new.conversation_id, new.text);
+            END
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS summaries_ai AFTER INSERT ON summaries BEGIN
+                INSERT INTO fts_summaries(rowid, summary_id, summary)
+                VALUES (new.summary_id, new.summary_id, new.summary);
+            END
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS summaries_ad AFTER DELETE ON summaries BEGIN
+                INSERT INTO fts_summaries(fts_summaries, rowid, summary_id, summary)
+                VALUES('delete', old.summary_id, old.summary_id, old.summary);
+            END
+        """
+        )
+        cursor.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS summaries_au AFTER UPDATE ON summaries BEGIN
+                INSERT INTO fts_summaries(fts_summaries, rowid, summary_id, summary)
+                VALUES('delete', old.summary_id, old.summary_id, old.summary);
+                INSERT INTO fts_summaries(rowid, summary_id, summary)
+                VALUES (new.summary_id, new.summary_id, new.summary);
+            END
+        """
+        )
+
+        # Backfill existing data
+        cursor.execute(
+            "INSERT OR IGNORE INTO fts_conversations(rowid, conversation_id, text) SELECT conversation_id, conversation_id, text FROM conversations"
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO fts_summaries(rowid, summary_id, summary) SELECT summary_id, summary_id, summary FROM summaries"
+        )
+
     def _serialize_embedding(self, embedding: List[float]) -> bytes:
         return struct.pack(f"{len(embedding)}f", *embedding)
 
     def _deserialize_embedding(self, data: bytes) -> List[float]:
         return list(struct.unpack(f"{len(data)//4}f", data))
+
+    def get_schema_version(self) -> str:
+        """Get the current database schema version.
+
+        Returns:
+            The schema version string from the meta table.
+            Returns 'unknown' if the meta table or schema_version key doesn't exist.
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM meta WHERE key = 'schema_version'")
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+                return "unknown"
+        except Exception as e:
+            logger.warning(f"Failed to get schema version: {e}")
+            return "unknown"
 
     def create_session(self, start_timestamp: int) -> int:
         """Create a new session and return its ID."""
@@ -267,13 +447,14 @@ class DatabaseManager:
                 "INSERT INTO sessions (start_timestamp, status) VALUES (?, 'active')",
                 (start_timestamp,),
             )
-            session_id = cursor.lastrowid or 0
-            return int(session_id)
+            session_id = cursor.lastrowid
+            if session_id is None:
+                raise RuntimeError("Failed to create session: lastrowid is None")
 
             if Config.DEBUG_LOG_DATABASE_OPS:
                 logger.debug(f"Created session: {session_id}")
 
-            return session_id
+            return int(session_id)
 
     def get_active_session(self) -> Optional[Dict[str, Any]]:
         """Get currently active session."""
@@ -585,6 +766,59 @@ class DatabaseManager:
 
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_conversations_by_time_range(
+        self,
+        start_timestamp: int,
+        end_timestamp: int,
+        limit: int = 4,
+    ) -> List[Tuple[int, int, str, str]]:
+        """Get conversations within a time range.
+
+        Retrieves conversations that fall within the specified time window.
+        Used for retrieving related conversations from a summary's time range.
+
+        Args:
+            start_timestamp: Start of time range (inclusive)
+            end_timestamp: End of time range (inclusive)
+            limit: Maximum number of conversations to return
+
+        Returns:
+            List of tuples: (conversation_id, timestamp, role, text)
+            Ordered by timestamp DESC (most recent first)
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT conversation_id, timestamp, role, text
+                FROM conversations
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (start_timestamp, end_timestamp, limit),
+            )
+
+            results = []
+            for row in cursor.fetchall():
+                results.append(
+                    (
+                        row["conversation_id"],
+                        row["timestamp"],
+                        row["role"],
+                        row["text"],
+                    )
+                )
+
+            if Config.DEBUG_LOG_DATABASE_OPS:
+                logger.debug(
+                    f"get_conversations_by_time_range: found {len(results)} conversations "
+                    f"between {start_timestamp} and {end_timestamp}"
+                )
+
+            return results
+
     def insert_scheduled_task(
         self,
         task_id: str,
@@ -634,6 +868,68 @@ class DatabaseManager:
                 task["trigger_config"] = json.loads(task["trigger_config"])
                 results.append(task)
             return results
+
+    def claim_due_tasks(self, current_timestamp: int) -> List[Dict[str, Any]]:
+        """Atomically claim due tasks by setting their status to 'running'"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Use RETURNING if supported, otherwise use a transaction with separate SELECT and UPDATE
+            try:
+                cursor.execute(
+                    """
+                    UPDATE scheduled_tasks 
+                    SET status = 'running'
+                    WHERE status = 'active' AND next_run_at <= ?
+                    RETURNING *
+                """,
+                    (current_timestamp,),
+                )
+                results = []
+                for row in cursor.fetchall():
+                    task = dict(row)
+                    task["trigger_config"] = json.loads(task["trigger_config"])
+                    results.append(task)
+                return results
+            except sqlite3.OperationalError as e:
+                # Fallback for older sqlite versions without RETURNING
+                if "RETURNING" in str(e).upper():
+                    cursor.execute(
+                        "SELECT task_id FROM scheduled_tasks WHERE status = 'active' AND next_run_at <= ?",
+                        (current_timestamp,),
+                    )
+                    ids = [row[0] for row in cursor.fetchall()]
+                    if not ids:
+                        return []
+
+                    placeholders = ",".join("?" * len(ids))
+                    cursor.execute(
+                        f"UPDATE scheduled_tasks SET status = 'running' WHERE task_id IN ({placeholders})",
+                        tuple(ids),
+                    )
+
+                    # Fetch full task data
+                    cursor.execute(
+                        f"SELECT * FROM scheduled_tasks WHERE task_id IN ({placeholders})",
+                        tuple(ids),
+                    )
+                    results = []
+                    for row in cursor.fetchall():
+                        task = dict(row)
+                        task["trigger_config"] = json.loads(task["trigger_config"])
+                        results.append(task)
+                    return results
+                else:
+                    raise
+
+    def check_task_exists(self, name: str, status: str = "active") -> bool:
+        """Check if an active task with the same name already exists"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM scheduled_tasks WHERE name = ? AND status = ? LIMIT 1",
+                (name, status),
+            )
+            return cursor.fetchone() is not None
 
     def update_task_next_run(
         self, task_id: str, next_run_at: int, last_run_at: int

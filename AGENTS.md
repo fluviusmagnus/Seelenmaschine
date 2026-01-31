@@ -9,23 +9,31 @@ This file provides guidelines for AI agents working on the Seelenmaschine codeba
 # Telegram Bot mode
 python src/main_telegram.py <profile>
 ./start-telegram.sh <profile>      # Linux/macOS
-start-telegram.bat <profile>       # Windows
 ```
 
 ### Linting and Formatting
 ```bash
 # Run ruff for linting (available in .venv)
-.venv/bin/ruff check src/*.py
+.venv/bin/ruff check src/
 
 # Auto-fix issues
-.venv/bin/ruff check --fix src/*.py
+.venv/bin/ruff check --fix src/
 
 # Check specific file
 .venv/bin/ruff check src/chatbot.py
 ```
 
 ### Testing
-No test framework is currently set up. When adding tests, use pytest.
+```bash
+# Run all tests
+.venv/bin/pytest tests/
+
+# Run specific test file
+.venv/bin/pytest tests/test_config.py
+
+# Run with verbose output
+.venv/bin/pytest -v tests/
+```
 
 ## Code Style Guidelines
 
@@ -35,11 +43,9 @@ No test framework is currently set up. When adding tests, use pytest.
 - Group imports with blank lines between categories
 ```python
 import os
-import logging
 from datetime import datetime
 
 from openai import OpenAI
-from flask import Flask
 
 from config import Config
 from memory import MemoryManager
@@ -64,16 +70,16 @@ def process_input(text: str, limit: int = 10) -> List[Dict[str, str]]:
 
 ### Error Handling
 - Use try/except blocks with specific exception types
-- Log errors with logging module
+- Log errors with loguru
 - Provide meaningful error messages
 ```python
 try:
     response = client.call()
 except ValueError as e:
-    logging.error(f"Invalid value: {e}")
+    logger.error(f"Invalid value: {e}")
     raise
 except Exception as e:
-    logging.error(f"Unexpected error: {e}", exc_info=True)
+    logger.error(f"Unexpected error: {e}", exc_info=True)
 ```
 
 ### Logging
@@ -96,7 +102,7 @@ logger.error(f"Failed to retrieve data: {error}")
 from config import Config
 
 if Config.DEBUG_MODE:
-    logging.debug("Debug mode enabled")
+    logger.debug("Debug mode enabled")
 ```
 
 ### Database Operations
@@ -106,7 +112,7 @@ if Config.DEBUG_MODE:
 
 ### Async/Sync
 - Most code is synchronous
-- Use asyncio only for MCP client operations
+- Use asyncio only for MCP client operations and task scheduler
 - Event loops are managed in LLMClient._get_event_loop()
 
 ### Docstrings
@@ -140,9 +146,14 @@ message = f"Processing {item_type} with ID {item_id}"
 
 ### File Structure
 - src/ - All Python source code
+  - core/ - Core components (database, memory, scheduler, retriever)
+  - llm/ - LLM clients (embedding, reranker, client)
+  - tools/ - Tools (memory search, MCP client, scheduled task)
+  - tg_bot/ - Telegram bot implementation
+  - utils/ - Utilities (logger, time)
 - data/<profile>/ - Profile-specific data directory
-- static/ - Static assets for WebUI
-- templates/ - HTML templates for WebUI
+- tests/ - Test files
+- migration/ - Database migration scripts
 - Profile config files: <profile>.env in root directory
 
 ### Memory System Patterns
@@ -157,11 +168,17 @@ message = f"Processing {item_type} with ID {item_id}"
 - Web search is a fallback tool (controlled by ENABLE_WEB_SEARCH)
 - Tools are cached in LLMClient._tools_cache
 
-### Web UI
-- Flask + SocketIO for real-time communication
-- Thread-based async mode
-- Use socketio.emit() for sending messages to client
-- Global ChatBot instance is thread-safe with bot_lock
+### Telegram Bot
+- python-telegram-bot library for Telegram integration
+- Single-user mode (restricted to TELEGRAM_USER_ID)
+- Support for Markdown V2 format
+- Commands: /new (new session), /reset (reset session)
+
+### Task Scheduler
+- TaskScheduler manages scheduled tasks (one-time and interval)
+- ScheduledTaskTool provides LLM interface for task management
+- Tasks stored in database with persistence
+- Support for: add, list, get, cancel, pause, resume actions
 
 ### Environment Files
 - Never commit .env files with real API keys

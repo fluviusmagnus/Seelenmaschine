@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import sys
 from pathlib import Path
@@ -14,6 +14,7 @@ logger = get_logger()
 class Message:
     role: str
     text: str
+    embedding: Optional[List[float]] = None
 
     def to_dict(self) -> Dict[str, str]:
         return {"role": self.role, "content": self.text}
@@ -28,30 +29,28 @@ class Summary:
     summary: str
     summary_id: int
 
-    def to_dict(self) -> Dict[str, any]:
-        return {"summary": self.summary, "summary_id": self.summary_id}
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, any]) -> "Summary":
-        return cls(summary=data["summary"], summary_id=data["summary_id"])
-
 
 class ContextWindow:
     """Pure in-memory context window manager."""
-    
+
     def __init__(self):
         self.context_window: List[Message] = []
         self.recent_summaries: List[Summary] = []
         logger.debug("ContextWindow initialized")
 
-    def add_message(self, role: str, text: str) -> None:
-        self.context_window.append(Message(role=role, text=text))
-        logger.debug(f"Added message: role={role}, text length={len(text)}")
+    def add_message(
+        self, role: str, text: str, embedding: Optional[List[float]] = None
+    ) -> None:
+        self.context_window.append(Message(role=role, text=text, embedding=embedding))
+        logger.debug(
+            f"Added message: role={role}, text length={len(text)}, with_embedding={embedding is not None}"
+        )
 
     def add_summary(self, summary: str, summary_id: int) -> None:
         self.recent_summaries.append(Summary(summary=summary, summary_id=summary_id))
-        
+
         from config import Config
+
         max_summaries = Config.RECENT_SUMMARIES_MAX
         if len(self.recent_summaries) > max_summaries:
             self.recent_summaries = self.recent_summaries[-max_summaries:]
@@ -69,12 +68,25 @@ class ContextWindow:
     def get_total_message_count(self) -> int:
         return len(self.context_window)
 
+    def get_messages(self) -> List[Message]:
+        """Get all messages in the context window.
+
+        Returns:
+            List of Message objects
+        """
+        return self.context_window.copy()
+
     def get_context_as_messages(self) -> List[Dict[str, str]]:
+        """Get all messages as dictionaries (for LLM API).
+
+        Returns:
+            List of message dictionaries with 'role' and 'content' keys
+        """
         return [m.to_dict() for m in self.context_window]
 
     def get_recent_summaries_as_text(self) -> List[str]:
         return [s.summary for s in self.recent_summaries]
-    
+
     def get_recent_summary_ids(self) -> List[int]:
         """Get IDs of recent summaries in context window."""
         return [s.summary_id for s in self.recent_summaries]

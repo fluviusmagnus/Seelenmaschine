@@ -15,7 +15,6 @@ def mock_config():
     """Mock Config"""
     with patch("tg_bot.handlers.Config") as mock:
         config_instance = Mock()
-        config_instance.ENABLE_SKILLS = True
         config_instance.ENABLE_MCP = False
         config_instance.TELEGRAM_USER_ID = 12345
         config_instance.TELEGRAM_USE_MARKDOWN = True
@@ -95,17 +94,6 @@ def mock_scheduler():
         yield scheduler
 
 
-@pytest.fixture
-def mock_skill_manager():
-    """Mock SkillManager"""
-    with patch("tg_bot.handlers.SkillManager") as mock:
-        manager = Mock()
-        manager._skills = {}
-        manager.get_tools.return_value = []
-        mock.return_value = manager
-        yield manager
-
-
 def test_message_handler_initialization(
     mock_config,
     mock_db,
@@ -114,7 +102,6 @@ def test_message_handler_initialization(
     mock_memory,
     mock_llm_client,
     mock_scheduler,
-    mock_skill_manager,
 ):
     """Test MessageHandler initializes correctly"""
     handler = MessageHandler()
@@ -124,7 +111,6 @@ def test_message_handler_initialization(
     assert handler.memory is not None
     assert handler.llm_client is not None
     assert handler.scheduler is not None
-    assert handler.skill_manager is not None
 
 
 @pytest.mark.asyncio
@@ -136,7 +122,6 @@ async def test_process_message(
     mock_memory,
     mock_llm_client,
     mock_scheduler,
-    mock_skill_manager,
 ):
     """Test _process_message flow"""
     handler = MessageHandler()
@@ -166,7 +151,6 @@ async def test_handle_message(
     mock_memory,
     mock_llm_client,
     mock_scheduler,
-    mock_skill_manager,
 ):
     """Test handle_message with Telegram update"""
     handler = MessageHandler()
@@ -198,7 +182,6 @@ async def test_handle_new_session(
     mock_memory,
     mock_llm_client,
     mock_scheduler,
-    mock_skill_manager,
 ):
     """Test /new command handler"""
     handler = MessageHandler()
@@ -230,7 +213,6 @@ async def test_handle_reset_session(
     mock_memory,
     mock_llm_client,
     mock_scheduler,
-    mock_skill_manager,
 ):
     """Test /reset command handler"""
     handler = MessageHandler()
@@ -258,7 +240,6 @@ def test_execute_tool_memory_search(
     mock_memory,
     mock_llm_client,
     mock_scheduler,
-    mock_skill_manager,
 ):
     """Test tool execution for memory search"""
     handler = MessageHandler()
@@ -275,35 +256,6 @@ def test_execute_tool_memory_search(
 
     assert result == "Found memories"
     handler.memory_search_tool.execute.assert_called_once_with(query="test")
-
-
-def test_execute_tool_skill(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
-    mock_skill_manager,
-):
-    """Test tool execution for skills"""
-    handler = MessageHandler()
-
-    # Mock a skill
-    mock_skill = Mock()
-    handler.skill_manager._skills["test_skill"] = mock_skill
-    handler.skill_manager.execute_skill = AsyncMock(return_value="Skill result")
-
-    # Execute tool (should await the result)
-    import asyncio
-
-    result = asyncio.run(handler._execute_tool("test_skill", '{"param": "value"}'))
-
-    assert result == "Skill result"
-    handler.skill_manager.execute_skill.assert_called_once_with(
-        "test_skill", {"param": "value"}
-    )
 
 
 if __name__ == "__main__":

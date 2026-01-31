@@ -39,7 +39,7 @@ def memory_manager(mock_db, mock_embedding_client, mock_reranker_client):
     return MemoryManager(
         db=mock_db,
         embedding_client=mock_embedding_client,
-        reranker_client=mock_reranker_client
+        reranker_client=mock_reranker_client,
     )
 
 
@@ -84,26 +84,30 @@ class TestMemoryManager:
         """Test creating new session summarizes remaining messages."""
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_summary.return_value = 10
-        
+
         # Add some messages to context window
         memory_manager.context_window.add_message("user", "Hello")
         memory_manager.context_window.add_message("assistant", "Hi there")
         memory_manager.context_window.add_message("user", "How are you?")
-        
-        with patch.object(memory_manager, '_generate_summary', return_value="Final summary") as mock_summary:
-            with patch.object(memory_manager, '_update_long_term_memory', return_value=True) as mock_update_ltm:
+
+        with patch.object(
+            memory_manager, "_generate_summary", return_value="Final summary"
+        ) as mock_summary:
+            with patch.object(
+                memory_manager, "_update_long_term_memory", return_value=True
+            ) as mock_update_ltm:
                 new_id = memory_manager.new_session()
-                
+
                 # Verify summary was created for remaining messages
                 assert mock_summary.called
                 assert mock_db.insert_summary.called
-                
+
                 # Verify long-term memory was updated with the remaining messages
                 assert mock_update_ltm.called
                 update_call_args = mock_update_ltm.call_args[0]
                 assert update_call_args[0] == 10  # summary_id
                 assert len(update_call_args[1]) == 3  # 3 remaining messages
-                
+
                 # Verify session was closed and new one created
                 assert mock_db.close_session.called
                 assert mock_db.create_session.called
@@ -128,9 +132,10 @@ class TestMemoryManager:
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_conversation.return_value = 10
 
-        conv_id = memory_manager.add_user_message("Hello")
+        conv_id, embedding = memory_manager.add_user_message("Hello")
 
         assert conv_id == 10
+        assert len(embedding) == 1536
         assert mock_db.insert_conversation.called
         assert memory_manager.context_window.get_total_message_count() == 1
 
@@ -138,8 +143,9 @@ class TestMemoryManager:
         """Test adding assistant message."""
         # Mock Config values using monkeypatch
         from config import Config
-        monkeypatch.setattr(Config, 'CONTEXT_WINDOW_TRIGGER_SUMMARY', 100)
-        
+
+        monkeypatch.setattr(Config, "CONTEXT_WINDOW_TRIGGER_SUMMARY", 100)
+
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_conversation.return_value = 11
 
@@ -148,35 +154,62 @@ class TestMemoryManager:
         assert conv_id == 11
         assert mock_db.insert_conversation.called
 
-    def test_add_assistant_message_triggers_summary(self, memory_manager, mock_db, monkeypatch):
+    def test_add_assistant_message_triggers_summary(
+        self, memory_manager, mock_db, monkeypatch
+    ):
         """Test that adding assistant message triggers summary when threshold reached."""
         # Mock Config values
         from config import Config
-        monkeypatch.setattr(Config, 'CONTEXT_WINDOW_TRIGGER_SUMMARY', 24)
-        monkeypatch.setattr(Config, 'CONTEXT_WINDOW_KEEP_MIN', 12)
-        
+
+        monkeypatch.setattr(Config, "CONTEXT_WINDOW_TRIGGER_SUMMARY", 24)
+        monkeypatch.setattr(Config, "CONTEXT_WINDOW_KEEP_MIN", 12)
+
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_conversation.return_value = 11
         mock_db.insert_summary.return_value = 1
 
+        # Mock get_conversations_by_session to return conversations with proper timestamps
+        mock_conversations = [
+            {
+                "conversation_id": i,
+                "timestamp": 1000 + i * 100,
+                "role": "user" if i % 2 == 0 else "assistant",
+                "text": f"Message {i}",
+            }
+            for i in range(24)
+        ]
+        mock_db.get_conversations_by_session.return_value = mock_conversations
+
         # Add exactly 24 messages to trigger summary
         for i in range(24):
-            memory_manager.context_window.add_message("user" if i % 2 == 0 else "assistant", f"Message {i}")
+            memory_manager.context_window.add_message(
+                "user" if i % 2 == 0 else "assistant", f"Message {i}"
+            )
 
         # Mock both summary generation and memory update
-        with patch.object(memory_manager, '_generate_summary', return_value="Test summary") as mock_summary:
-            with patch.object(memory_manager, '_generate_memory_update', return_value='{"user": {"name": "Test"}}') as mock_memory_update:
-                with patch.object(memory_manager, 'update_long_term_memory', return_value=True) as mock_update_ltm:
-                    conv_id, summary_id = memory_manager.add_assistant_message("Response")
+        with patch.object(
+            memory_manager, "_generate_summary", return_value="Test summary"
+        ) as mock_summary:
+            with patch.object(
+                memory_manager,
+                "_generate_memory_update",
+                return_value='{"user": {"name": "Test"}}',
+            ) as mock_memory_update:
+                with patch.object(
+                    memory_manager, "update_long_term_memory", return_value=True
+                ) as mock_update_ltm:
+                    conv_id, summary_id = memory_manager.add_assistant_message(
+                        "Response"
+                    )
 
                     assert summary_id is not None
                     assert mock_db.insert_summary.called
-                    
+
                     # Verify that _generate_memory_update was called with the correct messages
                     # It should be called with the 12 messages that were summarized (the earliest ones)
                     assert mock_memory_update.called
                     called_messages = mock_memory_update.call_args[0][0]
-                    
+
                     # The first 12 messages should have been used for the summary and memory update
                     assert len(called_messages) == 12
                     assert called_messages[0].text == "Message 0"
@@ -185,16 +218,38 @@ class TestMemoryManager:
     def test_process_user_input(self, memory_manager):
         """Test processing user input retrieves related memories."""
         summaries = [
-            RetrievedSummary(summary_id=1, summary="Summary 1", first_timestamp=100, last_timestamp=200, score=0.5)
+            RetrievedSummary(
+                summary_id=1,
+                summary="Summary 1",
+                first_timestamp=100,
+                last_timestamp=200,
+                score=0.5,
+            )
         ]
         conversations = [
-            RetrievedConversation(conversation_id=1, timestamp=150, role="user", text="Test", score=0.5)
+            RetrievedConversation(
+                conversation_id=1, timestamp=150, role="user", text="Test", score=0.5
+            )
         ]
 
-        with patch.object(memory_manager.retriever, 'retrieve_related_memories', return_value=(summaries, conversations)):
-            with patch.object(memory_manager.retriever, 'format_summaries_for_prompt', return_value=["Formatted Summary 1"]):
-                with patch.object(memory_manager.retriever, 'format_conversations_for_prompt', return_value=["Formatted Conv 1"]):
-                    formatted_summaries, formatted_convs = memory_manager.process_user_input("Hello")
+        with patch.object(
+            memory_manager.retriever,
+            "retrieve_related_memories",
+            return_value=(summaries, conversations),
+        ):
+            with patch.object(
+                memory_manager.retriever,
+                "format_summaries_for_prompt",
+                return_value=["Formatted Summary 1"],
+            ):
+                with patch.object(
+                    memory_manager.retriever,
+                    "format_conversations_for_prompt",
+                    return_value=["Formatted Conv 1"],
+                ):
+                    formatted_summaries, formatted_convs = (
+                        memory_manager.process_user_input("Hello")
+                    )
 
                     assert len(formatted_summaries) == 1
                     assert len(formatted_convs) == 1
@@ -212,7 +267,8 @@ class TestMemoryManager:
     def test_get_recent_summaries(self, memory_manager, monkeypatch):
         """Test getting recent summaries."""
         from config import Config
-        monkeypatch.setattr(Config, 'RECENT_SUMMARIES_MAX', 3)
+
+        monkeypatch.setattr(Config, "RECENT_SUMMARIES_MAX", 3)
 
         memory_manager.context_window.add_summary("Summary 1", summary_id=1)
         memory_manager.context_window.add_summary("Summary 2", summary_id=2)
