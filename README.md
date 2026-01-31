@@ -67,7 +67,8 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
    ```bash
    python src/main_telegram.py hy
    # 或使用快捷脚本
-   ./start-telegram.sh hy
+   ./start-telegram.sh hy              # Linux/macOS
+   start-telegram.bat hy               # Windows
    ```
 
 ## 配置说明
@@ -86,10 +87,6 @@ DEBUG_MODE=false
 DEBUG_LOG_LEVEL=INFO
 DEBUG_SHOW_FULL_PROMPT=false
 TIMEZONE=Asia/Shanghai
-
-# Session 管理
-NEW_SESSION_COMMAND=/new
-RESET_SESSION_COMMAND=/reset
 
 # Context Window 配置
 CONTEXT_WINDOW_KEEP_MIN=12
@@ -125,9 +122,6 @@ RERANK_API_BASE=
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_USER_ID=your_user_id
 
-# 定时任务配置
-SCHEDULED_TASKS_CONFIG_PATH=scheduled_tasks.json
-
 # Skills 配置
 ENABLE_SKILLS=true
 SKILLS_DIR=skills/
@@ -146,8 +140,7 @@ JINA_API_KEY=
 ```
 data/<profile>/
 ├── seele.json           # 长期记忆（人格和用户档案）
-├── chatbot.db           # SQLite 数据库
-└── scheduled_tasks.json # 定时任务配置
+└── chatbot.db           # SQLite 数据库
 ```
 
 ## 使用说明
@@ -157,12 +150,21 @@ data/<profile>/
 启动 Telegram Bot：
 ```bash
 python src/main_telegram.py <profile>
+
+# 或使用快捷脚本（自动检测虚拟环境和依赖）
+./start-telegram.sh <profile>         # Linux/macOS
+start-telegram.bat <profile>          # Windows
 ```
 
 示例：
 ```bash
+# 使用 Python 直接运行
 python src/main_telegram.py hy
 python src/main_telegram.py dev
+
+# 或使用快捷脚本
+./start-telegram.sh test
+start-telegram.bat hy
 ```
 
 ### 可用命令
@@ -253,6 +255,8 @@ Seelenmaschine/
 │   └── SEARCH_EXAMPLES.md        # 搜索功能示例
 ├── <profile>.env                 # 环境配置
 ├── .env.example                  # 配置示例
+├── start-telegram.sh             # 启动脚本（Linux/macOS）
+├── start-telegram.bat            # 启动脚本（Windows）
 ├── migrate.sh                    # 迁移工具快捷脚本（Linux/macOS）
 ├── migrate.bat                   # 迁移工具快捷脚本（Windows）
 ├── AGENTS.md                     # AI 辅助开发指南
@@ -304,8 +308,9 @@ pytest tests/ --cov=src            # 测试覆盖率
 # 执行迁移
 python migration/migrate.py <profile>
 
-# 或使用快捷脚本
-./migrate.sh <profile>
+# 或使用快捷脚本（自动检测虚拟环境和依赖）
+./migrate.sh <profile>                # Linux/macOS
+migrate.bat <profile>                 # Windows
 ```
 
 迁移工具会：
