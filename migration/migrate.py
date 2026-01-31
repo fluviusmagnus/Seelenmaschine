@@ -26,6 +26,9 @@ sys.path.insert(0, str(root_dir / "src"))
 from config import Config, init_config
 from utils.logger import get_logger
 from openai import AsyncOpenAI
+import struct
+import sqlite_vec
+from llm.embedding import EmbeddingClient
 
 logger = get_logger()
 
@@ -182,6 +185,9 @@ class DataMigrator:
         else:
             logger.info("No old database found to migrate.")
 
+        # Step 3: Rebuild Missing Vectors
+        asyncio.run(self._rebuild_vectors())
+
         logger.info("Migration completed successfully!")
 
     def _convert_txt_to_json(self):
@@ -305,7 +311,15 @@ class DataMigrator:
         """
         )
         cursor.execute(
-            "CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at, status)"
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at, status)"
+        )
+
+        # Vector tables (vec0)
+        cursor.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_conversations USING vec0(conversation_id INTEGER PRIMARY KEY, embedding float[{Config.EMBEDDING_DIMENSION}])"
+        )
+        cursor.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_summaries USING vec0(summary_id INTEGER PRIMARY KEY, embedding float[{Config.EMBEDDING_DIMENSION}])"
         )
 
         # FTS5 tables
@@ -427,6 +441,109 @@ class DataMigrator:
             "CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at, status)"
         )
         cursor.execute("PRAGMA foreign_keys=ON")
+
+    def _serialize_embedding(self, embedding: List[float]) -> bytes:
+        return struct.pack(f"{len(embedding)}f", *embedding)
+
+    async def _rebuild_vectors(self):
+        """Rebuild missing vectors for conversations and summaries with rate limiting."""
+        logger.info("Checking for missing vectors...")
+
+        # Initialize EmbeddingClient
+        client = EmbeddingClient()
+        batch_size = 50
+        rpm_limit = 120
+        # 120 RPM = 2 requests per second. To be safe, wait 0.6s between batches.
+        # However, RPM is about API calls. 1 batch = 1 API call.
+        current_db = sqlite3.connect(str(self.new_db_path))
+        current_db.row_factory = sqlite3.Row
+        cursor = current_db.cursor()
+
+        try:
+            # 1. Process Conversations
+            cursor.execute(
+                """
+                SELECT c.conversation_id, c.text FROM conversations c
+                LEFT JOIN vec_conversations v ON c.conversation_id = v.conversation_id
+                WHERE v.conversation_id IS NULL
+            """
+            )
+            missing_convs = cursor.fetchall()
+
+            if missing_convs:
+                total = len(missing_convs)
+                logger.info(f"Rebuilding {total} conversation vectors...")
+                for i in range(0, total, batch_size):
+                    batch = missing_convs[i : i + batch_size]
+                    ids = [row["conversation_id"] for row in batch]
+                    texts = [row["text"] for row in batch]
+
+                    embeddings = await client.get_embeddings_batch_async(texts)
+
+                    for conv_id, vector in zip(ids, embeddings):
+                        blob = self._serialize_embedding(vector)
+                        cursor.execute(
+                            "INSERT INTO vec_conversations (conversation_id, embedding) VALUES (?, ?)",
+                            (conv_id, blob),
+                        )
+                    current_db.commit()
+
+                    progress = min(100, (i + len(batch)) * 100 // total)
+                    print(
+                        f"  Conversations: [{('#' * (progress // 5)).ljust(20, '-')}] {progress}% ({i + len(batch)}/{total})",
+                        end="\r",
+                        flush=True,
+                    )
+
+                    if i + batch_size < total:
+                        await asyncio.sleep(0.6)  # Maintain RPM < 120
+                print()
+
+            # 2. Process Summaries
+            cursor.execute(
+                """
+                SELECT s.summary_id, s.summary FROM summaries s
+                LEFT JOIN vec_summaries v ON s.summary_id = v.summary_id
+                WHERE v.summary_id IS NULL
+            """
+            )
+            missing_sums = cursor.fetchall()
+
+            if missing_sums:
+                total = len(missing_sums)
+                logger.info(f"Rebuilding {total} summary vectors...")
+                for i in range(0, total, batch_size):
+                    batch = missing_sums[i : i + batch_size]
+                    ids = [row["summary_id"] for row in batch]
+                    texts = [row["summary"] for row in batch]
+
+                    embeddings = await client.get_embeddings_batch_async(texts)
+
+                    for sum_id, vector in zip(ids, embeddings):
+                        blob = self._serialize_embedding(vector)
+                        cursor.execute(
+                            "INSERT INTO vec_summaries (summary_id, embedding) VALUES (?, ?)",
+                            (sum_id, blob),
+                        )
+                    current_db.commit()
+
+                    progress = min(100, (i + len(batch)) * 100 // total)
+                    print(
+                        f"  Summaries:     [{('#' * (progress // 5)).ljust(20, '-')}] {progress}% ({i + len(batch)}/{total})",
+                        end="\r",
+                        flush=True,
+                    )
+
+                    if i + batch_size < total:
+                        await asyncio.sleep(0.6)  # Maintain RPM < 120
+                print()
+
+        except Exception as e:
+            logger.error(f"Failed to rebuild vectors: {e}")
+            raise
+        finally:
+            current_db.close()
+            await client._async_close()
 
     def _migrate_database_content(self):
         """Migrate data from source_db to new_db_path."""
