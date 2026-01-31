@@ -49,6 +49,11 @@ class MessageHandler:
         # Initialize LLM client
         self.llm_client = LLMClient()
 
+        # Initialize attributes
+        self.memory_search_tool = None
+        self.mcp_client = None
+        self._mcp_connected = False
+
         # Setup tools for LLM
         self._setup_tools()
 
@@ -202,14 +207,25 @@ class MessageHandler:
             self.mcp_client = None
             self._mcp_connected = False
 
+        self._setup_basic_tools()
+
+    def _setup_basic_tools(self):
+        """Setup basic (non-MCP) tools"""
+        tools = []
+
+        if self.scheduled_task_tool_def:
+            tools.append(self.scheduled_task_tool_def)
+            logger.info("Added scheduled_task tool")
+
         # Add memory search tool
         session_id = self.memory.get_current_session_id()
-        self.memory_search_tool = MemorySearchTool(
-            session_id=str(session_id),
-            db=self.db,
-            embedding_client=self.embedding_client,
-            reranker_client=self.reranker_client,
-        )
+        if not hasattr(self, "memory_search_tool") or self.memory_search_tool is None:
+            self.memory_search_tool = MemorySearchTool(
+                session_id=str(session_id),
+                db=self.db,
+                embedding_client=self.embedding_client,
+                reranker_client=self.reranker_client,
+            )
 
         memory_search_tool_def = {
             "type": "function",
@@ -226,7 +242,7 @@ class MessageHandler:
         self.llm_client.set_tools(tools)
         self.llm_client.set_tool_executor(self._execute_tool)
 
-        logger.info(f"Total tools registered: {len(tools)}")
+        logger.info(f"Basic tools registered: {len(tools)}")
 
     async def _ensure_mcp_connected(self):
         """Ensure MCP client is connected"""
@@ -238,14 +254,23 @@ class MessageHandler:
                 # Get and register MCP tools
                 mcp_tools = await self.mcp_client.list_tools()
                 logger.info(f"Connected MCP client with {len(mcp_tools)} tools")
+                for tool in mcp_tools:
+                    tool_func = tool.get("function", {})
+                    name = tool_func.get("name", "Unknown")
+                    desc = tool_func.get("description", "No description")
+                    logger.debug(f"  - [MCP Tool] {name}: {desc}")
 
-                # Update tools in LLM client
+                # Rebuild all tools list
                 all_tools = []
+
+                # 1. Add scheduled task tool
                 if self.scheduled_task_tool_def:
                     all_tools.append(self.scheduled_task_tool_def)
+
+                # 2. Add MCP tools
                 all_tools.extend(mcp_tools)
 
-                # Add memory search tool
+                # 3. Add memory search tool
                 memory_search_tool_def = {
                     "type": "function",
                     "function": {
@@ -257,10 +282,14 @@ class MessageHandler:
                 all_tools.append(memory_search_tool_def)
 
                 self.llm_client.set_tools(all_tools)
-                logger.info(f"Updated tools: {len(all_tools)} total")
+                logger.info(
+                    f"Updated tools: {len(all_tools)} total including {len(mcp_tools)} MCP tools"
+                )
             except Exception as e:
                 logger.error(f"Failed to connect MCP client: {e}")
                 self._mcp_connected = False
+                # Ensure we still have basic tools even if MCP fails
+                self._setup_basic_tools()
 
     async def _execute_tool(self, tool_name: str, arguments_json: str) -> str:
         """Execute a tool call from LLM"""
@@ -286,8 +315,9 @@ class MessageHandler:
             await self._ensure_mcp_connected()
 
             if self._mcp_connected:
-                mcp_tools = await self.mcp_client.list_tools()
-                if tool_name in [t["function"]["name"] for t in mcp_tools]:
+                # Optimized check: search in cached tools if available
+                mcp_tools = self.mcp_client.get_tools_sync()
+                if any(t["function"]["name"] == tool_name for t in mcp_tools):
                     return await self.mcp_client.call_tool(tool_name, arguments)
 
         return f"Error: Tool not found: {tool_name}"
@@ -474,6 +504,11 @@ class MessageHandler:
             # Step 5: Enable memory search tool for LLM to use
             logger.debug("Step 5: Enabling memory search tool")
             self.memory_search_tool.enable()
+
+            # Step 5.5: Ensure MCP is connected so tools are available to LLM
+            if self.mcp_client:
+                logger.debug("Step 5.5: Ensuring MCP is connected")
+                await self._ensure_mcp_connected()
 
             # Step 6: Call LLM with full context and tools
             logger.debug("Step 6: Calling LLM")
