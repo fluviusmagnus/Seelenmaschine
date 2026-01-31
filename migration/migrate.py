@@ -13,10 +13,9 @@ import shutil
 import sqlite3
 import json
 import asyncio
-import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 import argparse
 
 # Add src to path for imports
@@ -27,7 +26,6 @@ from config import Config, init_config
 from utils.logger import get_logger
 from openai import AsyncOpenAI
 import struct
-import sqlite_vec
 from llm.embedding import EmbeddingClient
 
 logger = get_logger()
@@ -188,6 +186,9 @@ class DataMigrator:
         # Step 3: Rebuild Missing Vectors
         asyncio.run(self._rebuild_vectors())
 
+        # Step 4: Clean up source files after successful migration
+        self._cleanup_source_files()
+
         logger.info("Migration completed successfully!")
 
     def _convert_txt_to_json(self):
@@ -238,6 +239,11 @@ class DataMigrator:
 
         conn = sqlite3.connect(str(self.new_db_path))
         cursor = conn.cursor()
+
+        # Load sqlite-vec extension
+        import sqlite_vec
+        conn.enable_load_extension(True)
+        conn.load_extension(sqlite_vec.loadable_path())
 
         # Meta table
         cursor.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
@@ -400,9 +406,36 @@ class DataMigrator:
             cursor.execute("UPDATE meta SET value = '3.1' WHERE key = 'schema_version'")
             version = "3.1"
 
+        # Ensure vec tables exist (for any version >= 3.1)
+        self._ensure_vec_tables(conn, cursor)
+
         conn.commit()
         conn.close()
         logger.info(f"Database is at version {version}")
+
+    def _ensure_vec_tables(self, conn, cursor):
+        """Ensure vector tables exist, creating them if missing."""
+        import sqlite_vec
+
+        # Load sqlite-vec extension
+        conn.enable_load_extension(True)
+        conn.load_extension(sqlite_vec.loadable_path())
+
+        # Check if vec_conversations exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_conversations'")
+        if not cursor.fetchone():
+            logger.info("Creating missing vec_conversations table...")
+            cursor.execute(
+                f"CREATE VIRTUAL TABLE vec_conversations USING vec0(conversation_id INTEGER PRIMARY KEY, embedding float[{Config.EMBEDDING_DIMENSION}])"
+            )
+
+        # Check if vec_summaries exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_summaries'")
+        if not cursor.fetchone():
+            logger.info("Creating missing vec_summaries table...")
+            cursor.execute(
+                f"CREATE VIRTUAL TABLE vec_summaries USING vec0(summary_id INTEGER PRIMARY KEY, embedding float[{Config.EMBEDDING_DIMENSION}])"
+            )
 
     def _add_fts5_to_existing(self, cursor):
         """Add FTS5 tables to an existing 2.0 database."""
@@ -445,18 +478,39 @@ class DataMigrator:
     def _serialize_embedding(self, embedding: List[float]) -> bytes:
         return struct.pack(f"{len(embedding)}f", *embedding)
 
+    def _cleanup_source_files(self):
+        """Delete source files after successful migration."""
+        files_to_delete = [
+            (self.source_db, "chat_sessions.db"),
+            (self.source_persona, "persona_memory.txt"),
+            (self.source_user, "user_profile.txt"),
+        ]
+
+        for file_path, file_name in files_to_delete:
+            if file_path and file_path.exists():
+                try:
+                    file_path.unlink()
+                    logger.info(f"Deleted source file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete {file_name}: {e}")
+
     async def _rebuild_vectors(self):
         """Rebuild missing vectors for conversations and summaries with rate limiting."""
         logger.info("Checking for missing vectors...")
 
         # Initialize EmbeddingClient
         client = EmbeddingClient()
-        batch_size = 50
-        rpm_limit = 120
+        batch_size = 200
         # 120 RPM = 2 requests per second. To be safe, wait 0.6s between batches.
         # However, RPM is about API calls. 1 batch = 1 API call.
         current_db = sqlite3.connect(str(self.new_db_path))
         current_db.row_factory = sqlite3.Row
+
+        # Load sqlite-vec extension
+        import sqlite_vec
+        current_db.enable_load_extension(True)
+        current_db.load_extension(sqlite_vec.loadable_path())
+
         cursor = current_db.cursor()
 
         try:
