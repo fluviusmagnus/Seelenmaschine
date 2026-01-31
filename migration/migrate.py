@@ -137,11 +137,13 @@ class DataMigrator:
             logger.info(f"Source user file found: {self.source_user}")
 
     def _backup_existing_data(self):
-        """Create a backup of the current target files if they exist."""
+        """Create a backup of source and target files before migration."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         active_backup_dir = self.data_dir / f"migration_backup_{timestamp}"
 
         needed = False
+
+        # Backup target files (current working data)
         if self.seele_json_path.exists():
             active_backup_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self.seele_json_path, active_backup_dir / "seele.json")
@@ -151,8 +153,24 @@ class DataMigrator:
             shutil.copy2(self.new_db_path, active_backup_dir / "chatbot.db")
             needed = True
 
+        # Backup source files (if they are in the profile root, not in backup/)
+        source_files_to_backup = [
+            (self.source_db, "chat_sessions.db"),
+            (self.source_persona, "persona_memory.txt"),
+            (self.source_user, "user_profile.txt"),
+        ]
+
+        for source_path, filename in source_files_to_backup:
+            if source_path and source_path.exists():
+                # Only backup if source is in profile root (not already in backup/)
+                if source_path.parent == self.data_dir:
+                    active_backup_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_path, active_backup_dir / filename)
+                    needed = True
+                    logger.info(f"Backed up source file: {source_path}")
+
         if needed:
-            logger.info(f"Existing data backed up to: {active_backup_dir}")
+            logger.info(f"Backup created at: {active_backup_dir}")
 
     def migrate(self):
         logger.info(f"Starting unified migration for profile: {self.profile}")
