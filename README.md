@@ -122,10 +122,6 @@ RERANK_API_BASE=
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_USER_ID=your_user_id
 
-# Skills 配置
-ENABLE_SKILLS=true
-SKILLS_DIR=skills/
-
 # MCP 配置
 ENABLE_MCP=false
 MCP_CONFIG_PATH=mcp_servers.json
@@ -197,9 +193,8 @@ start-telegram.bat hy
 系统集成了以下工具能力：
 
 1. **MCP (Model Context Protocol)** - 外部工具和数据源
-2. **Skills** - 本地插件系统
-3. **Memory Search** - 自我查询记忆
-4. **Web Search** - 网络搜索（需启用）
+2. **Memory Search** - 自我查询记忆
+3. **Web Search** - 网络搜索（需启用）
 
 通过配置文件控制各工具的启用状态。
 
