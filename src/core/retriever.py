@@ -331,8 +331,16 @@ class MemoryRetriever:
         from config import Config
 
         for summary in summaries:
-            time_str = timestamp_to_str(summary.last_timestamp, tz=Config.TIMEZONE)
-            formatted.append(f"[{time_str}] {summary.summary}")
+            start_time_str = timestamp_to_str(
+                summary.first_timestamp, tz=Config.TIMEZONE
+            )
+            end_time_str = timestamp_to_str(summary.last_timestamp, tz=Config.TIMEZONE)
+            if start_time_str == end_time_str:
+                formatted.append(f"[{start_time_str}] {summary.summary}")
+            else:
+                formatted.append(
+                    f"[{start_time_str} ~ {end_time_str}] {summary.summary}"
+                )
 
         return formatted
 
