@@ -1,6 +1,7 @@
 """Telegram Bot Implementation"""
 
 import asyncio
+import random
 from typing import Optional
 from telegram import Update, BotCommand
 from telegram.ext import (
@@ -57,44 +58,86 @@ class TelegramBot:
             logger.error("Cannot send scheduled message: application not initialized")
             return
 
+        async def _keep_typing_indicator():
+            """Background task to keep typing indicator active"""
+            while True:
+                try:
+                    await self._application.bot.send_chat_action(
+                        chat_id=self.config.TELEGRAM_USER_ID, action="typing"
+                    )
+                    await asyncio.sleep(3)  # Send typing action every 3 seconds
+                except Exception:
+                    break
+
         try:
-            # Step 1: Process scheduled task through LLM
-            # This will wrap the message, call LLM, and save the response to memory
-            logger.info(f"Processing scheduled task '{task_name}': {message[:50]}...")
-            llm_response = await self.message_handler._handle_scheduled_message(
-                message, task_name
-            )
+            # Start background task to keep typing indicator active
+            typing_task = asyncio.create_task(_keep_typing_indicator())
 
-            # Step 2: Format the LLM response for Telegram HTML
-            formatted_response = self.message_handler._format_response_for_telegram(
-                llm_response
-            )
-
-            # Step 3: Send the LLM response to user
             try:
-                await self._application.bot.send_message(
-                    chat_id=self.config.TELEGRAM_USER_ID,
-                    text=formatted_response,
-                    parse_mode="HTML",
-                )
+                # Step 1: Process scheduled task through LLM
+                # This will wrap the message, call LLM, and save the response to memory
                 logger.info(
-                    f"Scheduled task response sent (HTML): {llm_response[:50]}..."
+                    f"Processing scheduled task '{task_name}': {message[:50]}..."
                 )
-            except Exception as e:
-                # Fallback to plain text if HTML fails
-                error_msg = str(e)
-                logger.warning(
-                    f"HTML parsing failed for scheduled message, sending plain text: {error_msg}"
-                )
-                await self._application.bot.send_message(
-                    chat_id=self.config.TELEGRAM_USER_ID, text=llm_response
-                )
-                logger.info(
-                    f"Scheduled task response sent (plain text): {llm_response[:50]}..."
+                llm_response = await self.message_handler._handle_scheduled_message(
+                    message, task_name
                 )
 
-            # Note: The LLM response is already saved to memory by _process_scheduled_task
-            # We don't need to save it again here
+                # Step 2: Format the LLM response for Telegram HTML
+                formatted_response = self.message_handler._format_response_for_telegram(
+                    llm_response
+                )
+
+                # Step 3: Split response into segments and send to user
+                segments = self.message_handler._split_message_into_segments(
+                    formatted_response
+                )
+                logger.debug(f"Scheduled response split into {len(segments)} segments")
+
+                for i, segment in enumerate(segments):
+                    try:
+                        await self._application.bot.send_message(
+                            chat_id=self.config.TELEGRAM_USER_ID,
+                            text=segment,
+                            parse_mode="HTML",
+                        )
+                        logger.debug(
+                            f"Sent scheduled segment {i + 1}/{len(segments)} ({len(segment)} chars)"
+                        )
+
+                        # Add delay between segments (except after the last one)
+                        if i < len(segments) - 1:
+                            delay = random.uniform(1.0, 2.0)
+                            logger.debug(f"Waiting {delay:.1f}s before next segment")
+                            await asyncio.sleep(delay)
+                    except Exception as e:
+                        # Fallback to plain text if HTML fails for this segment
+                        error_msg = str(e)
+                        logger.warning(
+                            f"HTML parsing failed for scheduled segment {i + 1}, sending plain text: {error_msg}"
+                        )
+                        try:
+                            await self._application.bot.send_message(
+                                chat_id=self.config.TELEGRAM_USER_ID, text=segment
+                            )
+                        except Exception as e2:
+                            logger.error(
+                                f"Failed to send scheduled segment {i + 1}: {e2}"
+                            )
+
+                logger.info(
+                    f"Scheduled task response sent ({len(segments)} segments): {llm_response[:50]}..."
+                )
+
+                # Note: The LLM response is already saved to memory by _process_scheduled_task
+                # We don't need to save it again here
+            finally:
+                # Cancel typing indicator task
+                typing_task.cancel()
+                try:
+                    await typing_task
+                except asyncio.CancelledError:
+                    pass
 
         except Exception as e:
             logger.error(

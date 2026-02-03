@@ -1,6 +1,12 @@
 """Message handlers for Telegram bot"""
 
+import asyncio
+import html
 import json
+import random
+import re
+from typing import List
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -122,9 +128,6 @@ class MessageHandler:
         # User wants blockquotes to be CODE BLOCKS to avoid issues.
         # So we will convert <blockquote>...</blockquote> to <pre>...</pre> (which is code block in HTML).
 
-        import html
-        import re
-
         # Helper to escape text but preserve code blocks we create
         # But wait, if we use HTML, we can just use <pre> tag!
 
@@ -205,6 +208,75 @@ class MessageHandler:
         )
 
         return final_text
+
+    def _split_message_into_segments(
+        self, text: str, max_length: int = 4000
+    ) -> List[str]:
+        """Split message into segments, keeping code blocks and blockquotes intact.
+
+        Args:
+            text: Formatted text for Telegram (HTML)
+            max_length: Maximum length per segment (Telegram limit is ~4096)
+
+        Returns:
+            List of message segments
+        """
+        if len(text) <= max_length:
+            return [text]
+
+        segments = []
+        current_segment = ""
+
+        # Pattern to match code blocks (<pre>...</pre>) and blockquotes (<blockquote>...</blockquote>)
+        # These should never be split
+        pattern = r"(<pre>.*?</pre>|<blockquote>.*?</blockquote>)"
+
+        # Split by the pattern, keeping delimiters
+        parts = re.split(f"({pattern})", text, flags=re.DOTALL)
+
+        for part in parts:
+            if not part:
+                continue
+
+            # Check if this part is a code block or blockquote
+            is_code_block = part.startswith("<pre>") and part.endswith("</pre>")
+            is_blockquote = part.startswith("<blockquote>") and part.endswith(
+                "</blockquote>"
+            )
+
+            if is_code_block or is_blockquote:
+                # If adding this block would exceed limit, start new segment
+                if len(current_segment) + len(part) > max_length:
+                    if current_segment:
+                        segments.append(current_segment.strip())
+                    # If block itself is too long, we have to send it anyway
+                    # (Telegram will handle large messages)
+                    segments.append(part)
+                    current_segment = ""
+                else:
+                    current_segment += part
+            else:
+                # Regular text - can be split at paragraph boundaries
+                paragraphs = part.split("\n\n")
+
+                for para in paragraphs:
+                    # Check if adding this paragraph would exceed limit
+                    if len(current_segment) + len(para) + 2 > max_length:  # +2 for \n\n
+                        if current_segment:
+                            segments.append(current_segment.strip())
+                            current_segment = ""
+
+                    if para:
+                        if current_segment:
+                            current_segment += "\n\n" + para
+                        else:
+                            current_segment = para
+
+        # Add remaining segment
+        if current_segment:
+            segments.append(current_segment.strip())
+
+        return [seg for seg in segments if seg]
 
     def _setup_tools(self):
         """Setup tool system for LLM"""
@@ -361,33 +433,63 @@ class MessageHandler:
         user_message = update.message.text
         logger.info(f"Received message: {user_message[:50]}...")
 
+        async def _keep_typing_indicator():
+            """Background task to keep typing indicator active"""
+            while True:
+                try:
+                    await update.message.chat.send_action("typing")
+                    await asyncio.sleep(3)  # Send typing action every 3 seconds
+                except Exception:
+                    break
+
         try:
-            # Send typing indicator
-            await update.message.chat.send_action("typing")
+            # Start background task to keep typing indicator active
+            typing_task = asyncio.create_task(_keep_typing_indicator())
 
-            # Process message through memory and LLM
-            response = await self._process_message(user_message)
-
-            # Send response using HTML parse mode
-            # We always use HTML now because we rely on it for <pre> blockquotes
             try:
-                await update.message.reply_text(
-                    self._format_response_for_telegram(response),
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                # If HTML parsing fails, fall back to plain text
-                # Try to send with basic clean up if possible, or just raw
-                error_msg = str(e)
-                logger.warning(
-                    f"HTML parsing failed, sending as plain text: {error_msg}"
-                )
-                # Fallback: send as plain text.
-                # Note: This will show <pre> tags literally if they are in the text.
-                # But better than crashing.
-                await update.message.reply_text(
-                    self._format_response_for_telegram(response)
-                )
+                # Process message through memory and LLM
+                response = await self._process_message(user_message)
+
+                # Send response using HTML parse mode
+                # We always use HTML now because we rely on it for <pre> blockquotes
+                # Split long messages into segments, keeping code blocks intact
+                formatted_response = self._format_response_for_telegram(response)
+                segments = self._split_message_into_segments(formatted_response)
+
+                logger.debug(f"Response split into {len(segments)} segments")
+
+                for i, segment in enumerate(segments):
+                    try:
+                        await update.message.reply_text(
+                            segment,
+                            parse_mode="HTML",
+                        )
+                        logger.debug(
+                            f"Sent segment {i + 1}/{len(segments)} ({len(segment)} chars)"
+                        )
+
+                        # Add delay between segments (except after the last one)
+                        if i < len(segments) - 1:
+                            delay = random.uniform(1.0, 2.0)
+                            logger.debug(f"Waiting {delay:.1f}s before next segment")
+                            await asyncio.sleep(delay)
+                    except Exception as e:
+                        # If HTML parsing fails for this segment, try sending as plain text
+                        error_msg = str(e)
+                        logger.warning(
+                            f"HTML parsing failed for segment {i + 1}, sending as plain text: {error_msg}"
+                        )
+                        try:
+                            await update.message.reply_text(segment)
+                        except Exception as e2:
+                            logger.error(f"Failed to send segment {i + 1}: {e2}")
+            finally:
+                # Cancel typing indicator task
+                typing_task.cancel()
+                try:
+                    await typing_task
+                except asyncio.CancelledError:
+                    pass
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
