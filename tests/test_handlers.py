@@ -143,6 +143,14 @@ class TestSplitMessageIntoSegments:
         assert len(segments) == 1
         assert segments[0] == text
 
+    def test_multiple_paragraphs_split_even_when_short(self, mock_handler):
+        """Test that multi-paragraph messages are split even if short"""
+        text = "Paragraph 1.\n\nParagraph 2.\n\nParagraph 3."
+
+        segments = mock_handler._split_message_into_segments(text)
+
+        assert segments == ["Paragraph 1.", "Paragraph 2.", "Paragraph 3."]
+
     def test_message_split_at_paragraphs(self, mock_handler):
         """Test that messages are split at paragraph boundaries"""
         # Create a message with multiple paragraphs
@@ -208,9 +216,9 @@ class TestSplitMessageIntoSegments:
         for seg in segments:
             # If a segment contains <pre>, it should also contain </pre>
             if "<pre>" in seg:
-                assert "</pre>" in seg, (
-                    f"Code block split incorrectly in segment: {seg}"
-                )
+                assert (
+                    "</pre>" in seg
+                ), f"Code block split incorrectly in segment: {seg}"
 
     def test_empty_segments_filtered(self, mock_handler):
         """Test that empty segments are filtered out"""

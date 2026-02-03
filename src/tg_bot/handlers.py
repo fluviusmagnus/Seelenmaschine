@@ -221,11 +221,35 @@ class MessageHandler:
         Returns:
             List of message segments
         """
-        if len(text) <= max_length:
-            return [text]
+        segments: List[str] = []
 
-        segments = []
-        current_segment = ""
+        def _append_segment(content: str) -> None:
+            if content and content.strip():
+                segments.append(content.strip())
+
+        def _split_long_text(content: str, limit: int) -> List[str]:
+            if len(content) <= limit:
+                return [content]
+
+            chunks: List[str] = []
+            remaining = content
+
+            while len(remaining) > limit:
+                slice_text = remaining[:limit]
+                split_index = max(slice_text.rfind("\n"), slice_text.rfind(" "))
+                if split_index <= 0:
+                    split_index = limit
+
+                chunk = remaining[:split_index].strip()
+                if chunk:
+                    chunks.append(chunk)
+
+                remaining = remaining[split_index:].lstrip()
+
+            if remaining:
+                chunks.append(remaining.strip())
+
+            return chunks
 
         # Pattern to match code blocks (<pre>...</pre>) and blockquotes (<blockquote>...</blockquote>)
         # These should never be split
@@ -245,36 +269,17 @@ class MessageHandler:
             )
 
             if is_code_block or is_blockquote:
-                # If adding this block would exceed limit, start new segment
-                if len(current_segment) + len(part) > max_length:
-                    if current_segment:
-                        segments.append(current_segment.strip())
-                    # If block itself is too long, we have to send it anyway
-                    # (Telegram will handle large messages)
-                    segments.append(part)
-                    current_segment = ""
-                else:
-                    current_segment += part
-            else:
-                # Regular text - can be split at paragraph boundaries
-                paragraphs = part.split("\n\n")
+                # Always keep blocks intact as their own segments
+                _append_segment(part)
+                continue
 
-                for para in paragraphs:
-                    # Check if adding this paragraph would exceed limit
-                    if len(current_segment) + len(para) + 2 > max_length:  # +2 for \n\n
-                        if current_segment:
-                            segments.append(current_segment.strip())
-                            current_segment = ""
+            # Regular text - split by paragraph and send each paragraph separately
+            paragraphs = [p for p in part.split("\n\n") if p.strip()]
 
-                    if para:
-                        if current_segment:
-                            current_segment += "\n\n" + para
-                        else:
-                            current_segment = para
-
-        # Add remaining segment
-        if current_segment:
-            segments.append(current_segment.strip())
+            for para in paragraphs:
+                paragraph_pieces = _split_long_text(para, max_length)
+                for piece in paragraph_pieces:
+                    _append_segment(piece)
 
         return [seg for seg in segments if seg]
 
