@@ -66,8 +66,9 @@ class TelegramBot:
                         chat_id=self.config.TELEGRAM_USER_ID, action="typing"
                     )
                     await asyncio.sleep(3)  # Send typing action every 3 seconds
-                except Exception:
-                    break
+                except Exception as e:
+                    logger.warning(f"Scheduled typing indicator failed: {e}")
+                    await asyncio.sleep(3)
 
         try:
             # Start background task to keep typing indicator active

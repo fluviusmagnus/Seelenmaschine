@@ -442,10 +442,13 @@ class MessageHandler:
             """Background task to keep typing indicator active"""
             while True:
                 try:
-                    await update.message.chat.send_action("typing")
+                    await context.bot.send_chat_action(
+                        chat_id=update.effective_chat.id, action="typing"
+                    )
                     await asyncio.sleep(3)  # Send typing action every 3 seconds
-                except Exception:
-                    break
+                except Exception as e:
+                    logger.warning(f"Typing indicator failed: {e}")
+                    await asyncio.sleep(3)
 
         try:
             # Start background task to keep typing indicator active
