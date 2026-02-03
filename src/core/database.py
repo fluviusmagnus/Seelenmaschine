@@ -939,7 +939,7 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE scheduled_tasks 
-                SET next_run_at = ?, last_run_at = ?
+                SET next_run_at = ?, last_run_at = ?, status = 'active'
                 WHERE task_id = ?
             """,
                 (next_run_at, last_run_at, task_id),
@@ -996,6 +996,19 @@ class DatabaseManager:
                 "UPDATE scheduled_tasks SET status = ?, last_run_at = ? WHERE task_id = ?",
                 (status, last_run_at, task_id),
             )
+
+    def reset_running_tasks(self) -> int:
+        """Reset tasks stuck in running state to active.
+
+        Returns:
+            Number of tasks reset.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE scheduled_tasks SET status = 'active' WHERE status = 'running'"
+            )
+            return cursor.rowcount
 
     def search_conversations_by_keyword(
         self,

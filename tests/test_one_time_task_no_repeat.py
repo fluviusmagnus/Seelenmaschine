@@ -31,7 +31,7 @@ async def test_one_time_task_only_executes_once(scheduler):
     """Test that a one-time task only executes once even if checked multiple times"""
     messages_sent = []
 
-    def callback(message):
+    def callback(message, task_name="Scheduled Task"):
         messages_sent.append(message)
 
     scheduler.set_message_callback(callback)
@@ -78,7 +78,7 @@ async def test_multiple_one_time_tasks_execute_independently(scheduler):
     """Test that multiple one-time tasks execute independently"""
     messages_sent = []
 
-    def callback(message):
+    def callback(message, task_name="Scheduled Task"):
         messages_sent.append(message)
 
     scheduler.set_message_callback(callback)
@@ -117,11 +117,42 @@ async def test_multiple_one_time_tasks_execute_independently(scheduler):
 
 
 @pytest.mark.asyncio
+async def test_one_time_task_error_does_not_repeat(scheduler):
+    """Test that a failing one-time task does not repeat execution"""
+    messages_sent = []
+
+    def callback(message, task_name="Scheduled Task"):
+        messages_sent.append(message)
+        raise RuntimeError("Simulated failure")
+
+    scheduler.set_message_callback(callback)
+
+    current_time = get_current_timestamp()
+    task_id = scheduler.add_task(
+        name="Failing One-time Task",
+        trigger_type="once",
+        trigger_config={"timestamp": current_time - 10},
+        message="Should not repeat",
+    )
+
+    # First execution fails, but should still be marked completed
+    await scheduler._check_and_run_tasks()
+    assert len(messages_sent) == 1
+
+    task = scheduler.get_task(task_id)
+    assert task["status"] == "completed"
+
+    # Subsequent checks should not re-run
+    await scheduler._check_and_run_tasks()
+    assert len(messages_sent) == 1
+
+
+@pytest.mark.asyncio
 async def test_interval_task_continues_executing(scheduler, temp_db):
     """Test that interval tasks continue to execute"""
     messages_sent = []
 
-    def callback(message):
+    def callback(message, task_name="Scheduled Task"):
         messages_sent.append(message)
 
     scheduler.set_message_callback(callback)

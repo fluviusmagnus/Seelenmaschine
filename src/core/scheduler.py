@@ -30,7 +30,21 @@ class TaskScheduler:
         self._task: Optional[asyncio.Task] = None
         self._message_callback: Optional[Callable] = None
         self._instance_id = str(uuid.uuid4())[:8]
+        self._recover_running_tasks()
         logger.debug(f"TaskScheduler {self._instance_id} initialized")
+
+    def _recover_running_tasks(self) -> None:
+        """Recover tasks stuck in running state after unexpected shutdown."""
+        try:
+            recovered_count = self.db.reset_running_tasks()
+            if recovered_count > 0:
+                logger.info(
+                    f"TaskScheduler {self._instance_id}: Recovered {recovered_count} running tasks"
+                )
+        except Exception as e:
+            logger.error(
+                f"TaskScheduler {self._instance_id}: Failed to recover running tasks: {e}"
+            )
 
     def set_message_callback(self, callback: Callable) -> None:
         """Set callback for sending messages (can be sync or async)"""
@@ -89,8 +103,11 @@ class TaskScheduler:
                 logger.error(
                     f"TaskScheduler {self._instance_id}: Failed to execute task {task_data['task_id']}: {e}"
                 )
-                # Reset status to active if it failed, so it can be retried later
-                self.db.update_task_status(task_data["task_id"], "active")
+                # Only retry interval tasks; one-time tasks should not repeat
+                if task_data.get("trigger_type") == "interval":
+                    self.db.update_task_status(task_data["task_id"], "active")
+                else:
+                    self.db.update_task_status(task_data["task_id"], "completed")
 
     async def _execute_task(self, task_data: Dict[str, Any]) -> None:
         task_id = task_data["task_id"]
