@@ -1,5 +1,6 @@
 from .system import (
-    get_system_prompt,
+    get_cacheable_system_prompt,
+    get_current_time_str,
     get_summary_prompt,
     get_memory_update_prompt,
     get_complete_memory_json_prompt,
@@ -8,7 +9,8 @@ from .system import (
 )
 
 __all__ = [
-    "get_system_prompt",
+    "get_cacheable_system_prompt",
+    "get_current_time_str",
     "get_summary_prompt",
     "get_memory_update_prompt",
     "get_complete_memory_json_prompt",

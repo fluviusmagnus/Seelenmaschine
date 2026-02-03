@@ -8,7 +8,6 @@ from typing import Dict, Any, Optional, List
 from prompts.system import (
     get_current_time_str,
     get_cacheable_system_prompt,
-    get_system_prompt,
     get_summary_prompt,
     get_memory_update_prompt,
     get_complete_memory_json_prompt,
@@ -32,21 +31,27 @@ def reset_seele_json_cache():
 class TestLoadSeeeleJson:
     """Test load_seele_json functionality."""
 
-    def test_load_seeele_json_file_not_found(self, tmp_path, reset_seele_json_cache, monkeypatch):
+    def test_load_seeele_json_file_not_found(
+        self, tmp_path, reset_seele_json_cache, monkeypatch
+    ):
         """Test loading when file doesn't exist."""
         from prompts.system import load_seele_json, _load_seele_json_from_disk
 
         # Patch Config to return a non-existent path
         with monkeypatch.context() as m:
             from src.config import Config
-            m.setattr(Config, 'SEELE_JSON_PATH', tmp_path / "nonexistent" / "seele.json")
-            m.setattr(Config, 'DATA_DIR', tmp_path / "nonexistent")
-            
+
+            m.setattr(
+                Config, "SEELE_JSON_PATH", tmp_path / "nonexistent" / "seele.json"
+            )
+            m.setattr(Config, "DATA_DIR", tmp_path / "nonexistent")
+
             # Also need to patch the template loading
             import prompts.system as sys_module
-            original_cache = getattr(sys_module, '_seele_json_cache', None)
+
+            original_cache = getattr(sys_module, "_seele_json_cache", None)
             sys_module._seele_json_cache = {}  # Reset cache
-            
+
             try:
                 data = load_seele_json()
                 # Should return empty dict or default structure
@@ -63,22 +68,31 @@ class TestUpdateSeeeleJson:
         """Test updating a simple value in seele.json."""
         # Create a temporary seele.json
         seele_path = tmp_path / "seele.json"
-        initial_data = {"bot": {"name": "Test"}, "user": {"name": ""}, 
-                        "memorable_events": [], "commands_and_agreements": []}
+        initial_data = {
+            "bot": {"name": "Test"},
+            "user": {"name": ""},
+            "memorable_events": [],
+            "commands_and_agreements": [],
+        }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
         # Patch Config
         from src.config import Config
-        monkeypatch.setattr(Config, 'SEELE_JSON_PATH', seele_path)
-        monkeypatch.setattr(Config, 'DATA_DIR', tmp_path)
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         # Reset cache
         from prompts import system
+
         system._seele_json_cache = {}
 
         # Apply patch
         from prompts.system import update_seele_json
-        result = update_seele_json([{"op": "replace", "path": "/user/name", "value": "Alice"}])
+
+        result = update_seele_json(
+            [{"op": "replace", "path": "/user/name", "value": "Alice"}]
+        )
 
         assert result is True
 
@@ -86,79 +100,114 @@ class TestUpdateSeeeleJson:
         """Test updating a nested value using dot notation."""
         # Similar setup as above
         seele_path = tmp_path / "seele.json"
-        initial_data = {"bot": {"name": "Test", "likes": []}, "user": {"name": ""}, 
-                        "memorable_events": [], "commands_and_agreements": []}
+        initial_data = {
+            "bot": {"name": "Test", "likes": []},
+            "user": {"name": ""},
+            "memorable_events": [],
+            "commands_and_agreements": [],
+        }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
         from src.config import Config
-        monkeypatch.setattr(Config, 'SEELE_JSON_PATH', seele_path)
-        monkeypatch.setattr(Config, 'DATA_DIR', tmp_path)
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         from prompts import system
+
         system._seele_json_cache = {}
 
         from prompts.system import update_seele_json
-        result = update_seele_json([{"op": "add", "path": "/bot/likes/-", "value": "music"}])
+
+        result = update_seele_json(
+            [{"op": "add", "path": "/bot/likes/-", "value": "music"}]
+        )
 
         assert result is True
 
     def test_update_seeele_json_deep_nested(self, tmp_path, monkeypatch):
         """Test updating deeply nested value."""
         seele_path = tmp_path / "seele.json"
-        initial_data = {"bot": {"name": "Test", "personality": {"mbti": ""}}, 
-                        "user": {"name": ""}, 
-                        "memorable_events": [], "commands_and_agreements": []}
+        initial_data = {
+            "bot": {"name": "Test", "personality": {"mbti": ""}},
+            "user": {"name": ""},
+            "memorable_events": [],
+            "commands_and_agreements": [],
+        }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
         from src.config import Config
-        monkeypatch.setattr(Config, 'SEELE_JSON_PATH', seele_path)
-        monkeypatch.setattr(Config, 'DATA_DIR', tmp_path)
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         from prompts import system
+
         system._seele_json_cache = {}
 
         from prompts.system import update_seele_json
-        result = update_seele_json([{"op": "replace", "path": "/bot/personality/mbti", "value": "INTP"}])
+
+        result = update_seele_json(
+            [{"op": "replace", "path": "/bot/personality/mbti", "value": "INTP"}]
+        )
 
         assert result is True
 
     def test_update_seeele_json_invalid_path(self, tmp_path, monkeypatch):
         """Test updating with invalid path."""
         seele_path = tmp_path / "seele.json"
-        initial_data = {"bot": {"name": "Test"}, "user": {"name": ""}, 
-                        "memorable_events": [], "commands_and_agreements": []}
+        initial_data = {
+            "bot": {"name": "Test"},
+            "user": {"name": ""},
+            "memorable_events": [],
+            "commands_and_agreements": [],
+        }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
         from src.config import Config
-        monkeypatch.setattr(Config, 'SEELE_JSON_PATH', seele_path)
-        monkeypatch.setattr(Config, 'DATA_DIR', tmp_path)
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         from prompts import system
+
         system._seele_json_cache = {}
 
         from prompts.system import update_seele_json
+
         # Invalid path should return False
-        result = update_seele_json([{"op": "replace", "path": "/nonexistent/path/deep", "value": "test"}])
+        result = update_seele_json(
+            [{"op": "replace", "path": "/nonexistent/path/deep", "value": "test"}]
+        )
 
         assert result is False
 
     def test_update_seeele_json_creates_intermediate(self, tmp_path, monkeypatch):
         """Test that update creates intermediate dictionaries."""
         seele_path = tmp_path / "seele.json"
-        initial_data = {"bot": {"name": "Test"}, "user": {"name": ""}, 
-                        "memorable_events": [], "commands_and_agreements": []}
+        initial_data = {
+            "bot": {"name": "Test"},
+            "user": {"name": ""},
+            "memorable_events": [],
+            "commands_and_agreements": [],
+        }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
         from src.config import Config
-        monkeypatch.setattr(Config, 'SEELE_JSON_PATH', seele_path)
-        monkeypatch.setattr(Config, 'DATA_DIR', tmp_path)
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         from prompts import system
+
         system._seele_json_cache = {}
 
         from prompts.system import update_seele_json
+
         # Add operation with nested path should work
-        result = update_seele_json([{"op": "add", "path": "/bot/stats", "value": {"age": 1}}])
+        result = update_seele_json(
+            [{"op": "add", "path": "/bot/stats", "value": {"age": 1}}]
+        )
 
         assert result is True
 
@@ -181,31 +230,54 @@ class TestGetCacheableSystemPrompt:
         # Create a temporary seele.json with valid structure
         seele_path = tmp_path / "seele.json"
         seele_data = {
-            "bot": {"name": "TestBot", "gender": "neutral", "role": "AI Assistant",
-                    "likes": [], "dislikes": [], "language_style": {"description": "", "examples": []},
-                    "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
-                    "emotions_and_needs": {"long_term": "", "short_term": ""},
-                    "relationship_with_user": ""},
-            "user": {"name": "", "gender": "", "personal_facts": [], "abilities": [],
-                    "likes": [], "dislikes": [],
-                    "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
-                    "emotions_and_needs": {"long_term": "", "short_term": ""}},
+            "bot": {
+                "name": "TestBot",
+                "gender": "neutral",
+                "role": "AI Assistant",
+                "likes": [],
+                "dislikes": [],
+                "language_style": {"description": "", "examples": []},
+                "personality": {
+                    "mbti": "",
+                    "description": "",
+                    "worldview_and_values": "",
+                },
+                "emotions_and_needs": {"long_term": "", "short_term": ""},
+                "relationship_with_user": "",
+            },
+            "user": {
+                "name": "",
+                "gender": "",
+                "personal_facts": [],
+                "abilities": [],
+                "likes": [],
+                "dislikes": [],
+                "personality": {
+                    "mbti": "",
+                    "description": "",
+                    "worldview_and_values": "",
+                },
+                "emotions_and_needs": {"long_term": "", "short_term": ""},
+            },
             "memorable_events": [],
-            "commands_and_agreements": []
+            "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(seele_data, indent=2))
 
         # Patch Config
         from src.config import Config
-        monkeypatch.setattr(Config, 'SEELE_JSON_PATH', seele_path)
-        monkeypatch.setattr(Config, 'DATA_DIR', tmp_path)
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         # Reset cache
         from prompts import system
+
         system._seele_json_cache = {}
 
         # Call function
         from prompts.system import get_cacheable_system_prompt
+
         prompt = get_cacheable_system_prompt([])
 
         assert isinstance(prompt, str)
