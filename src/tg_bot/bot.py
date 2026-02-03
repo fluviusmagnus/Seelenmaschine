@@ -37,56 +37,71 @@ class TelegramBot:
         # Override callback for scheduler to send messages via Telegram
         self.scheduler.set_message_callback(self._send_scheduled_message)
 
-    async def _send_scheduled_message(self, message: str) -> None:
-        """Send a scheduled message to the user (async callback for scheduler)
+    async def _send_scheduled_message(
+        self, message: str, task_name: str = "Scheduled Task"
+    ) -> None:
+        """Send a scheduled message to the user - triggers LLM conversation
 
-        This is called by the scheduler when a task triggers.
+        This is called by the scheduler when a task triggers. Unlike the old
+        implementation that sent the raw task message, this version:
+        1. Passes the task message to message_handler for LLM processing
+        2. LLM generates a contextual response based on the task
+        3. Sends the LLM response to the user
+        4. LLM response is saved to memory (task message itself is not saved)
 
         Args:
-            message: Message text to send
+            message: Raw task message from scheduler
+            task_name: Name of the scheduled task for context
         """
         if not self._application:
             logger.error("Cannot send scheduled message: application not initialized")
             return
 
         try:
-            # Format the message for Telegram HTML
-            formatted_message = self.message_handler._format_response_for_telegram(
-                message
+            # Step 1: Process scheduled task through LLM
+            # This will wrap the message, call LLM, and save the response to memory
+            logger.info(f"Processing scheduled task '{task_name}': {message[:50]}...")
+            llm_response = await self.message_handler._handle_scheduled_message(
+                message, task_name
             )
 
-            # Always use HTML parse mode
+            # Step 2: Format the LLM response for Telegram HTML
+            formatted_response = self.message_handler._format_response_for_telegram(
+                llm_response
+            )
+
+            # Step 3: Send the LLM response to user
             try:
                 await self._application.bot.send_message(
                     chat_id=self.config.TELEGRAM_USER_ID,
-                    text=formatted_message,
+                    text=formatted_response,
                     parse_mode="HTML",
                 )
-                logger.info(f"Scheduled message sent (HTML): {message[:50]}...")
+                logger.info(
+                    f"Scheduled task response sent (HTML): {llm_response[:50]}..."
+                )
             except Exception as e:
-                # Fallback to plain text
+                # Fallback to plain text if HTML fails
                 error_msg = str(e)
                 logger.warning(
-                    f"HTML parsing failed for scheduled message, sending original text: {error_msg}"
+                    f"HTML parsing failed for scheduled message, sending plain text: {error_msg}"
                 )
                 await self._application.bot.send_message(
-                    chat_id=self.config.TELEGRAM_USER_ID, text=message
+                    chat_id=self.config.TELEGRAM_USER_ID, text=llm_response
                 )
-                logger.info(f"Scheduled message sent (plain text): {message[:50]}...")
+                logger.info(
+                    f"Scheduled task response sent (plain text): {llm_response[:50]}..."
+                )
 
-            # Add to memory system as assistant message
-            try:
-                # We add the original raw message to memory, just like regular assistant responses
-                await self.message_handler.memory.add_assistant_message_async(message)
-                logger.debug(f"Scheduled message added to memory: {message[:50]}...")
-            except Exception as e:
-                # Don't fail the task if memory storage fails, but log it
-                logger.error(f"Failed to add scheduled message to memory: {e}")
+            # Note: The LLM response is already saved to memory by _process_scheduled_task
+            # We don't need to save it again here
 
         except Exception as e:
-            logger.error(f"Failed to send scheduled message: {e}")
-            # Re-raise to let scheduler know it failed (if it uses the exception)
-            raise e
+            logger.error(
+                f"Failed to process/send scheduled message: {e}", exc_info=True
+            )
+            # Re-raise to let scheduler know it failed
+            raise
 
     def create_application(self) -> None:
         """Create and configure the Telegram application"""

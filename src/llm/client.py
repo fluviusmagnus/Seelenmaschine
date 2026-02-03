@@ -316,12 +316,102 @@ class LLMClient:
 
         return result["content"]
 
+    async def chat_with_custom_message_async(
+        self,
+        current_context: List[Dict[str, str]],
+        retrieved_summaries: List[str],
+        retrieved_conversations: List[str],
+        recent_summaries: Optional[List[str]] = None,
+        custom_user_message: Optional[str] = None,
+    ) -> str:
+        """Async chat with custom user message instead of context's last message.
+
+        This is useful for scheduled tasks where the triggering message should not
+        be saved to memory but still needs to be processed by the LLM.
+
+        Args:
+            current_context: Current conversation history (without the message to be processed)
+            retrieved_summaries: Retrieved historical summaries
+            retrieved_conversations: Retrieved historical conversations
+            recent_summaries: Recent conversation summaries (max 3)
+            custom_user_message: Custom user message to append at the end
+
+        Returns:
+            Bot's response
+        """
+        messages = self._build_chat_messages(
+            current_context,
+            retrieved_summaries,
+            retrieved_conversations,
+            recent_summaries,
+            custom_user_message=custom_user_message,
+        )
+
+        # Always use chat_model for conversation
+        result = await self._async_chat(messages, use_tools=True, force_chat_model=True)
+
+        while result["tool_calls"]:
+            if self._tool_executor is None:
+                logger.warning("Tool calls but no executor registered")
+                break
+
+            tool_responses = []
+            for call in result["tool_calls"]:
+                logger.info(f"Executing tool: {call['name']}")
+                try:
+                    # Check if tool executor is async
+                    response = self._tool_executor(call["name"], call["arguments"])
+                    # If it's a coroutine, await it
+                    if asyncio.iscoroutine(response):
+                        response = await response
+                    tool_responses.append(
+                        {
+                            "tool_call_id": call["id"],
+                            "role": "tool",
+                            "content": str(response),
+                        }
+                    )
+                except Exception as e:
+                    logger.error(f"Tool execution failed: {e}")
+                    tool_responses.append(
+                        {
+                            "tool_call_id": call["id"],
+                            "role": "tool",
+                            "content": f"Error: {str(e)}",
+                        }
+                    )
+
+            # Build assistant message with reasoning content if present
+            assistant_message = {
+                "role": "assistant",
+                "content": result["content"] or "",
+            }
+
+            # Include reasoning content for o1/o3 models
+            if result.get("reasoning_content"):
+                assistant_message["reasoning_content"] = result["reasoning_content"]
+
+            # Include tool calls
+            if result["tool_calls"]:
+                assistant_message["tool_calls"] = result["tool_calls"]
+
+            messages.append(assistant_message)
+            messages.extend(tool_responses)
+
+            # Continue using chat_model
+            result = await self._async_chat(
+                messages, use_tools=True, force_chat_model=True
+            )
+
+        return result["content"]
+
     def _build_chat_messages(
         self,
         current_context: List[Dict[str, str]],
         retrieved_summaries: List[str],
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
+        custom_user_message: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """Build messages with optimized structure for prompt caching.
 
@@ -335,10 +425,11 @@ class LLMClient:
         6. Current user input (user) - emphasized at the end
 
         Args:
-            current_context: Current conversation messages
+            current_context: Current conversation messages (used if custom_user_message is None)
             retrieved_summaries: Retrieved historical summaries
             retrieved_conversations: Retrieved historical conversations
             recent_summaries: Recent conversation summaries (max 3)
+            custom_user_message: Optional custom user message to append instead of context's last message
         """
         messages = []
 
@@ -393,7 +484,14 @@ class LLMClient:
         )
 
         # 6. Current user input (emphasize at the end)
-        if current_context:
+        if custom_user_message:
+            # Use custom user message (e.g., for scheduled tasks)
+            emphasized_message = {
+                "role": "user",
+                "content": f"Please respond to the above request based on all context provided.\n\n⚡ [Current Request]\n{custom_user_message}",
+            }
+            messages.append(emphasized_message)
+        elif current_context:
             current_user_message = current_context[-1]
             # Add emphasis to highlight this is the current request
             emphasized_message = {

@@ -59,7 +59,10 @@ TIME FORMATS:
                     "type": "string",
                     "description": "Unique task identifier. Required for 'get', 'cancel', 'pause', and 'resume' actions. Get the ID from the 'list' action.",
                 },
-                "name": {"type": "string", "description": "Task name to identify it. Use descriptive names like 'Morning reminder', 'Project deadline alert' (required for 'add' action)"},
+                "name": {
+                    "type": "string",
+                    "description": "Task name for identification and listing purposes. A simple label like 'Morning reminder' or 'Water break' (required for 'add' action)",
+                },
                 "trigger_type": {
                     "type": "string",
                     "enum": ["once", "interval"],
@@ -71,7 +74,7 @@ TIME FORMATS:
                 },
                 "message": {
                     "type": "string",
-                    "description": "The reminder message to send when the task triggers. Required for 'add' action. Keep it clear and actionable. Example: 'Time for your daily standup meeting!'",
+                    "description": "The task content that will be sent to the AI (not directly to the user) when the task triggers. This message helps the AI understand what the task is about so it can generate an appropriate, contextual reminder for the user. Write something the AI can work with to create a helpful, conversational reminder. Examples: 'Remind user to call Mom about weekend plans', 'Suggest user take a break and drink water', 'Ask user about progress on the quarterly report'. This is NOT the final message the user sees - the AI will craft that based on this content. Required for 'add' action.",
                 },
             },
             "required": ["action"],

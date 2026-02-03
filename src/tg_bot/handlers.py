@@ -81,17 +81,27 @@ class MessageHandler:
             self.scheduled_task_tool = None
             self.scheduled_task_tool_def = None
 
-    def _handle_scheduled_message(self, message: str):
-        """Handle messages from scheduled tasks"""
-        # This will be called by the scheduler when a task triggers
-        formatted_message = self._format_response_for_telegram(message)
-        logger.info(f"Scheduled task message: {formatted_message}")
-        # Message sending is handled by bot.py via scheduler callback
-        # We just log here, but we should make sure the message is formatted if we were sending it directly
+    async def _handle_scheduled_message(
+        self, message: str, task_name: str = "Scheduled Task"
+    ) -> str:
+        """Handle messages from scheduled tasks - trigger LLM conversation
 
-        # Note: The scheduler callback in bot.py receives the raw message.
-        # Ideally, we should format it there or here if the callback expected formatted text.
-        # But for now, let's keep the logging.
+        This method is called when a scheduled task triggers. It:
+        1. Wraps the task message with [SYSTEM_SCHEDULED_TASK] marker
+        2. Does NOT save the task message to database (transient)
+        3. Calls LLM to generate a response
+        4. Saves the LLM response to database (part of session)
+        5. Returns the LLM response for sending to user
+
+        Args:
+            message: Raw task message from scheduler
+            task_name: Name of the scheduled task for context
+
+        Returns:
+            LLM generated response to send to user
+        """
+        logger.info(f"Processing scheduled task '{task_name}': {message[:50]}...")
+        return await self._process_scheduled_task(message, task_name)
 
     def _format_response_for_telegram(self, text: str) -> str:
         """Format response text for Telegram HTML"""
@@ -138,7 +148,7 @@ class MessageHandler:
         def save_blockquote(match):
             content = match.group(1).strip()
             placeholders.append(content)
-            return f"BLOCKQUOTEPLACEHOLDER{len(placeholders)-1}END"
+            return f"BLOCKQUOTEPLACEHOLDER{len(placeholders) - 1}END"
 
         text_with_placeholders = re.sub(
             r"<\s*blockquote[^>]*>(.*?)<\s*/\s*blockquote\s*>",
@@ -490,12 +500,13 @@ class MessageHandler:
                         break
 
             # Retrieve memories (reuse embedding from Step 1 to avoid re-vectorization)
-            retrieved_summaries, retrieved_conversations = (
-                await self.memory.process_user_input_async(
-                    user_input=user_message,
-                    last_bot_message=last_bot_message,
-                    user_input_embedding=user_embedding,
-                )
+            (
+                retrieved_summaries,
+                retrieved_conversations,
+            ) = await self.memory.process_user_input_async(
+                user_input=user_message,
+                last_bot_message=last_bot_message,
+                user_input_embedding=user_embedding,
             )
 
             logger.debug(
@@ -547,3 +558,126 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"Error in _process_message: {e}", exc_info=True)
             raise
+
+    async def _process_scheduled_task(
+        self, task_message: str, task_name: str = "Scheduled Task"
+    ) -> str:
+        """Process scheduled task message through LLM
+
+        Similar to _process_message but:
+        - Does NOT save the task message to database
+        - Does NOT count toward unsummarized messages
+        - Task message is transient and only exists for this LLM call
+        - LLM response IS saved to database as part of session
+
+        Args:
+            task_message: Raw task message from scheduler
+
+        Returns:
+            Bot's response to the scheduled task
+        """
+        try:
+            # Get current timestamp for task
+            from utils.time import get_current_timestamp, timestamp_to_str
+
+            trigger_time = get_current_timestamp()
+            trigger_time_str = timestamp_to_str(trigger_time)
+
+            # Wrap task message with [SYSTEM_SCHEDULED_TASK] marker
+            wrapped_message = (
+                f"[SYSTEM_SCHEDULED_TASK]\n"
+                f"Task Name: {task_name}\n"
+                f"Trigger Time: {trigger_time_str}\n"
+                f"Task: {task_message}\n\n"
+                f"Please respond proactively based on this scheduled task."
+            )
+
+            logger.debug(f"Wrapped scheduled task message: {wrapped_message[:100]}...")
+
+            # Step 1: Get current context (recent conversations + summaries)
+            # Note: We do NOT add the task message to memory/context_window
+            logger.debug("Step 1: Getting current context for scheduled task")
+            current_context = self.memory.get_context_messages()
+
+            # Step 2: Retrieve relevant memories based on task content
+            logger.debug("Step 2: Retrieving relevant memories for scheduled task")
+            # Use task content for retrieval (not the wrapped version with marker)
+            task_embedding = await self.embedding_client.get_embedding_async(
+                task_message
+            )
+
+            # Get last bot message for dual-query retrieval
+            last_bot_message = None
+            if current_context:
+                for msg in reversed(current_context):
+                    if msg.get("role") == "assistant":
+                        last_bot_message = msg.get("content", "")
+                        break
+
+            # Retrieve memories using task content and embedding
+            (
+                retrieved_summaries,
+                retrieved_conversations,
+            ) = await self.memory.process_user_input_async(
+                user_input=task_message,
+                last_bot_message=last_bot_message,
+                user_input_embedding=task_embedding,
+            )
+
+            logger.debug(
+                f"Retrieved {len(retrieved_summaries)} summaries and "
+                f"{len(retrieved_conversations)} conversations for scheduled task"
+            )
+
+            # Step 3: Get recent summaries from context window
+            logger.debug("Step 3: Getting recent summaries")
+            recent_summaries = self.memory.get_recent_summaries()
+            logger.debug(f"Got {len(recent_summaries)} recent summaries")
+
+            # Step 4: Enable memory search tool for LLM to use
+            logger.debug("Step 4: Enabling memory search tool")
+            if self.memory_search_tool:
+                self.memory_search_tool.enable()
+
+            # Step 4.5: Ensure MCP is connected so tools are available to LLM
+            if self.mcp_client:
+                logger.debug("Step 4.5: Ensuring MCP is connected")
+                await self._ensure_mcp_connected()
+
+            # Step 5 & 6: Call LLM with custom user message (task message not in current_context)
+            # Use chat_with_custom_message_async to handle message building and LLM calling
+            logger.debug("Step 5-6: Calling LLM with custom task message")
+            response_text = await self.llm_client.chat_with_custom_message_async(
+                current_context=current_context,
+                retrieved_summaries=retrieved_summaries,
+                retrieved_conversations=retrieved_conversations,
+                recent_summaries=recent_summaries,
+                custom_user_message=wrapped_message,
+            )
+
+            # Step 7: Disable memory search tool
+            logger.debug("Step 7: Disabling memory search tool")
+            if self.memory_search_tool:
+                self.memory_search_tool.disable()
+
+            # Step 8: Add assistant response to memory (THIS IS SAVED!)
+            logger.debug("Step 8: Adding assistant response to memory (scheduled task)")
+            conversation_id, summary_id = await self.memory.add_assistant_message_async(
+                response_text
+            )
+
+            if summary_id:
+                logger.info(
+                    f"Created new summary (ID: {summary_id}) during scheduled task processing"
+                )
+
+            # Step 9: Return response
+            logger.info(
+                f"Scheduled task processing complete, response: {response_text[:50]}..."
+            )
+            return response_text
+
+        except Exception as e:
+            logger.error(f"Error in _process_scheduled_task: {e}", exc_info=True)
+            # Return a friendly error message that will be sent to user
+            return f"[Scheduled Task] {task_message}\n\n(Error occurred while processing, please check logs)"
