@@ -1,5 +1,7 @@
 # 数据迁移工具
 
+[English](README_EN.md) | 中文
+
 本目录包含 Seelenmaschine 的数据迁移工具，用于将旧版本的数据（Legacy Database 和 Text Profiles）升级到最新的 3.1 版本。
 
 ## 统一迁移工具 (`migrate.py`)

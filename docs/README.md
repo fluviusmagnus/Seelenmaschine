@@ -1,5 +1,7 @@
 # Seelenmaschine 文档目录
 
+[English](README_EN.md) | 中文
+
 本目录包含 Seelenmaschine 项目的详细功能文档和使用指南。
 
 ## 📚 文档列表

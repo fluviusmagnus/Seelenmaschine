@@ -1,5 +1,7 @@
 # 定时任务功能使用指南
 
+[English](SCHEDULED_TASKS_EN.md) | 中文
+
 ## 概述
 
 Seelenmaschine 内置了强大的定时任务功能，支持：

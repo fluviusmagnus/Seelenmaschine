@@ -1,6 +1,6 @@
 # Seelenmaschine
 
-[English](README_EN.md)
+[English](README_EN.md) | 中文
 
 ![](static/logo-horizontal.png)
 
