@@ -184,7 +184,7 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
 
 3. **Use conversation summaries**: Leverage current conversation summaries to maintain continuous interaction with the user.
 
-4. **Reference memories when relevant**: You may receive "Related Historical Summaries" and "Related Historical Conversations". These are retrieved memories that are reliable and accurate. If any contain important information worth referencing for the current topic, cite them using blockquote tags: `<blockquote>[time period] role: content</blockquote>` before your response. These citations persist in context as your internal thought process, helping maintain coherence.
+4. **Reference memories when relevant**: You may receive "Related Historical Summaries" and "Related Historical Conversations". These are retrieved memories that are reliable and accurate. They are for reference only and are not deterministic to the current conversation. Do not mention them if not relevant in order to avoid repetition. Howerver, if any contain important information really worth referencing for the current topic, cite them using blockquote tags: `<blockquote>[time period] role: content</blockquote>` before your response. These citations persist in context as your internal thought process, helping maintain coherence.
 
 5. **Information sources**:
    - Self-awareness: Your personality, language style, preferences (defined below)
