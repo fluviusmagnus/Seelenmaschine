@@ -231,6 +231,28 @@ class TestMCPClient:
         mock_client.call_tool.assert_awaited_once_with("test_tool", {"arg": "value"})
 
     @pytest.mark.asyncio
+    async def test_call_tool_joins_multiple_content_blocks(self, mcp_client):
+        """Test calling tool with multiple returned content blocks."""
+        mock_client = AsyncMock()
+
+        mock_result = Mock()
+        text_block = Mock()
+        text_block.text = "First block"
+        dict_block = {"text": "Second block"}
+        other_block = {"type": "json", "value": {"ok": True}}
+        mock_result.content = [text_block, dict_block, other_block]
+
+        mock_client.call_tool = AsyncMock(return_value=mock_result)
+        mcp_client.client = mock_client
+
+        result = await mcp_client.call_tool("test_tool", {"arg": "value"})
+
+        assert (
+            result
+            == 'First block\nSecond block\n{"type": "json", "value": {"ok": true}}'
+        )
+
+    @pytest.mark.asyncio
     async def test_call_tool_no_content(self, mcp_client):
         """Test calling tool when result has no content."""
         mock_client = AsyncMock()

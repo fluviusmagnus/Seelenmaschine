@@ -214,3 +214,116 @@ class TestLLMClient:
 
         # Verify clients were closed
         assert mock_async_client.close.called
+
+    @pytest.mark.asyncio
+    async def test_chat_async_replays_tool_calls_in_openai_format(self, llm_client):
+        """Tool call results should be appended using OpenAI-compatible format."""
+        llm_client._build_chat_messages = Mock(
+            return_value=[{"role": "user", "content": "Hello"}]
+        )
+        llm_client._tool_executor = AsyncMock(return_value="tool output")
+        llm_client._async_chat = AsyncMock(
+            side_effect=[
+                {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "demo_tool",
+                            "arguments": '{"q": "hi"}',
+                        }
+                    ],
+                    "api_tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "demo_tool",
+                                "arguments": '{"q": "hi"}',
+                            },
+                        }
+                    ],
+                    "reasoning_content": None,
+                },
+                {
+                    "content": "final answer",
+                    "tool_calls": None,
+                    "api_tool_calls": None,
+                    "reasoning_content": None,
+                },
+            ]
+        )
+
+        result = await llm_client.chat_async([], [], [])
+
+        assert result == "final answer"
+        second_call_messages = llm_client._async_chat.await_args_list[1].args[0]
+        assistant_message = second_call_messages[-2]
+        tool_message = second_call_messages[-1]
+
+        assert assistant_message["role"] == "assistant"
+        assert assistant_message["tool_calls"] == [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "demo_tool",
+                    "arguments": '{"q": "hi"}',
+                },
+            }
+        ]
+        assert tool_message == {
+            "tool_call_id": "call_1",
+            "role": "tool",
+            "content": "tool output",
+        }
+
+    @pytest.mark.asyncio
+    @patch("llm.client.AsyncOpenAI")
+    async def test_async_chat_extracts_api_tool_calls(self, mock_openai, llm_client):
+        """_async_chat should keep both execution and API tool call formats."""
+        mock_tool_call = Mock()
+        mock_tool_call.id = "call_1"
+        mock_tool_call.type = "function"
+        mock_tool_call.function = Mock()
+        mock_tool_call.function.name = "demo_tool"
+        mock_tool_call.function.arguments = '{"q": "hi"}'
+
+        mock_message = Mock()
+        mock_message.content = None
+        mock_message.tool_calls = [mock_tool_call]
+        mock_message.reasoning_content = None
+
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=mock_message)]
+
+        mock_async_client = AsyncMock()
+        mock_async_client.chat.completions.create = AsyncMock(
+            return_value=mock_response
+        )
+        mock_openai.return_value = mock_async_client
+
+        llm_client._ensure_chat_client_initialized()
+        result = await llm_client._async_chat(
+            [{"role": "user", "content": "hello"}],
+            use_tools=False,
+            force_chat_model=True,
+        )
+
+        assert result["tool_calls"] == [
+            {
+                "id": "call_1",
+                "name": "demo_tool",
+                "arguments": '{"q": "hi"}',
+            }
+        ]
+        assert result["api_tool_calls"] == [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "demo_tool",
+                    "arguments": '{"q": "hi"}',
+                },
+            }
+        ]

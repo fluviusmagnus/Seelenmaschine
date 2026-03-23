@@ -90,6 +90,51 @@ class LLMClient:
             ]
         )
 
+    def _format_tool_calls_for_api(self, tool_calls: List[Any]) -> List[Dict[str, Any]]:
+        """Convert SDK tool call objects to OpenAI API message format."""
+        formatted_tool_calls: List[Dict[str, Any]] = []
+
+        for tool_call in tool_calls:
+            function = getattr(tool_call, "function", None)
+            tool_call_id = getattr(tool_call, "id", None)
+            tool_call_type = getattr(tool_call, "type", None) or "function"
+            function_name = getattr(function, "name", None)
+            function_arguments = getattr(function, "arguments", None)
+
+            if not tool_call_id or not function_name:
+                logger.warning(f"Skipping invalid tool call from model: {tool_call}")
+                continue
+
+            formatted_tool_calls.append(
+                {
+                    "id": tool_call_id,
+                    "type": tool_call_type,
+                    "function": {
+                        "name": function_name,
+                        "arguments": function_arguments or "{}",
+                    },
+                }
+            )
+
+        return formatted_tool_calls
+
+    def _build_assistant_message_from_result(
+        self, result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build an assistant message compatible with OpenAI tool calling."""
+        assistant_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": result.get("content") or "",
+        }
+
+        if result.get("reasoning_content"):
+            assistant_message["reasoning_content"] = result["reasoning_content"]
+
+        if result.get("api_tool_calls"):
+            assistant_message["tool_calls"] = result["api_tool_calls"]
+
+        return assistant_message
+
     async def _async_chat(
         self,
         messages: List[Dict[str, str]],
@@ -142,6 +187,7 @@ class LLMClient:
             result = {
                 "content": message.content or "",
                 "tool_calls": None,
+                "api_tool_calls": None,
                 "reasoning_content": None,
             }
 
@@ -154,6 +200,9 @@ class LLMClient:
                     )
 
             if message.tool_calls:
+                result["api_tool_calls"] = self._format_tool_calls_for_api(
+                    message.tool_calls
+                )
                 result["tool_calls"] = [
                     {
                         "id": tc.id,
@@ -161,7 +210,14 @@ class LLMClient:
                         "arguments": tc.function.arguments,
                     }
                     for tc in message.tool_calls
+                    if getattr(tc, "id", None)
+                    and getattr(getattr(tc, "function", None), "name", None)
                 ]
+
+                if not result["tool_calls"]:
+                    result["tool_calls"] = None
+                if not result["api_tool_calls"]:
+                    result["api_tool_calls"] = None
 
             return result
 
@@ -235,22 +291,9 @@ class LLMClient:
                                     }
                                 )
 
-                        # Build assistant message with reasoning content if present
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": result["content"] or "",
-                        }
-
-                        # Include reasoning content for o1/o3 models
-                        if result.get("reasoning_content"):
-                            assistant_message["reasoning_content"] = result[
-                                "reasoning_content"
-                            ]
-
-                        # Include tool calls
-                        if result["tool_calls"]:
-                            assistant_message["tool_calls"] = result["tool_calls"]
-
+                        assistant_message = self._build_assistant_message_from_result(
+                            result
+                        )
                         messages.append(assistant_message)
                         messages.extend(tool_responses)
 
@@ -317,20 +360,7 @@ class LLMClient:
                         }
                     )
 
-            # Build assistant message with reasoning content if present
-            assistant_message = {
-                "role": "assistant",
-                "content": result["content"] or "",
-            }
-
-            # Include reasoning content for o1/o3 models
-            if result.get("reasoning_content"):
-                assistant_message["reasoning_content"] = result["reasoning_content"]
-
-            # Include tool calls
-            if result["tool_calls"]:
-                assistant_message["tool_calls"] = result["tool_calls"]
-
+            assistant_message = self._build_assistant_message_from_result(result)
             messages.append(assistant_message)
             messages.extend(tool_responses)
 
@@ -406,20 +436,7 @@ class LLMClient:
                         }
                     )
 
-            # Build assistant message with reasoning content if present
-            assistant_message = {
-                "role": "assistant",
-                "content": result["content"] or "",
-            }
-
-            # Include reasoning content for o1/o3 models
-            if result.get("reasoning_content"):
-                assistant_message["reasoning_content"] = result["reasoning_content"]
-
-            # Include tool calls
-            if result["tool_calls"]:
-                assistant_message["tool_calls"] = result["tool_calls"]
-
+            assistant_message = self._build_assistant_message_from_result(result)
             messages.append(assistant_message)
             messages.extend(tool_responses)
 

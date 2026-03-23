@@ -25,7 +25,7 @@ class MCPClient:
     def _get_default_roots(self) -> List[str]:
         """Get default roots configuration - using data directory"""
         data_dir = Config.DATA_DIR
-        
+
         return [data_dir.as_uri()]
 
     def _load_config(self) -> Dict:
@@ -52,9 +52,9 @@ class MCPClient:
         roots = self._get_default_roots()
 
         self.client = Client(processed_config, roots=roots)
-        
+
         await self.client.__aenter__()
-        
+
         logger.info("MCP client connected")
         return self
 
@@ -125,10 +125,10 @@ class MCPClient:
                     },
                 }
                 formatted_tools.append(formatted_tool)
-            
+
             self._tools_cache = formatted_tools
             return formatted_tools
-            
+
         except Exception as e:
             logger.error(f"Failed to list tools: {e}", exc_info=True)
             return []
@@ -137,7 +137,7 @@ class MCPClient:
         """Get tools synchronously (wrapper for async)"""
         if self._tools_cache is not None:
             return self._tools_cache
-        
+
         loop = asyncio.get_event_loop()
         try:
             return loop.run_until_complete(self.list_tools())
@@ -145,6 +145,18 @@ class MCPClient:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             return loop.run_until_complete(self.list_tools())
+
+    def _extract_text_from_content_block(self, content_block: Any) -> str:
+        """Extract text from an MCP content block."""
+        if hasattr(content_block, "text") and content_block.text is not None:
+            return str(content_block.text)
+
+        if isinstance(content_block, dict):
+            if content_block.get("text") is not None:
+                return str(content_block["text"])
+            return json.dumps(content_block, ensure_ascii=False)
+
+        return str(content_block)
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Call tool and return result text"""
@@ -158,17 +170,15 @@ class MCPClient:
             result = await self.client.call_tool(tool_name, arguments)
 
             if result.content and len(result.content) > 0:
-                first_content = result.content[0]
-                if hasattr(first_content, "text"):
-                    result_text = first_content.text
-                    return result_text
-                else:
-                    result_text = str(first_content)
-                    return result_text
+                content_parts = [
+                    self._extract_text_from_content_block(content_block)
+                    for content_block in result.content
+                ]
+                return "\n".join(part for part in content_parts if part)
 
             logger.warning(f"Tool call successful but no content: {tool_name}")
             return "Tool call successful but no content"
-            
+
         except Exception as e:
             error_msg = f"Tool call failed: {str(e)}"
             logger.error(
