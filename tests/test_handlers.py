@@ -116,6 +116,94 @@ class TestMessageProcessing:
         # - Tool execution
         pass
 
+    @pytest.mark.asyncio
+    async def test_process_message_saves_intermediate_assistant_messages(self):
+        """Assistant text emitted during tool calling should also be saved to memory."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.memory = Mock()
+        handler.memory.add_user_message_async = AsyncMock(return_value=(1, [0.1, 0.2]))
+        handler.memory.get_context_messages = Mock(
+            return_value=[{"role": "user", "content": "你好"}]
+        )
+        handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
+        handler.memory.get_recent_summaries = Mock(return_value=[])
+        handler.memory.add_assistant_message_async = AsyncMock(
+            side_effect=[(2, None), (3, None)]
+        )
+
+        handler.memory_search_tool = Mock()
+        handler.memory_search_tool.enable = Mock()
+        handler.memory_search_tool.disable = Mock()
+
+        handler.mcp_client = None
+        handler._ensure_mcp_connected = AsyncMock()
+
+        handler.llm_client = Mock()
+        handler.llm_client.chat_async_detailed = AsyncMock(
+            return_value={
+                "final_text": "最终答复",
+                "assistant_messages": ["我先查一下", "最终答复"],
+            }
+        )
+
+        handler._process_message = MessageHandler._process_message.__get__(
+            handler, Mock
+        )
+
+        response = await handler._process_message("你好")
+
+        assert response == "我先查一下\n\n最终答复"
+        assert handler.memory.add_assistant_message_async.await_count == 2
+        handler.memory.add_assistant_message_async.assert_any_await("我先查一下")
+        handler.memory.add_assistant_message_async.assert_any_await("最终答复")
+
+    @pytest.mark.asyncio
+    async def test_process_scheduled_task_saves_intermediate_assistant_messages(self):
+        """Scheduled task assistant text emitted during tool calling should be saved."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.memory = Mock()
+        handler.memory.get_context_messages = Mock(return_value=[])
+        handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
+        handler.memory.get_recent_summaries = Mock(return_value=[])
+        handler.memory.add_assistant_message_async = AsyncMock(
+            side_effect=[(2, None), (3, None)]
+        )
+
+        handler.embedding_client = Mock()
+        handler.embedding_client.get_embedding_async = AsyncMock(
+            return_value=[0.1, 0.2]
+        )
+
+        handler.memory_search_tool = Mock()
+        handler.memory_search_tool.enable = Mock()
+        handler.memory_search_tool.disable = Mock()
+
+        handler.mcp_client = None
+        handler._ensure_mcp_connected = AsyncMock()
+
+        handler.llm_client = Mock()
+        handler.llm_client.chat_with_custom_message_async_detailed = AsyncMock(
+            return_value={
+                "final_text": "别忘了喝水。",
+                "assistant_messages": ["我提醒你一下", "别忘了喝水。"],
+            }
+        )
+
+        handler._process_scheduled_task = (
+            MessageHandler._process_scheduled_task.__get__(handler, Mock)
+        )
+
+        response = await handler._process_scheduled_task("提醒喝水", "喝水提醒")
+
+        assert response == "我提醒你一下\n\n别忘了喝水。"
+        assert handler.memory.add_assistant_message_async.await_count == 2
+        handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
+        handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")
+
 
 class TestFileHandling:
     """Test Telegram file handling in MessageHandler."""

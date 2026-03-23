@@ -135,6 +135,79 @@ class LLMClient:
 
         return assistant_message
 
+    def _extract_assistant_text_from_result(
+        self, result: Dict[str, Any]
+    ) -> Optional[str]:
+        """Extract assistant text content that should be treated as a normal message."""
+        content = result.get("content")
+        if content is None:
+            return None
+
+        content_str = str(content)
+        if not content_str.strip():
+            return None
+
+        return content_str
+
+    async def _run_chat_with_tool_loop(
+        self, messages: List[Dict[str, str]]
+    ) -> Dict[str, Any]:
+        """Run chat completion loop with tool execution and collect assistant texts."""
+        assistant_messages: List[str] = []
+
+        # Always use chat_model for conversation
+        result = await self._async_chat(messages, use_tools=True, force_chat_model=True)
+
+        while result["tool_calls"]:
+            assistant_text = self._extract_assistant_text_from_result(result)
+            if assistant_text:
+                assistant_messages.append(assistant_text)
+
+            if self._tool_executor is None:
+                logger.warning("Tool calls but no executor registered")
+                break
+
+            tool_responses = []
+            for call in result["tool_calls"]:
+                logger.info(f"Executing tool: {call['name']}")
+                try:
+                    response = self._tool_executor(call["name"], call["arguments"])
+                    if asyncio.iscoroutine(response):
+                        response = await response
+                    tool_responses.append(
+                        {
+                            "tool_call_id": call["id"],
+                            "role": "tool",
+                            "content": str(response),
+                        }
+                    )
+                except Exception as e:
+                    logger.error(f"Tool execution failed: {e}")
+                    tool_responses.append(
+                        {
+                            "tool_call_id": call["id"],
+                            "role": "tool",
+                            "content": f"Error: {str(e)}",
+                        }
+                    )
+
+            assistant_message = self._build_assistant_message_from_result(result)
+            messages.append(assistant_message)
+            messages.extend(tool_responses)
+
+            result = await self._async_chat(
+                messages, use_tools=True, force_chat_model=True
+            )
+
+        final_text = self._extract_assistant_text_from_result(result) or ""
+        if final_text:
+            assistant_messages.append(final_text)
+
+        return {
+            "final_text": final_text,
+            "assistant_messages": assistant_messages,
+        }
+
     async def _async_chat(
         self,
         messages: List[Dict[str, str]],
@@ -253,56 +326,8 @@ class LLMClient:
                 loop = self._get_event_loop()
 
                 async def chat_with_tools() -> str:
-                    # Always use chat_model for conversation, even when tools are available
-                    result = await self._async_chat(
-                        messages, use_tools=True, force_chat_model=True
-                    )
-
-                    while result["tool_calls"]:
-                        if self._tool_executor is None:
-                            logger.warning("Tool calls but no executor registered")
-                            break
-
-                        tool_responses = []
-                        for call in result["tool_calls"]:
-                            logger.info(f"Executing tool: {call['name']}")
-                            try:
-                                # Check if tool executor is async
-                                response = self._tool_executor(
-                                    call["name"], call["arguments"]
-                                )
-                                # If it's a coroutine, await it
-                                if asyncio.iscoroutine(response):
-                                    response = await response
-                                tool_responses.append(
-                                    {
-                                        "tool_call_id": call["id"],
-                                        "role": "tool",
-                                        "content": str(response),
-                                    }
-                                )
-                            except Exception as e:
-                                logger.error(f"Tool execution failed: {e}")
-                                tool_responses.append(
-                                    {
-                                        "tool_call_id": call["id"],
-                                        "role": "tool",
-                                        "content": f"Error: {str(e)}",
-                                    }
-                                )
-
-                        assistant_message = self._build_assistant_message_from_result(
-                            result
-                        )
-                        messages.append(assistant_message)
-                        messages.extend(tool_responses)
-
-                        # Continue using chat_model for subsequent requests
-                        result = await self._async_chat(
-                            messages, use_tools=True, force_chat_model=True
-                        )
-
-                    return result["content"]
+                    detailed_result = await self._run_chat_with_tool_loop(messages)
+                    return detailed_result["final_text"]
 
                 return loop.run_until_complete(chat_with_tools())
             else:
@@ -326,50 +351,25 @@ class LLMClient:
             recent_summaries,
         )
 
-        # Always use chat_model for conversation
-        result = await self._async_chat(messages, use_tools=True, force_chat_model=True)
+        detailed_result = await self._run_chat_with_tool_loop(messages)
+        return detailed_result["final_text"]
 
-        while result["tool_calls"]:
-            if self._tool_executor is None:
-                logger.warning("Tool calls but no executor registered")
-                break
+    async def chat_async_detailed(
+        self,
+        current_context: List[Dict[str, str]],
+        retrieved_summaries: List[str],
+        retrieved_conversations: List[str],
+        recent_summaries: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Async chat returning both final text and intermediate assistant messages."""
+        messages = self._build_chat_messages(
+            current_context,
+            retrieved_summaries,
+            retrieved_conversations,
+            recent_summaries,
+        )
 
-            tool_responses = []
-            for call in result["tool_calls"]:
-                logger.info(f"Executing tool: {call['name']}")
-                try:
-                    # Check if tool executor is async
-                    response = self._tool_executor(call["name"], call["arguments"])
-                    # If it's a coroutine, await it
-                    if asyncio.iscoroutine(response):
-                        response = await response
-                    tool_responses.append(
-                        {
-                            "tool_call_id": call["id"],
-                            "role": "tool",
-                            "content": str(response),
-                        }
-                    )
-                except Exception as e:
-                    logger.error(f"Tool execution failed: {e}")
-                    tool_responses.append(
-                        {
-                            "tool_call_id": call["id"],
-                            "role": "tool",
-                            "content": f"Error: {str(e)}",
-                        }
-                    )
-
-            assistant_message = self._build_assistant_message_from_result(result)
-            messages.append(assistant_message)
-            messages.extend(tool_responses)
-
-            # Continue using chat_model
-            result = await self._async_chat(
-                messages, use_tools=True, force_chat_model=True
-            )
-
-        return result["content"]
+        return await self._run_chat_with_tool_loop(messages)
 
     async def chat_with_custom_message_async(
         self,
@@ -402,50 +402,27 @@ class LLMClient:
             custom_user_message=custom_user_message,
         )
 
-        # Always use chat_model for conversation
-        result = await self._async_chat(messages, use_tools=True, force_chat_model=True)
+        detailed_result = await self._run_chat_with_tool_loop(messages)
+        return detailed_result["final_text"]
 
-        while result["tool_calls"]:
-            if self._tool_executor is None:
-                logger.warning("Tool calls but no executor registered")
-                break
+    async def chat_with_custom_message_async_detailed(
+        self,
+        current_context: List[Dict[str, str]],
+        retrieved_summaries: List[str],
+        retrieved_conversations: List[str],
+        recent_summaries: Optional[List[str]] = None,
+        custom_user_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Async chat with custom message, returning detailed assistant outputs."""
+        messages = self._build_chat_messages(
+            current_context,
+            retrieved_summaries,
+            retrieved_conversations,
+            recent_summaries,
+            custom_user_message=custom_user_message,
+        )
 
-            tool_responses = []
-            for call in result["tool_calls"]:
-                logger.info(f"Executing tool: {call['name']}")
-                try:
-                    # Check if tool executor is async
-                    response = self._tool_executor(call["name"], call["arguments"])
-                    # If it's a coroutine, await it
-                    if asyncio.iscoroutine(response):
-                        response = await response
-                    tool_responses.append(
-                        {
-                            "tool_call_id": call["id"],
-                            "role": "tool",
-                            "content": str(response),
-                        }
-                    )
-                except Exception as e:
-                    logger.error(f"Tool execution failed: {e}")
-                    tool_responses.append(
-                        {
-                            "tool_call_id": call["id"],
-                            "role": "tool",
-                            "content": f"Error: {str(e)}",
-                        }
-                    )
-
-            assistant_message = self._build_assistant_message_from_result(result)
-            messages.append(assistant_message)
-            messages.extend(tool_responses)
-
-            # Continue using chat_model
-            result = await self._async_chat(
-                messages, use_tools=True, force_chat_model=True
-            )
-
-        return result["content"]
+        return await self._run_chat_with_tool_loop(messages)
 
     def _build_chat_messages(
         self,

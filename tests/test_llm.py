@@ -279,6 +279,54 @@ class TestLLMClient:
         }
 
     @pytest.mark.asyncio
+    async def test_chat_async_detailed_collects_intermediate_assistant_messages(
+        self, llm_client
+    ):
+        """Tool-calling assistant text should be preserved as normal assistant messages."""
+        llm_client._build_chat_messages = Mock(
+            return_value=[{"role": "user", "content": "Hello"}]
+        )
+        llm_client._tool_executor = AsyncMock(return_value="tool output")
+        llm_client._async_chat = AsyncMock(
+            side_effect=[
+                {
+                    "content": "我先帮你查一下。",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "demo_tool",
+                            "arguments": '{"q": "hi"}',
+                        }
+                    ],
+                    "api_tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "demo_tool",
+                                "arguments": '{"q": "hi"}',
+                            },
+                        }
+                    ],
+                    "reasoning_content": None,
+                },
+                {
+                    "content": "查到了，结果如下。",
+                    "tool_calls": None,
+                    "api_tool_calls": None,
+                    "reasoning_content": None,
+                },
+            ]
+        )
+
+        result = await llm_client.chat_async_detailed([], [], [])
+
+        assert result == {
+            "final_text": "查到了，结果如下。",
+            "assistant_messages": ["我先帮你查一下。", "查到了，结果如下。"],
+        }
+
+    @pytest.mark.asyncio
     @patch("llm.client.AsyncOpenAI")
     async def test_async_chat_extracts_api_tool_calls(self, mock_openai, llm_client):
         """_async_chat should keep both execution and API tool call formats."""

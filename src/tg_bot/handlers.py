@@ -881,27 +881,33 @@ class MessageHandler:
 
             # Step 6: Call LLM with full context and tools
             logger.debug("Step 6: Calling LLM")
-            response = await self.llm_client.chat_async(
+            llm_result = await self.llm_client.chat_async_detailed(
                 current_context=current_context,
                 retrieved_summaries=retrieved_summaries,
                 retrieved_conversations=retrieved_conversations,
                 recent_summaries=recent_summaries,
             )
 
+            assistant_messages = llm_result.get("assistant_messages", [])
+            response = "\n\n".join(msg for msg in assistant_messages if msg.strip())
+            if not response:
+                response = llm_result.get("final_text", "")
+
             # Step 7: Disable memory search tool during response generation
             logger.debug("Step 7: Disabling memory search tool")
             self.memory_search_tool.disable()
 
-            # Step 8: Add assistant response to memory
-            logger.debug("Step 8: Adding assistant response to memory")
-            conversation_id, summary_id = await self.memory.add_assistant_message_async(
-                response
-            )
-
-            if summary_id:
-                logger.info(
-                    f"Created new summary (ID: {summary_id}) during message processing"
+            # Step 8: Add assistant responses to memory
+            logger.debug("Step 8: Adding assistant responses to memory")
+            for assistant_message in assistant_messages:
+                conversation_id, summary_id = (
+                    await self.memory.add_assistant_message_async(assistant_message)
                 )
+
+                if summary_id:
+                    logger.info(
+                        f"Created new summary (ID: {summary_id}) during message processing"
+                    )
 
             # Step 9: Return response
             logger.debug("Message processing complete")
@@ -999,7 +1005,7 @@ class MessageHandler:
             # Step 5 & 6: Call LLM with custom user message (task message not in current_context)
             # Use chat_with_custom_message_async to handle message building and LLM calling
             logger.debug("Step 5-6: Calling LLM with custom task message")
-            response_text = await self.llm_client.chat_with_custom_message_async(
+            llm_result = await self.llm_client.chat_with_custom_message_async_detailed(
                 current_context=current_context,
                 retrieved_summaries=retrieved_summaries,
                 retrieved_conversations=retrieved_conversations,
@@ -1007,21 +1013,31 @@ class MessageHandler:
                 custom_user_message=wrapped_message,
             )
 
+            assistant_messages = llm_result.get("assistant_messages", [])
+            response_text = "\n\n".join(
+                msg for msg in assistant_messages if msg.strip()
+            )
+            if not response_text:
+                response_text = llm_result.get("final_text", "")
+
             # Step 7: Disable memory search tool
             logger.debug("Step 7: Disabling memory search tool")
             if self.memory_search_tool:
                 self.memory_search_tool.disable()
 
-            # Step 8: Add assistant response to memory (THIS IS SAVED!)
-            logger.debug("Step 8: Adding assistant response to memory (scheduled task)")
-            conversation_id, summary_id = await self.memory.add_assistant_message_async(
-                response_text
+            # Step 8: Add assistant responses to memory (THESE ARE SAVED!)
+            logger.debug(
+                "Step 8: Adding assistant responses to memory (scheduled task)"
             )
-
-            if summary_id:
-                logger.info(
-                    f"Created new summary (ID: {summary_id}) during scheduled task processing"
+            for assistant_message in assistant_messages:
+                conversation_id, summary_id = (
+                    await self.memory.add_assistant_message_async(assistant_message)
                 )
+
+                if summary_id:
+                    logger.info(
+                        f"Created new summary (ID: {summary_id}) during scheduled task processing"
+                    )
 
             # Step 9: Return response
             logger.info(
