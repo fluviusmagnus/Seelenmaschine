@@ -63,27 +63,40 @@ class TestLLMClient:
 
         # Expected structure:
         # 1. System prompt
-        # 2. Previous message (user)
-        # 3. Related summaries (system)
-        # 4. Related conversations (system)
-        # 5. Current time (system)
-        # 6. Current request (user)
-        assert len(messages) == 6
+        # 2. Conversation start marker (system)
+        # 3. Previous message (user)
+        # 4. Conversation end marker (system)
+        # 5. Related summaries (system)
+        # 6. Related conversations (system)
+        # 7. Current time (system)
+        # 8. Current request (user)
+        assert len(messages) == 8
         assert messages[0]["role"] == "system"
         assert "System prompt" in messages[0]["content"]
-        assert messages[1]["role"] == "user"
-        assert messages[1]["content"] == "Previous message"
-        assert messages[2]["role"] == "system"
-        assert "Summary 1" in messages[2]["content"]
+        assert messages[1]["role"] == "system"
+        assert "BEGINNING OF THE CURRENT CONVERSATION" in messages[1]["content"]
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "Previous message"
         assert messages[3]["role"] == "system"
-        assert "Conversation 1" in messages[3]["content"]
+        assert "END OF THE CURRENT CONVERSATION" in messages[3]["content"]
         assert messages[4]["role"] == "system"
-        assert "Current Time" in messages[4]["content"]
-        assert messages[5]["role"] == "user"
-        assert "Hello" in messages[5]["content"]
+        assert "Summary 1" in messages[4]["content"]
+        assert messages[5]["role"] == "system"
+        assert "Conversation 1" in messages[5]["content"]
+        assert messages[6]["role"] == "system"
+        assert "Current Time" in messages[6]["content"]
+        assert messages[7]["role"] == "user"
+        assert "Hello" in messages[7]["content"]
 
     @patch("llm.client.AsyncOpenAI")
-    def test_generate_summary(self, mock_openai, llm_client):
+    @patch(
+        "llm.client.load_seele_json",
+        return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
+    )
+    @patch("llm.client.get_summary_prompt", return_value="summary prompt")
+    def test_generate_summary(
+        self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
+    ):
         """Test generating summary."""
         # Setup mock response
         mock_response = Mock()
@@ -104,9 +117,19 @@ class TestLLMClient:
 
         summary = llm_client.generate_summary(None, new_conversations)
         assert summary == "Summary result"
+        mock_get_prompt.assert_called_once_with(
+            None, "Alice: Message 1\nSeele: Response 1"
+        )
 
     @patch("llm.client.AsyncOpenAI")
-    def test_generate_memory_update(self, mock_openai, llm_client):
+    @patch(
+        "llm.client.load_seele_json",
+        return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
+    )
+    @patch("llm.client.get_memory_update_prompt", return_value="memory prompt")
+    def test_generate_memory_update(
+        self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
+    ):
         """Test generating memory update."""
         # Setup mock response
         mock_response = Mock()
@@ -125,8 +148,57 @@ class TestLLMClient:
             {"role": "assistant", "text": "Response 1"},
         ]
 
-        update = llm_client.generate_memory_update(messages)
+        update = llm_client.generate_memory_update(messages, '{"bot": {}, "user": {}}')
         assert update == '{"patch": "value"}'
+        mock_get_prompt.assert_called_once_with(
+            "Alice: Message 1\nSeele: Response 1",
+            '{"bot": {}, "user": {}}',
+            None,
+            None,
+        )
+
+    @patch("llm.client.AsyncOpenAI")
+    @patch(
+        "llm.client.load_seele_json",
+        return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
+    )
+    @patch(
+        "llm.client.get_complete_memory_json_prompt",
+        return_value="complete memory prompt",
+    )
+    def test_generate_complete_memory_json(
+        self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
+    ):
+        """Test generating complete memory json with display names."""
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = '{"bot": {}, "user": {}}'
+
+        mock_async_client = AsyncMock()
+        mock_async_client.chat.completions.create = AsyncMock(
+            return_value=mock_response
+        )
+        mock_openai.return_value = mock_async_client
+
+        messages = [
+            {"role": "user", "text": "Message 1"},
+            {"role": "assistant", "text": "Response 1"},
+        ]
+
+        result = llm_client.generate_complete_memory_json(
+            messages,
+            '{"bot": {}, "user": {}}',
+            "patch failed",
+        )
+
+        assert result == '{"bot": {}, "user": {}}'
+        mock_get_prompt.assert_called_once_with(
+            "Alice: Message 1\nSeele: Response 1",
+            '{"bot": {}, "user": {}}',
+            "patch failed",
+            None,
+            None,
+        )
 
     @patch("llm.client.AsyncOpenAI")
     def test_close(self, mock_openai, llm_client):

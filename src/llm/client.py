@@ -8,7 +8,11 @@ from prompts import (
     get_memory_update_prompt,
     get_complete_memory_json_prompt,
 )
-from prompts.system import get_cacheable_system_prompt, get_current_time_str
+from prompts.system import (
+    get_cacheable_system_prompt,
+    get_current_time_str,
+    load_seele_json,
+)
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -64,6 +68,27 @@ class LLMClient:
 
     def _get_tools(self) -> Optional[List[Dict[str, Any]]]:
         return self._tools_cache
+
+    def _get_display_name_for_role(self, role: str) -> str:
+        """Map internal conversation roles to display names from seele.json."""
+        seele_data = load_seele_json()
+        bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
+        user_name = seele_data.get("user", {}).get("name", "User")
+
+        role_to_name = {
+            "user": user_name,
+            "assistant": bot_name,
+        }
+        return role_to_name.get(role, role)
+
+    def _format_conversation_messages(self, messages: List[Dict[str, str]]) -> str:
+        """Format conversation messages using user/bot names instead of raw roles."""
+        return "\n".join(
+            [
+                f"{self._get_display_name_for_role(msg['role'])}: {msg.get('content', msg.get('text', ''))}"
+                for msg in messages
+            ]
+        )
 
     async def _async_chat(
         self,
@@ -505,12 +530,7 @@ class LLMClient:
     def generate_summary(
         self, existing_summary: Optional[str], new_conversations: List[Dict[str, str]]
     ) -> str:
-        conv_text = "\n".join(
-            [
-                f"{msg['role']}: {msg.get('content', msg.get('text', ''))}"
-                for msg in new_conversations
-            ]
-        )
+        conv_text = self._format_conversation_messages(new_conversations)
 
         prompt = get_summary_prompt(existing_summary, conv_text)
 
@@ -548,12 +568,7 @@ class LLMClient:
         self, existing_summary: Optional[str], new_conversations: List[Dict[str, str]]
     ) -> str:
         """Async version of generate_summary. Use this in async contexts."""
-        conv_text = "\n".join(
-            [
-                f"{msg['role']}: {msg.get('content', msg.get('text', ''))}"
-                for msg in new_conversations
-            ]
-        )
+        conv_text = self._format_conversation_messages(new_conversations)
 
         prompt = get_summary_prompt(existing_summary, conv_text)
 
@@ -585,12 +600,7 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Synchronous wrapper for generate_memory_update. Use generate_memory_update_async in async contexts."""
-        conv_text = "\n".join(
-            [
-                f"{msg['role']}: {msg.get('content', msg.get('text', ''))}"
-                for msg in messages
-            ]
-        )
+        conv_text = self._format_conversation_messages(messages)
 
         prompt = get_memory_update_prompt(
             conv_text, current_seele_json, first_timestamp, last_timestamp
@@ -644,12 +654,7 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Async version of generate_memory_update. Use this in async contexts."""
-        conv_text = "\n".join(
-            [
-                f"{msg['role']}: {msg.get('content', msg.get('text', ''))}"
-                for msg in messages
-            ]
-        )
+        conv_text = self._format_conversation_messages(messages)
 
         prompt = get_memory_update_prompt(
             conv_text, current_seele_json, first_timestamp, last_timestamp
@@ -687,12 +692,7 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Synchronous wrapper for generating complete seele.json. Use generate_complete_memory_json_async in async contexts."""
-        conv_text = "\n".join(
-            [
-                f"{msg['role']}: {msg.get('content', msg.get('text', ''))}"
-                for msg in messages
-            ]
-        )
+        conv_text = self._format_conversation_messages(messages)
 
         prompt = get_complete_memory_json_prompt(
             conv_text,
@@ -753,12 +753,7 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Async version of generate_complete_memory_json. Use this in async contexts."""
-        conv_text = "\n".join(
-            [
-                f"{msg['role']}: {msg.get('content', msg.get('text', ''))}"
-                for msg in messages
-            ]
-        )
+        conv_text = self._format_conversation_messages(messages)
 
         prompt = get_complete_memory_json_prompt(
             conv_text,
