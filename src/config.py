@@ -17,6 +17,7 @@ class Config:
     DATA_DIR: Path = Path.cwd() / "data" / "default"
     DB_PATH: Path = Path.cwd() / "data" / "default" / "chatbot.db"
     SEELE_JSON_PATH: Path = Path.cwd() / "data" / "default" / "seele.json"
+    MEDIA_DIR: Path = Path.cwd() / "data" / "default" / "media"
 
     # Debug settings
     DEBUG_MODE: bool = False
@@ -62,6 +63,8 @@ class Config:
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_USER_ID: int = 0
     TELEGRAM_USE_MARKDOWN: bool = True
+    NEW_SESSION_COMMAND: str = "/new"
+    RESET_SESSION_COMMAND: str = "/reset"
 
     # Skills settings
     ENABLE_SKILLS: bool = True
@@ -114,6 +117,10 @@ class Config:
         cls.DATA_DIR = Path.cwd() / "data" / profile
         cls.DB_PATH = cls.DATA_DIR / "chatbot.db"
         cls.SEELE_JSON_PATH = cls.DATA_DIR / "seele.json"
+        media_dir_str = cls._get_str("MEDIA_DIR", "")
+        cls.MEDIA_DIR = Path(media_dir_str) if media_dir_str else cls.DATA_DIR / "media"
+        if not cls.MEDIA_DIR.is_absolute():
+            cls.MEDIA_DIR = Path.cwd() / cls.MEDIA_DIR
 
         # Debug settings
         cls.DEBUG_MODE = cls._get_bool("DEBUG_MODE", False)
@@ -164,6 +171,8 @@ class Config:
         cls.TELEGRAM_BOT_TOKEN = cls._get_str("TELEGRAM_BOT_TOKEN", "")
         cls.TELEGRAM_USER_ID = cls._get_int("TELEGRAM_USER_ID", 0)
         cls.TELEGRAM_USE_MARKDOWN = cls._get_bool("TELEGRAM_USE_MARKDOWN", True)
+        cls.NEW_SESSION_COMMAND = cls._get_str("NEW_SESSION_COMMAND", "/new")
+        cls.RESET_SESSION_COMMAND = cls._get_str("RESET_SESSION_COMMAND", "/reset")
 
         # Skills settings
         cls.ENABLE_SKILLS = cls._get_bool("ENABLE_SKILLS", True)
@@ -184,6 +193,7 @@ class Config:
     def _ensure_dirs_exist(cls) -> None:
         """Ensure required directories exist"""
         os.makedirs(cls.DATA_DIR, exist_ok=True)
+        os.makedirs(cls.MEDIA_DIR, exist_ok=True)
 
     @staticmethod
     def _get_str(key: str, default: str = "") -> str:

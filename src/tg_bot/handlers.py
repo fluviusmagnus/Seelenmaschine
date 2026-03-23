@@ -3,9 +3,11 @@
 import asyncio
 import html
 import json
+import mimetypes
 import random
 import re
-from typing import List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -503,6 +505,246 @@ class MessageHandler:
             logger.error(f"Error handling message: {e}", exc_info=True)
             await update.message.reply_text(
                 "Sorry, an error occurred while processing your message."
+            )
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize filename for safe local storage."""
+        sanitized = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", filename).strip(" .")
+        return sanitized or "file"
+
+    def _guess_extension(
+        self, original_name: Optional[str], mime_type: Optional[str], file_type: str
+    ) -> str:
+        """Guess a suitable file extension."""
+        if original_name:
+            suffix = Path(original_name).suffix
+            if suffix:
+                return suffix
+
+        if mime_type:
+            guessed = mimetypes.guess_extension(mime_type)
+            if guessed:
+                return guessed
+
+        fallback_extensions = {
+            "photo": ".jpg",
+            "video": ".mp4",
+            "audio": ".mp3",
+            "voice": ".ogg",
+            "document": "",
+        }
+        return fallback_extensions.get(file_type, "")
+
+    def _build_media_file_path(
+        self,
+        original_name: Optional[str],
+        file_unique_id: str,
+        mime_type: Optional[str],
+        file_type: str,
+    ) -> Path:
+        """Build a unique path for a Telegram attachment."""
+        base_name = self._sanitize_filename(original_name or file_type)
+        base_stem = Path(base_name).stem or file_type
+        extension = self._guess_extension(original_name, mime_type, file_type)
+        timestamp = asyncio.get_running_loop().time()
+        unique_part = f"{int(timestamp * 1000)}_{file_unique_id}"
+        filename = f"{base_stem}_{unique_part}{extension}"
+        return self.config.MEDIA_DIR / filename
+
+    def _extract_file_info_from_update(
+        self, update: Update
+    ) -> Optional[Dict[str, Any]]:
+        """Extract normalized file information from a Telegram update."""
+        if not update.message:
+            return None
+
+        message = update.message
+        caption = getattr(message, "caption", None)
+
+        if message.document:
+            doc = message.document
+            return {
+                "file_id": doc.file_id,
+                "file_unique_id": doc.file_unique_id,
+                "file_type": "document",
+                "original_name": doc.file_name,
+                "mime_type": doc.mime_type,
+                "file_size": doc.file_size,
+                "caption": caption,
+            }
+
+        if message.photo:
+            photo = message.photo[-1]
+            return {
+                "file_id": photo.file_id,
+                "file_unique_id": photo.file_unique_id,
+                "file_type": "photo",
+                "original_name": None,
+                "mime_type": "image/jpeg",
+                "file_size": photo.file_size,
+                "caption": caption,
+            }
+
+        if message.video:
+            video = message.video
+            return {
+                "file_id": video.file_id,
+                "file_unique_id": video.file_unique_id,
+                "file_type": "video",
+                "original_name": video.file_name,
+                "mime_type": video.mime_type,
+                "file_size": video.file_size,
+                "caption": caption,
+            }
+
+        if message.audio:
+            audio = message.audio
+            return {
+                "file_id": audio.file_id,
+                "file_unique_id": audio.file_unique_id,
+                "file_type": "audio",
+                "original_name": audio.file_name,
+                "mime_type": audio.mime_type,
+                "file_size": audio.file_size,
+                "caption": caption,
+            }
+
+        if message.voice:
+            voice = message.voice
+            return {
+                "file_id": voice.file_id,
+                "file_unique_id": voice.file_unique_id,
+                "file_type": "voice",
+                "original_name": None,
+                "mime_type": voice.mime_type,
+                "file_size": voice.file_size,
+                "caption": caption,
+            }
+
+        return None
+
+    async def _download_telegram_file(
+        self, context: ContextTypes.DEFAULT_TYPE, file_id: str, destination: Path
+    ) -> Path:
+        """Download a Telegram file to the configured media directory."""
+        telegram_file = await context.bot.get_file(file_id)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        await telegram_file.download_to_drive(custom_path=str(destination))
+        return destination
+
+    def _format_saved_media_path(self, saved_path: Path) -> str:
+        """Format saved path for user-facing/system-facing messages."""
+        return str(saved_path.resolve())
+
+    def _build_file_event_message(
+        self, file_info: Dict[str, Any], saved_path: Path
+    ) -> str:
+        """Build the synthetic user message describing the uploaded file."""
+        original_name = file_info.get("original_name") or saved_path.name
+        message_lines = [
+            "[System Event] The user has sent a file.",
+            f"File type: {file_info['file_type']}",
+            f"Original filename: {original_name}",
+            f"Saved to: {self._format_saved_media_path(saved_path)}",
+        ]
+
+        mime_type = file_info.get("mime_type")
+        if mime_type:
+            message_lines.append(f"MIME type: {mime_type}")
+
+        file_size = file_info.get("file_size")
+        if file_size is not None:
+            message_lines.append(f"File size: {file_size} bytes")
+
+        caption = file_info.get("caption")
+        if caption:
+            message_lines.append(f"Caption: {caption}")
+
+        message_lines.append(
+            "Please understand the likely purpose of this file in context and continue the conversation naturally."
+        )
+        return "\n".join(message_lines)
+
+    async def handle_file(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle incoming Telegram attachments by saving them and notifying the LLM."""
+        if not update.effective_user or not update.message:
+            return
+
+        user_id = update.effective_user.id
+
+        if user_id != self.config.TELEGRAM_USER_ID:
+            await update.message.reply_text("Unauthorized access.")
+            logger.warning(f"Unauthorized file from user {user_id}")
+            return
+
+        file_info = self._extract_file_info_from_update(update)
+        if not file_info:
+            logger.warning("Received file handler update without supported attachment")
+            await update.message.reply_text("Unsupported file type.")
+            return
+
+        logger.info(
+            f"Received {file_info['file_type']} from user {user_id}: {file_info.get('original_name') or file_info['file_unique_id']}"
+        )
+
+        async def _keep_typing_indicator():
+            """Background task to keep typing indicator active."""
+            while True:
+                try:
+                    await context.bot.send_chat_action(
+                        chat_id=update.effective_chat.id, action="typing"
+                    )
+                    await asyncio.sleep(3)
+                except Exception as e:
+                    logger.warning(f"Typing indicator failed during file handling: {e}")
+                    await asyncio.sleep(3)
+
+        try:
+            typing_task = asyncio.create_task(_keep_typing_indicator())
+
+            try:
+                destination = self._build_media_file_path(
+                    original_name=file_info.get("original_name"),
+                    file_unique_id=file_info["file_unique_id"],
+                    mime_type=file_info.get("mime_type"),
+                    file_type=file_info["file_type"],
+                )
+                saved_path = await self._download_telegram_file(
+                    context, file_info["file_id"], destination
+                )
+
+                user_message = self._build_file_event_message(file_info, saved_path)
+                response = await self._process_message(user_message)
+
+                formatted_response = self._format_response_for_telegram(response)
+                segments = self._split_message_into_segments(formatted_response)
+
+                logger.debug(f"File response split into {len(segments)} segments")
+
+                for i, segment in enumerate(segments):
+                    try:
+                        await update.message.reply_text(segment, parse_mode="HTML")
+                        if i < len(segments) - 1:
+                            delay = random.uniform(1.0, 2.0)
+                            await asyncio.sleep(delay)
+                    except Exception as e:
+                        logger.warning(
+                            f"HTML parsing failed for file segment {i + 1}, sending as plain text: {e}"
+                        )
+                        await update.message.reply_text(segment)
+            finally:
+                typing_task.cancel()
+                try:
+                    await typing_task
+                except asyncio.CancelledError:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Error handling file: {e}", exc_info=True)
+            await update.message.reply_text(
+                "Sorry, an error occurred while processing your file."
             )
 
     async def handle_new_session(

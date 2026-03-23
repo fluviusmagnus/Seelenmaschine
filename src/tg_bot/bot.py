@@ -169,6 +169,16 @@ class TelegramBot:
                 filters.TEXT & ~filters.COMMAND, self.message_handler.handle_message
             )
         )
+        self._application.add_handler(
+            MessageHandler(
+                filters.Document.ALL
+                | filters.PHOTO
+                | filters.VIDEO
+                | filters.AUDIO
+                | filters.VOICE,
+                self.message_handler.handle_file,
+            )
+        )
 
         # Add post_init hook to start scheduler after bot is ready
         async def post_init(application: Application) -> None:

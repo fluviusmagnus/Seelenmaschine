@@ -97,6 +97,7 @@ class TestTelegramBotApplication:
         handler.handle_new_session = AsyncMock()
         handler.handle_reset_session = AsyncMock()
         handler.handle_message = AsyncMock()
+        handler.handle_file = AsyncMock()
         return handler
 
     @pytest.fixture
@@ -133,8 +134,8 @@ class TestTelegramBotApplication:
                 # Verify token was set
                 mock_builder.return_value.token.assert_called_once_with("test_token")
 
-                # Verify handlers were added (should be 5 handlers: start, help, new, reset, message)
-                assert mock_application.add_handler.call_count == 5
+                # Verify handlers were added (start, help, new, reset, text, file)
+                assert mock_application.add_handler.call_count == 6
 
     @pytest.mark.asyncio
     async def test_post_init_hook(

@@ -117,6 +117,144 @@ class TestMessageProcessing:
         pass
 
 
+class TestFileHandling:
+    """Test Telegram file handling in MessageHandler."""
+
+    @pytest.fixture
+    def mock_handler(self, tmp_path):
+        """Create a minimal mock handler with bound file methods."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.config.MEDIA_DIR = tmp_path / "media"
+        handler._process_message = AsyncMock(return_value="LLM file response")
+        handler._format_response_for_telegram = Mock(return_value="Formatted response")
+        handler._split_message_into_segments = Mock(return_value=["Segment 1"])
+
+        handler._sanitize_filename = MessageHandler._sanitize_filename.__get__(
+            handler, Mock
+        )
+        handler._guess_extension = MessageHandler._guess_extension.__get__(
+            handler, Mock
+        )
+        handler._build_media_file_path = MessageHandler._build_media_file_path.__get__(
+            handler, Mock
+        )
+        handler._extract_file_info_from_update = (
+            MessageHandler._extract_file_info_from_update.__get__(handler, Mock)
+        )
+        handler._download_telegram_file = (
+            MessageHandler._download_telegram_file.__get__(handler, Mock)
+        )
+        handler._format_saved_media_path = (
+            MessageHandler._format_saved_media_path.__get__(handler, Mock)
+        )
+        handler._build_file_event_message = (
+            MessageHandler._build_file_event_message.__get__(handler, Mock)
+        )
+        handler.handle_file = MessageHandler.handle_file.__get__(handler, Mock)
+
+        return handler
+
+    @pytest.fixture
+    def mock_context(self):
+        """Create mock Telegram context."""
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+        context.bot.get_file = AsyncMock()
+        return context
+
+    @pytest.fixture
+    def mock_update_with_document(self):
+        """Create update containing a Telegram document."""
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.reply_text = AsyncMock()
+        update.message.caption = "这是附件说明"
+        update.message.photo = None
+        update.message.video = None
+        update.message.audio = None
+        update.message.voice = None
+
+        document = Mock()
+        document.file_id = "file-id"
+        document.file_unique_id = "unique-id"
+        document.file_name = "report.pdf"
+        document.mime_type = "application/pdf"
+        document.file_size = 1024
+        update.message.document = document
+
+        return update
+
+    def test_build_file_event_message(self, mock_handler, tmp_path):
+        """Test synthetic user message creation for files."""
+        saved_path = tmp_path / "media" / "report_unique-id.pdf"
+        file_info = {
+            "file_type": "document",
+            "original_name": "report.pdf",
+            "mime_type": "application/pdf",
+            "file_size": 1024,
+            "caption": "附件说明",
+        }
+
+        message = mock_handler._build_file_event_message(file_info, saved_path)
+
+        assert "System note: the user sent a file." in message
+        assert "Original filename: report.pdf" in message
+        assert f"Saved to: {saved_path.resolve()}" in message
+        assert "MIME type: application/pdf" in message
+        assert "File size: 1024 bytes" in message
+        assert "Caption: 附件说明" in message
+
+    @pytest.mark.asyncio
+    async def test_handle_file_processes_document(
+        self, mock_handler, mock_context, mock_update_with_document
+    ):
+        """Test document upload is saved and forwarded into normal message flow."""
+        telegram_file = Mock()
+        telegram_file.download_to_drive = AsyncMock()
+        mock_context.bot.get_file.return_value = telegram_file
+
+        async def download_side_effect(custom_path):
+            Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(custom_path).write_text("dummy", encoding="utf-8")
+
+        telegram_file.download_to_drive.side_effect = download_side_effect
+
+        await mock_handler.handle_file(mock_update_with_document, mock_context)
+
+        mock_context.bot.get_file.assert_called_once_with("file-id")
+        mock_handler._process_message.assert_called_once()
+        processed_message = mock_handler._process_message.call_args[0][0]
+        assert "System note: the user sent a file." in processed_message
+        assert "Original filename: report.pdf" in processed_message
+        assert "Saved to:" in processed_message
+        mock_update_with_document.message.reply_text.assert_called_once_with(
+            "Segment 1", parse_mode="HTML"
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_file_rejects_unauthorized_user(
+        self, mock_handler, mock_context, mock_update_with_document
+    ):
+        """Test unauthorized users cannot upload files."""
+        mock_update_with_document.effective_user.id = 999999999
+
+        await mock_handler.handle_file(mock_update_with_document, mock_context)
+
+        mock_handler._process_message.assert_not_called()
+        mock_update_with_document.message.reply_text.assert_called_once_with(
+            "Unauthorized access."
+        )
+
+
 class TestSplitMessageIntoSegments:
     """Test the _split_message_into_segments method"""
 
