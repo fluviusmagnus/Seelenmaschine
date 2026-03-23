@@ -62,7 +62,10 @@ class TestConfig:
         """Test default values before initialization."""
         assert Config.PROFILE == "default"
         assert Config.DATA_DIR == Path.cwd() / "data" / "default"
-        assert Config.MEDIA_DIR == Path.cwd() / "data" / "default" / "media"
+        assert Config.WORKSPACE_DIR == Path.cwd() / "data" / "default" / "workspace"
+        assert (
+            Config.MEDIA_DIR == Path.cwd() / "data" / "default" / "workspace" / "media"
+        )
         assert Config.DEBUG_MODE is False
         assert Config.DEBUG_LOG_LEVEL == "INFO"
         assert Config.TIMEZONE_STR == "Asia/Shanghai"
@@ -339,15 +342,35 @@ class TestConfig:
                 del os.environ[key]
 
     def test_load_all_settings_media_dir_default(self, reset_config):
-        """Test MEDIA_DIR defaults to profile media directory."""
+        """Test WORKSPACE_DIR and MEDIA_DIR default locations."""
         Config._profile = "test_profile"
 
+        if "WORKSPACE_DIR" in os.environ:
+            del os.environ["WORKSPACE_DIR"]
         if "MEDIA_DIR" in os.environ:
             del os.environ["MEDIA_DIR"]
 
         Config._load_all_settings()
 
-        assert Config.MEDIA_DIR == Path.cwd() / "data" / "test_profile" / "media"
+        assert (
+            Config.WORKSPACE_DIR == Path.cwd() / "data" / "test_profile" / "workspace"
+        )
+        assert (
+            Config.MEDIA_DIR
+            == Path.cwd() / "data" / "test_profile" / "workspace" / "media"
+        )
+
+    def test_load_all_settings_workspace_dir_override(self, reset_config):
+        """Test WORKSPACE_DIR can be overridden by environment."""
+        Config._profile = "test"
+        os.environ["WORKSPACE_DIR"] = "custom_workspace"
+
+        Config._load_all_settings()
+
+        assert Config.WORKSPACE_DIR == Path.cwd() / "custom_workspace"
+        assert Config.MEDIA_DIR == Path.cwd() / "custom_workspace" / "media"
+
+        del os.environ["WORKSPACE_DIR"]
 
     def test_load_all_settings_media_dir_override(self, reset_config):
         """Test MEDIA_DIR can be overridden by environment."""
@@ -382,11 +405,14 @@ class TestConfig:
     def test_ensure_dirs_exist(self, reset_config, tmp_path):
         """Test _ensure_dirs_exist creates directory."""
         test_dir = tmp_path / "test_subdir"
+        workspace_dir = tmp_path / "workspace"
         media_dir = tmp_path / "test_media"
         Config.DATA_DIR = test_dir
+        Config.WORKSPACE_DIR = workspace_dir
         Config.MEDIA_DIR = media_dir
         Config._ensure_dirs_exist()
         assert test_dir.exists()
+        assert workspace_dir.exists()
         assert media_dir.exists()
 
 

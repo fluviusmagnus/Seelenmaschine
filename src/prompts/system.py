@@ -191,7 +191,7 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
    - Current conversation: Real-time progress of this session
    - Related memories: Historical summaries and conversations (when provided)
 
-5. **Use available tools when appropriate**: You have access to tools like memory search (for recalling past conversations) and task scheduling (for reminders). When a user's request clearly indicates tool usage is needed (e.g., asking about past conversations, setting reminders), use the appropriate tool proactively. Always wait for tool results before responding when you invoke a tool.
+5. **Use available tools when appropriate**: You have access to tools like memory search (for recalling past conversations) and task scheduling (for reminders). When a user's request clearly indicates tool usage is needed (e.g., asking about past conversations, setting reminders), use the appropriate tool proactively. Always wait for tool results before responding when you invoke a tool. Your default workspace is `{Config.WORKSPACE_DIR.resolve()}`.
 
 ---"""
     )

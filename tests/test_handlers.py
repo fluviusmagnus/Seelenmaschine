@@ -206,7 +206,7 @@ class TestFileHandling:
 
         message = mock_handler._build_file_event_message(file_info, saved_path)
 
-        assert "System note: the user sent a file." in message
+        assert "[System Event] The user has sent a file." in message
         assert "Original filename: report.pdf" in message
         assert f"Saved to: {saved_path.resolve()}" in message
         assert "MIME type: application/pdf" in message
@@ -233,7 +233,7 @@ class TestFileHandling:
         mock_context.bot.get_file.assert_called_once_with("file-id")
         mock_handler._process_message.assert_called_once()
         processed_message = mock_handler._process_message.call_args[0][0]
-        assert "System note: the user sent a file." in processed_message
+        assert "[System Event] The user has sent a file." in processed_message
         assert "Original filename: report.pdf" in processed_message
         assert "Saved to:" in processed_message
         mock_update_with_document.message.reply_text.assert_called_once_with(

@@ -17,7 +17,8 @@ class Config:
     DATA_DIR: Path = Path.cwd() / "data" / "default"
     DB_PATH: Path = Path.cwd() / "data" / "default" / "chatbot.db"
     SEELE_JSON_PATH: Path = Path.cwd() / "data" / "default" / "seele.json"
-    MEDIA_DIR: Path = Path.cwd() / "data" / "default" / "media"
+    WORKSPACE_DIR: Path = Path.cwd() / "data" / "default" / "workspace"
+    MEDIA_DIR: Path = Path.cwd() / "data" / "default" / "workspace" / "media"
 
     # Debug settings
     DEBUG_MODE: bool = False
@@ -117,8 +118,17 @@ class Config:
         cls.DATA_DIR = Path.cwd() / "data" / profile
         cls.DB_PATH = cls.DATA_DIR / "chatbot.db"
         cls.SEELE_JSON_PATH = cls.DATA_DIR / "seele.json"
+        workspace_dir_str = cls._get_str("WORKSPACE_DIR", "")
+        cls.WORKSPACE_DIR = (
+            Path(workspace_dir_str) if workspace_dir_str else cls.DATA_DIR / "workspace"
+        )
+        if not cls.WORKSPACE_DIR.is_absolute():
+            cls.WORKSPACE_DIR = Path.cwd() / cls.WORKSPACE_DIR
+
         media_dir_str = cls._get_str("MEDIA_DIR", "")
-        cls.MEDIA_DIR = Path(media_dir_str) if media_dir_str else cls.DATA_DIR / "media"
+        cls.MEDIA_DIR = (
+            Path(media_dir_str) if media_dir_str else cls.WORKSPACE_DIR / "media"
+        )
         if not cls.MEDIA_DIR.is_absolute():
             cls.MEDIA_DIR = Path.cwd() / cls.MEDIA_DIR
 
@@ -193,6 +203,7 @@ class Config:
     def _ensure_dirs_exist(cls) -> None:
         """Ensure required directories exist"""
         os.makedirs(cls.DATA_DIR, exist_ok=True)
+        os.makedirs(cls.WORKSPACE_DIR, exist_ok=True)
         os.makedirs(cls.MEDIA_DIR, exist_ok=True)
 
     @staticmethod
