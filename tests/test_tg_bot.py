@@ -131,6 +131,11 @@ class TestTelegramBotApplication:
                 # Verify application was created
                 assert bot._application == mock_application
 
+                # Verify message handler received bot injection
+                mock_message_handler.set_telegram_bot.assert_called_once_with(
+                    mock_application.bot
+                )
+
                 # Verify token was set
                 mock_builder.return_value.token.assert_called_once_with("test_token")
 

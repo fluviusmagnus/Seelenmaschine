@@ -21,6 +21,7 @@ from llm.reranker import RerankerClient
 from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_task_tool import ScheduledTaskTool
+from tools.send_telegram_file_tool import SendTelegramFileTool
 from llm.client import LLMClient
 from utils.logger import get_logger
 
@@ -53,6 +54,12 @@ class MessageHandler:
         self.scheduled_task_tool = None
         self.scheduled_task_tool_def = None
         self._register_scheduled_task_tool()
+
+        # Initialize Telegram file sending tool
+        self.send_telegram_file_tool = None
+        self.send_telegram_file_tool_def = None
+        self.telegram_bot = None
+        self._register_send_telegram_file_tool()
 
         # Initialize LLM client
         self.llm_client = LLMClient()
@@ -88,6 +95,31 @@ class MessageHandler:
             logger.error(f"Failed to register scheduled_task tool: {e}")
             self.scheduled_task_tool = None
             self.scheduled_task_tool_def = None
+
+    def _register_send_telegram_file_tool(self):
+        """Register the Telegram file sending tool."""
+        try:
+            self.send_telegram_file_tool = SendTelegramFileTool(
+                self._send_telegram_file_to_user
+            )
+            self.send_telegram_file_tool_def = {
+                "type": "function",
+                "function": {
+                    "name": self.send_telegram_file_tool.name,
+                    "description": self.send_telegram_file_tool.description,
+                    "parameters": self.send_telegram_file_tool.parameters,
+                },
+            }
+            logger.info("Registered send_telegram_file tool")
+        except Exception as e:
+            logger.error(f"Failed to register send_telegram_file tool: {e}")
+            self.send_telegram_file_tool = None
+            self.send_telegram_file_tool_def = None
+
+    def set_telegram_bot(self, bot: Any) -> None:
+        """Inject Telegram bot instance for proactive file sending."""
+        self.telegram_bot = bot
+        logger.info("Telegram bot instance injected into MessageHandler")
 
     async def _handle_scheduled_message(
         self, message: str, task_name: str = "Scheduled Task"
@@ -312,6 +344,10 @@ class MessageHandler:
             tools.append(self.scheduled_task_tool_def)
             logger.info("Added scheduled_task tool")
 
+        if self.send_telegram_file_tool_def:
+            tools.append(self.send_telegram_file_tool_def)
+            logger.info("Added send_telegram_file tool")
+
         # Add memory search tool
         session_id = self.memory.get_current_session_id()
         if not hasattr(self, "memory_search_tool") or self.memory_search_tool is None:
@@ -365,7 +401,11 @@ class MessageHandler:
                 # 2. Add MCP tools
                 all_tools.extend(mcp_tools)
 
-                # 3. Add memory search tool
+                # 3. Add send_telegram_file tool
+                if self.send_telegram_file_tool_def:
+                    all_tools.append(self.send_telegram_file_tool_def)
+
+                # 4. Add memory search tool
                 memory_search_tool_def = {
                     "type": "function",
                     "function": {
@@ -403,6 +443,13 @@ class MessageHandler:
         # Check if it's the scheduled task tool
         if self.scheduled_task_tool and tool_name == self.scheduled_task_tool.name:
             return await self.scheduled_task_tool.execute(**arguments)
+
+        # Check if it's the Telegram file sending tool
+        if (
+            self.send_telegram_file_tool
+            and tool_name == self.send_telegram_file_tool.name
+        ):
+            return await self.send_telegram_file_tool.execute(**arguments)
 
         # Check if it's an MCP tool
         if self.mcp_client:
@@ -635,6 +682,137 @@ class MessageHandler:
     def _format_saved_media_path(self, saved_path: Path) -> str:
         """Format saved path for user-facing/system-facing messages."""
         return str(saved_path.resolve())
+
+    def _resolve_telegram_file_path(self, file_path: str) -> Path:
+        """Resolve a tool-provided file path against the workspace."""
+        candidate = Path(file_path)
+        if not candidate.is_absolute():
+            candidate = self.config.WORKSPACE_DIR / candidate
+        return candidate.resolve()
+
+    def _is_allowed_telegram_file_path(self, resolved_path: Path) -> bool:
+        """Check that the path is inside the allowed directories."""
+        allowed_dirs = [
+            self.config.WORKSPACE_DIR.resolve(),
+            self.config.MEDIA_DIR.resolve(),
+        ]
+
+        for allowed_dir in allowed_dirs:
+            try:
+                resolved_path.relative_to(allowed_dir)
+                return True
+            except ValueError:
+                continue
+
+        return False
+
+    def _detect_telegram_delivery_method(
+        self, resolved_path: Path, file_type: str = "auto"
+    ) -> str:
+        """Detect which Telegram API should be used for the file."""
+        if file_type != "auto":
+            return file_type
+
+        suffix = resolved_path.suffix.lower()
+        mime_type, _ = mimetypes.guess_type(str(resolved_path))
+
+        if mime_type:
+            if mime_type.startswith("image/"):
+                return "photo"
+            if mime_type.startswith("video/"):
+                return "video"
+            if mime_type.startswith("audio/"):
+                if suffix in {".ogg", ".oga", ".opus"}:
+                    return "voice"
+                return "audio"
+
+        if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+            return "photo"
+        if suffix in {".mp4", ".mov", ".mkv", ".webm", ".avi"}:
+            return "video"
+        if suffix in {".mp3", ".wav", ".m4a", ".flac", ".aac"}:
+            return "audio"
+        if suffix in {".ogg", ".oga", ".opus"}:
+            return "voice"
+
+        return "document"
+
+    def _build_sent_file_event_message(
+        self, sent_path: Path, delivery_method: str, caption: Optional[str] = None
+    ) -> str:
+        """Build assistant-role system-tone event text for sent files."""
+        message_lines = [
+            "[System Event] Assistant has sent a file via Telegram.",
+            f"Delivery method: {delivery_method}",
+            f"Filename: {sent_path.name}",
+            f"Path: {self._format_saved_media_path(sent_path)}",
+        ]
+
+        mime_type, _ = mimetypes.guess_type(str(sent_path))
+        if mime_type:
+            message_lines.append(f"MIME type: {mime_type}")
+
+        if caption:
+            message_lines.append(f"Caption: {caption}")
+
+        return "\n".join(message_lines)
+
+    async def _send_telegram_file_to_user(
+        self,
+        file_path: str,
+        caption: Optional[str] = None,
+        file_type: str = "auto",
+    ) -> Dict[str, Any]:
+        """Send a local file to the Telegram user and record the event in memory."""
+        if self.telegram_bot is None:
+            raise RuntimeError(
+                "Telegram bot is not available for proactive file sending"
+            )
+
+        resolved_path = self._resolve_telegram_file_path(file_path)
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"File not found: {resolved_path}")
+        if not resolved_path.is_file():
+            raise ValueError(f"Path is not a file: {resolved_path}")
+        if not self._is_allowed_telegram_file_path(resolved_path):
+            raise ValueError(
+                "File path is outside allowed directories (workspace/media)"
+            )
+
+        delivery_method = self._detect_telegram_delivery_method(
+            resolved_path, file_type=file_type
+        )
+
+        send_kwargs: Dict[str, Any] = {"chat_id": self.config.TELEGRAM_USER_ID}
+        if caption:
+            send_kwargs["caption"] = caption
+
+        with open(resolved_path, "rb") as file_obj:
+            if delivery_method == "photo":
+                await self.telegram_bot.send_photo(photo=file_obj, **send_kwargs)
+            elif delivery_method == "video":
+                await self.telegram_bot.send_video(video=file_obj, **send_kwargs)
+            elif delivery_method == "audio":
+                await self.telegram_bot.send_audio(audio=file_obj, **send_kwargs)
+            elif delivery_method == "voice":
+                await self.telegram_bot.send_voice(voice=file_obj, **send_kwargs)
+            else:
+                await self.telegram_bot.send_document(document=file_obj, **send_kwargs)
+
+        event_text = self._build_sent_file_event_message(
+            resolved_path, delivery_method, caption
+        )
+        await self.memory.add_assistant_message_async(event_text)
+
+        logger.info(
+            f"Sent file to Telegram user via {delivery_method}: {resolved_path.name}"
+        )
+        return {
+            "status": "sent",
+            "delivery_method": delivery_method,
+            "resolved_path": self._format_saved_media_path(resolved_path),
+            "caption": caption,
+        }
 
     def _build_file_event_message(
         self, file_info: Dict[str, Any], saved_path: Path

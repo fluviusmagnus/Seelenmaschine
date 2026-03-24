@@ -152,6 +152,7 @@ class TelegramBot:
         self._application = (
             Application.builder().token(self.config.TELEGRAM_BOT_TOKEN).build()
         )
+        self.message_handler.set_telegram_bot(self._application.bot)
 
         # Add command handlers
         self._application.add_handler(CommandHandler("start", self._cmd_start))

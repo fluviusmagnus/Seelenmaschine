@@ -72,6 +72,10 @@ class TestToolExecution:
         handler.scheduled_task_tool.name = "scheduled_task"
         handler.scheduled_task_tool.execute = AsyncMock(return_value="Task scheduled")
 
+        handler.send_telegram_file_tool = Mock()
+        handler.send_telegram_file_tool.name = "send_telegram_file"
+        handler.send_telegram_file_tool.execute = AsyncMock(return_value="File sent")
+
         handler.mcp_client = None
 
         return handler
@@ -100,6 +104,18 @@ class TestToolExecution:
 
         assert result == "Task scheduled"
         mock_handler.scheduled_task_tool.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_send_telegram_file_tool(self, mock_handler):
+        """Test executing send_telegram_file tool"""
+        arguments = '{"file_path": "output/report.pdf", "caption": "导出结果"}'
+
+        result = await mock_handler.send_telegram_file_tool.execute(
+            **json.loads(arguments)
+        )
+
+        assert result == "File sent"
+        mock_handler.send_telegram_file_tool.execute.assert_called_once()
 
 
 class TestMessageProcessing:
@@ -216,6 +232,7 @@ class TestFileHandling:
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
         handler.config.TELEGRAM_USER_ID = 123456789
+        handler.config.WORKSPACE_DIR = tmp_path
         handler.config.MEDIA_DIR = tmp_path / "media"
         handler._process_message = AsyncMock(return_value="LLM file response")
         handler._format_response_for_telegram = Mock(return_value="Formatted response")
@@ -242,7 +259,30 @@ class TestFileHandling:
         handler._build_file_event_message = (
             MessageHandler._build_file_event_message.__get__(handler, Mock)
         )
+        handler._resolve_telegram_file_path = (
+            MessageHandler._resolve_telegram_file_path.__get__(handler, Mock)
+        )
+        handler._is_allowed_telegram_file_path = (
+            MessageHandler._is_allowed_telegram_file_path.__get__(handler, Mock)
+        )
+        handler._detect_telegram_delivery_method = (
+            MessageHandler._detect_telegram_delivery_method.__get__(handler, Mock)
+        )
+        handler._build_sent_file_event_message = (
+            MessageHandler._build_sent_file_event_message.__get__(handler, Mock)
+        )
+        handler._send_telegram_file_to_user = (
+            MessageHandler._send_telegram_file_to_user.__get__(handler, Mock)
+        )
         handler.handle_file = MessageHandler.handle_file.__get__(handler, Mock)
+        handler.memory = Mock()
+        handler.memory.add_assistant_message_async = AsyncMock()
+        handler.telegram_bot = Mock()
+        handler.telegram_bot.send_document = AsyncMock()
+        handler.telegram_bot.send_photo = AsyncMock()
+        handler.telegram_bot.send_video = AsyncMock()
+        handler.telegram_bot.send_audio = AsyncMock()
+        handler.telegram_bot.send_voice = AsyncMock()
 
         return handler
 
@@ -341,6 +381,87 @@ class TestFileHandling:
         mock_update_with_document.message.reply_text.assert_called_once_with(
             "Unauthorized access."
         )
+
+    def test_detect_telegram_delivery_method(self, mock_handler, tmp_path):
+        """Test Telegram delivery method auto detection by file type."""
+        assert (
+            mock_handler._detect_telegram_delivery_method(tmp_path / "image.png")
+            == "photo"
+        )
+        assert (
+            mock_handler._detect_telegram_delivery_method(tmp_path / "clip.mp4")
+            == "video"
+        )
+        assert (
+            mock_handler._detect_telegram_delivery_method(tmp_path / "song.mp3")
+            == "audio"
+        )
+        assert (
+            mock_handler._detect_telegram_delivery_method(tmp_path / "note.ogg")
+            == "voice"
+        )
+        assert (
+            mock_handler._detect_telegram_delivery_method(tmp_path / "report.pdf")
+            == "document"
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_telegram_file_to_user_uses_photo_and_logs_system_event(
+        self, mock_handler, tmp_path
+    ):
+        """Test proactive photo sending and assistant-role system-tone logging."""
+        image_path = tmp_path / "media" / "chart.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(b"fake-image")
+
+        result = await mock_handler._send_telegram_file_to_user(
+            str(image_path), caption="最新图表"
+        )
+
+        assert result["delivery_method"] == "photo"
+        mock_handler.telegram_bot.send_photo.assert_awaited_once()
+        mock_handler.memory.add_assistant_message_async.assert_awaited_once()
+        event_text = mock_handler.memory.add_assistant_message_async.await_args.args[0]
+        assert event_text.startswith(
+            "[System Event] Assistant sent a file to the user via Telegram."
+        )
+        assert "Delivery method: photo" in event_text
+        assert "Caption: 最新图表" in event_text
+
+    @pytest.mark.asyncio
+    async def test_send_telegram_file_to_user_routes_by_media_type(
+        self, mock_handler, tmp_path
+    ):
+        """Test different Telegram APIs are selected by file type."""
+        video_path = tmp_path / "media" / "movie.mp4"
+        audio_path = tmp_path / "media" / "sound.mp3"
+        voice_path = tmp_path / "media" / "voice.ogg"
+        document_path = tmp_path / "media" / "report.pdf"
+
+        for path in [video_path, audio_path, voice_path, document_path]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"binary")
+
+        await mock_handler._send_telegram_file_to_user(str(video_path))
+        await mock_handler._send_telegram_file_to_user(str(audio_path))
+        await mock_handler._send_telegram_file_to_user(str(voice_path))
+        await mock_handler._send_telegram_file_to_user(str(document_path))
+
+        mock_handler.telegram_bot.send_video.assert_awaited_once()
+        mock_handler.telegram_bot.send_audio.assert_awaited_once()
+        mock_handler.telegram_bot.send_voice.assert_awaited_once()
+        mock_handler.telegram_bot.send_document.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_send_telegram_file_to_user_rejects_outside_workspace(
+        self, mock_handler, tmp_path
+    ):
+        """Test proactive file sending rejects files outside workspace/media."""
+        outside_file = tmp_path.parent / "outside.txt"
+        outside_file.write_text("x", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="outside allowed directories"):
+            await mock_handler._send_telegram_file_to_user(str(outside_file))
 
 
 class TestSplitMessageIntoSegments:
