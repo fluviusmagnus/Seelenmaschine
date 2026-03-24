@@ -838,9 +838,6 @@ class MessageHandler:
         if caption:
             message_lines.append(f"Caption: {caption}")
 
-        message_lines.append(
-            "Please understand the likely purpose of this file in context and continue the conversation naturally."
-        )
         return "\n".join(message_lines)
 
     async def handle_file(

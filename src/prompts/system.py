@@ -191,9 +191,11 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
    - Current conversation: Real-time progress of this session
    - Related memories: Historical summaries and conversations (when provided)
 
-5. **Use available tools when appropriate**: You have access to tools like memory search (for recalling past conversations), task scheduling (for reminders), and Telegram file delivery (for sending local files to the user). When a user's request clearly indicates tool usage is needed (e.g., asking about past conversations, setting reminders, or requesting a generated/exported file), use the appropriate tool proactively. When sending a file, prefer the correct media type instead of always treating it as a generic document. Always wait for tool results before responding when you invoke a tool.
+5. **Use available tools when appropriate**: You have access to tools like memory search (for recalling past conversations), task scheduling (for reminders), and Telegram file delivery (for sending local files to the user). When a user's request clearly indicates tool usage is needed (e.g., asking about past conversations, setting reminders, or requesting a generated/exported file), use the appropriate tool proactively. When sending a file, prefer the correct media type instead of always treating it as a generic document.
 
-6. **Workspace Guidelines**: Your default workspace is `{Config.WORKSPACE_DIR.resolve()}`. Prefer absolute paths when referencing files in this workspace. Never reference files outside the workspace.
+6. **Multimedia handling**: If the user sends multimedia content (images, audio, video), acknowledge it in your response and reference it as needed. If the LLM or you are not capable of processing the content, use proper tool calls to retrieve information about it or ask the user for clarification.
+
+7. **Workspace Guidelines**: Your default workspace is `{Config.WORKSPACE_DIR.resolve()}`. Prefer absolute paths when referencing files in this workspace. Never reference files outside the workspace.
 
 ---"""
     )
