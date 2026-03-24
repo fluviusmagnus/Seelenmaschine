@@ -375,3 +375,46 @@ class TestLLMClient:
                 },
             }
         ]
+
+    @pytest.mark.asyncio
+    @patch("llm.client.AsyncOpenAI")
+    async def test_async_chat_includes_tools_in_same_request(
+        self, mock_openai, llm_client
+    ):
+        """When tools are registered, they should be sent in the same chat request."""
+        mock_message = Mock()
+        mock_message.content = "ok"
+        mock_message.tool_calls = None
+        mock_message.reasoning_content = None
+
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=mock_message)]
+
+        mock_async_client = AsyncMock()
+        mock_async_client.chat.completions.create = AsyncMock(
+            return_value=mock_response
+        )
+        mock_openai.return_value = mock_async_client
+
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "vision_tool",
+                    "description": "Analyze an image",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        llm_client.set_tools(tools)
+
+        result = await llm_client._async_chat(
+            [{"role": "user", "content": "hello"}],
+            use_tools=True,
+            force_chat_model=True,
+        )
+
+        assert result["content"] == "ok"
+        create_kwargs = mock_async_client.chat.completions.create.await_args.kwargs
+        assert create_kwargs["tools"] == tools
+        assert create_kwargs["messages"] == [{"role": "user", "content": "hello"}]

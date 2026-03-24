@@ -38,6 +38,30 @@ class LLMClient:
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
         self._tool_executor: Optional[Callable] = None
 
+    @staticmethod
+    def _preview_text(text: Optional[str], max_length: int = 120) -> str:
+        """Build a compact single-line preview for logs."""
+        if text is None:
+            return ""
+
+        normalized = " ".join(str(text).split())
+        if len(normalized) <= max_length:
+            return normalized
+        return f"{normalized[:max_length]}..."
+
+    def _get_tool_names(self) -> List[str]:
+        """Return currently registered tool names for diagnostics."""
+        tools = self._get_tools() or []
+        tool_names: List[str] = []
+
+        for tool in tools:
+            function = tool.get("function", {})
+            name = function.get("name")
+            if name:
+                tool_names.append(str(name))
+
+        return tool_names
+
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None or self._loop.is_closed():
             self._loop = asyncio.new_event_loop()
@@ -64,7 +88,10 @@ class LLMClient:
 
     def set_tools(self, tools: List[Dict[str, Any]]) -> None:
         self._tools_cache = tools
+        tool_names = self._get_tool_names()
         logger.info(f"Tools registered: {len(tools)} tools")
+        if tool_names:
+            logger.debug(f"Registered tool names: {tool_names}")
 
     def _get_tools(self) -> Optional[List[Dict[str, Any]]]:
         return self._tools_cache
@@ -154,14 +181,22 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """Run chat completion loop with tool execution and collect assistant texts."""
         assistant_messages: List[str] = []
+        iteration = 1
 
         # Always use chat_model for conversation
         result = await self._async_chat(messages, use_tools=True, force_chat_model=True)
 
         while result["tool_calls"]:
+            logger.info(
+                f"LLM tool loop iteration {iteration}: received {len(result['tool_calls'])} tool call(s)"
+            )
             assistant_text = self._extract_assistant_text_from_result(result)
             if assistant_text:
                 assistant_messages.append(assistant_text)
+                logger.info(
+                    "LLM emitted intermediate assistant text before tool execution: "
+                    f"{self._preview_text(assistant_text)}"
+                )
 
             if self._tool_executor is None:
                 logger.warning("Tool calls but no executor registered")
@@ -174,6 +209,10 @@ class LLMClient:
                     response = self._tool_executor(call["name"], call["arguments"])
                     if asyncio.iscoroutine(response):
                         response = await response
+                    logger.info(
+                        f"Tool '{call['name']}' completed with response preview: "
+                        f"{self._preview_text(str(response))}"
+                    )
                     tool_responses.append(
                         {
                             "tool_call_id": call["id"],
@@ -198,10 +237,16 @@ class LLMClient:
             result = await self._async_chat(
                 messages, use_tools=True, force_chat_model=True
             )
+            iteration += 1
 
         final_text = self._extract_assistant_text_from_result(result) or ""
         if final_text:
             assistant_messages.append(final_text)
+
+        logger.info(
+            "LLM tool loop finished: "
+            f"assistant_messages={len(assistant_messages)}, final_text={self._preview_text(final_text)}"
+        )
 
         return {
             "final_text": final_text,
@@ -238,17 +283,24 @@ class LLMClient:
 
         try:
             params: Dict[str, Any] = {"model": model, "messages": messages}
+            included_tool_names: List[str] = []
 
             if use_tools:
                 tools = self._get_tools()
                 if tools:
                     params["tools"] = tools
+                    included_tool_names = self._get_tool_names()
                     if Config.DEBUG_SHOW_FULL_PROMPT:
                         logger.debug(f"Including {len(tools)} tools in request")
                         for tool in tools:
                             logger.debug(
                                 f"  - {tool['function']['name']}: {tool['function']['description']}"
                             )
+
+            logger.info(
+                "Sending LLM request: "
+                f"model={model}, messages={len(messages)}, tools={included_tool_names or []}"
+            )
 
             if Config.DEBUG_SHOW_FULL_PROMPT:
                 logger.debug(f"Full prompt sent to LLM (model={model}):\n{messages}")
@@ -291,6 +343,20 @@ class LLMClient:
                     result["tool_calls"] = None
                 if not result["api_tool_calls"]:
                     result["api_tool_calls"] = None
+
+            if result["tool_calls"]:
+                tool_names = [call["name"] for call in result["tool_calls"]]
+                logger.info(
+                    f"LLM response contains {len(tool_names)} tool call(s): {tool_names}"
+                )
+            else:
+                logger.info("LLM response contains no tool calls")
+
+            if result["content"]:
+                logger.debug(
+                    "LLM response content preview: "
+                    f"{self._preview_text(result['content'])}"
+                )
 
             return result
 

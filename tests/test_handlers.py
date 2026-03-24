@@ -423,7 +423,7 @@ class TestFileHandling:
         mock_handler.memory.add_assistant_message_async.assert_awaited_once()
         event_text = mock_handler.memory.add_assistant_message_async.await_args.args[0]
         assert event_text.startswith(
-            "[System Event] Assistant sent a file to the user via Telegram."
+            "[System Event] Assistant has sent a file via Telegram."
         )
         assert "Delivery method: photo" in event_text
         assert "Caption: 最新图表" in event_text

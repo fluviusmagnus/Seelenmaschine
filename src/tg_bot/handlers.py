@@ -31,6 +31,17 @@ logger = get_logger()
 class MessageHandler:
     """Handles incoming messages and commands"""
 
+    @staticmethod
+    def _preview_text(text: Optional[str], max_length: int = 120) -> str:
+        """Build a compact single-line preview for logs."""
+        if text is None:
+            return ""
+
+        normalized = " ".join(str(text).split())
+        if len(normalized) <= max_length:
+            return normalized
+        return f"{normalized[:max_length]}..."
+
     def __init__(self):
         """Initialize message handler"""
         self.config = Config()
@@ -506,6 +517,10 @@ class MessageHandler:
             try:
                 # Process message through memory and LLM
                 response = await self._process_message(user_message)
+                logger.info(
+                    "Prepared final text for Telegram reply: "
+                    f"{self._preview_text(response)}"
+                )
 
                 # Send response using HTML parse mode
                 # We always use HTML now because we rely on it for <pre> blockquotes
@@ -514,9 +529,16 @@ class MessageHandler:
                 segments = self._split_message_into_segments(formatted_response)
 
                 logger.debug(f"Response split into {len(segments)} segments")
+                logger.info(
+                    f"Sending {len(segments)} Telegram segment(s) for text message"
+                )
 
                 for i, segment in enumerate(segments):
                     try:
+                        logger.debug(
+                            f"Sending Telegram text segment {i + 1}/{len(segments)}: "
+                            f"{self._preview_text(segment)}"
+                        )
                         await update.message.reply_text(
                             segment,
                             parse_mode="HTML",
@@ -891,15 +913,30 @@ class MessageHandler:
                 )
 
                 user_message = self._build_file_event_message(file_info, saved_path)
+                logger.info(
+                    "Built synthetic file event message for LLM: "
+                    f"{self._preview_text(user_message)}"
+                )
                 response = await self._process_message(user_message)
+                logger.info(
+                    "Prepared final text for Telegram file reply: "
+                    f"{self._preview_text(response)}"
+                )
 
                 formatted_response = self._format_response_for_telegram(response)
                 segments = self._split_message_into_segments(formatted_response)
 
                 logger.debug(f"File response split into {len(segments)} segments")
+                logger.info(
+                    f"Sending {len(segments)} Telegram segment(s) for file message"
+                )
 
                 for i, segment in enumerate(segments):
                     try:
+                        logger.debug(
+                            f"Sending Telegram file segment {i + 1}/{len(segments)}: "
+                            f"{self._preview_text(segment)}"
+                        )
                         await update.message.reply_text(segment, parse_mode="HTML")
                         if i < len(segments) - 1:
                             delay = random.uniform(1.0, 2.0)
@@ -1068,6 +1105,17 @@ class MessageHandler:
             if not response:
                 response = llm_result.get("final_text", "")
 
+            logger.info(
+                "LLM detailed result for current message: "
+                f"assistant_messages={len(assistant_messages)}, "
+                f"final_text={self._preview_text(llm_result.get('final_text', ''))}"
+            )
+            for idx, assistant_message in enumerate(assistant_messages, start=1):
+                logger.debug(
+                    f"Assistant message {idx}/{len(assistant_messages)} to persist: "
+                    f"{self._preview_text(assistant_message)}"
+                )
+
             # Step 7: Disable memory search tool during response generation
             logger.debug("Step 7: Disabling memory search tool")
             self.memory_search_tool.disable()
@@ -1085,7 +1133,10 @@ class MessageHandler:
                     )
 
             # Step 9: Return response
-            logger.debug("Message processing complete")
+            logger.info(
+                "Message processing complete, returning combined response: "
+                f"{self._preview_text(response)}"
+            )
             return response
 
         except Exception as e:
@@ -1195,6 +1246,17 @@ class MessageHandler:
             if not response_text:
                 response_text = llm_result.get("final_text", "")
 
+            logger.info(
+                "LLM detailed result for scheduled task: "
+                f"assistant_messages={len(assistant_messages)}, "
+                f"final_text={self._preview_text(llm_result.get('final_text', ''))}"
+            )
+            for idx, assistant_message in enumerate(assistant_messages, start=1):
+                logger.debug(
+                    f"Scheduled task assistant message {idx}/{len(assistant_messages)} to persist: "
+                    f"{self._preview_text(assistant_message)}"
+                )
+
             # Step 7: Disable memory search tool
             logger.debug("Step 7: Disabling memory search tool")
             if self.memory_search_tool:
@@ -1216,7 +1278,8 @@ class MessageHandler:
 
             # Step 9: Return response
             logger.info(
-                f"Scheduled task processing complete, response: {response_text[:50]}..."
+                "Scheduled task processing complete, returning combined response: "
+                f"{self._preview_text(response_text)}"
             )
             return response_text
 
