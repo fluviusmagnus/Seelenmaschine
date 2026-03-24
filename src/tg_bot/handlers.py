@@ -42,6 +42,14 @@ class MessageHandler:
             return normalized
         return f"{normalized[:max_length]}..."
 
+    @staticmethod
+    def _format_exception_for_user(error: Exception) -> str:
+        """Build a concise user-facing error summary."""
+        message = str(error).strip() or type(error).__name__
+        if len(message) > 300:
+            message = f"{message[:297]}..."
+        return message
+
     def __init__(self):
         """Initialize message handler"""
         self.config = Config()
@@ -573,7 +581,8 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
             await update.message.reply_text(
-                "Sorry, an error occurred while processing your message."
+                "Sorry, an error occurred while processing your message.\n\n"
+                f"Details: {self._format_exception_for_user(e)}"
             )
 
     def _sanitize_filename(self, filename: str) -> str:
@@ -956,7 +965,8 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"Error handling file: {e}", exc_info=True)
             await update.message.reply_text(
-                "Sorry, an error occurred while processing your file."
+                "Sorry, an error occurred while processing your file.\n\n"
+                f"Details: {self._format_exception_for_user(e)}"
             )
 
     async def handle_new_session(

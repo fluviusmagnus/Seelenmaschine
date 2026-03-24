@@ -1,5 +1,7 @@
 import asyncio
+import re
 from typing import List, Dict, Any, Optional, Callable
+
 from openai import AsyncOpenAI
 
 from config import Config
@@ -19,6 +21,9 @@ logger = get_logger()
 
 
 class LLMClient:
+    _MAX_TOOL_RESPONSE_CHARS = 12000
+    _BASE64_SEQUENCE_PATTERN = re.compile(r"[A-Za-z0-9+/=]{512,}")
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -145,6 +150,76 @@ class LLMClient:
 
         return formatted_tool_calls
 
+    def _sanitize_tool_response_for_prompt(self, response: Any) -> str:
+        """Sanitize tool output before appending it back into the LLM context."""
+        text = str(response)
+        if not text:
+            return ""
+
+        base64_match = self._find_base64_like_sequence(text)
+        if base64_match is not None:
+            return (
+                "[tool output omitted: detected large base64/binary-like payload "
+                f"of length ≈ {len(base64_match)}]"
+            )
+
+        if len(text) <= self._MAX_TOOL_RESPONSE_CHARS:
+            return text
+
+        omitted_chars = len(text) - self._MAX_TOOL_RESPONSE_CHARS
+        head = text[:6000].rstrip()
+        tail = text[-2000:].lstrip()
+        return (
+            f"{head}\n\n"
+            f"[tool output truncated, omitted {omitted_chars} characters]\n\n"
+            f"{tail}"
+        )
+
+    def _find_base64_like_sequence(self, text: str) -> Optional[str]:
+        """Return a suspicious base64-like sequence if one is found."""
+        for match in self._BASE64_SEQUENCE_PATTERN.finditer(text):
+            candidate = match.group(0)
+            if self._looks_like_base64_payload(candidate):
+                return candidate
+        return None
+
+    def _looks_like_base64_payload(self, candidate: str) -> bool:
+        """Heuristic to avoid misclassifying long plain text as base64."""
+        if len(candidate) < 512:
+            return False
+
+        if not any(ch in candidate for ch in "+/="):
+            return False
+
+        distinct_chars = len(set(candidate))
+        if distinct_chars < 8:
+            return False
+
+        return True
+
+    def _format_llm_exception(self, error: Exception) -> str:
+        """Build a readable error message from OpenAI/transport exceptions."""
+        error_type = type(error).__name__
+        error_text = str(error).strip() or repr(error)
+
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            error_payload = body.get("error")
+            if isinstance(error_payload, dict):
+                message = error_payload.get("message")
+                code = error_payload.get("code")
+                if message:
+                    code_suffix = f" (code={code})" if code is not None else ""
+                    return f"{error_type}: {message}{code_suffix}"
+
+        response = getattr(error, "response", None)
+        if response is not None:
+            status_code = getattr(response, "status_code", None)
+            if status_code is not None:
+                return f"{error_type}: HTTP {status_code} - {error_text}"
+
+        return f"{error_type}: {error_text}"
+
     def _build_assistant_message_from_result(
         self, result: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -209,24 +284,28 @@ class LLMClient:
                     response = self._tool_executor(call["name"], call["arguments"])
                     if asyncio.iscoroutine(response):
                         response = await response
+                    sanitized_response = self._sanitize_tool_response_for_prompt(
+                        response
+                    )
                     logger.info(
                         f"Tool '{call['name']}' completed with response preview: "
-                        f"{self._preview_text(str(response))}"
+                        f"{self._preview_text(sanitized_response)}"
                     )
                     tool_responses.append(
                         {
                             "tool_call_id": call["id"],
                             "role": "tool",
-                            "content": str(response),
+                            "content": sanitized_response,
                         }
                     )
                 except Exception as e:
-                    logger.error(f"Tool execution failed: {e}")
+                    error_text = f"{type(e).__name__}: {e}"
+                    logger.error(f"Tool execution failed: {error_text}")
                     tool_responses.append(
                         {
                             "tool_call_id": call["id"],
                             "role": "tool",
-                            "content": f"Error: {str(e)}",
+                            "content": f"Error: {error_text}",
                         }
                     )
 
@@ -361,8 +440,9 @@ class LLMClient:
             return result
 
         except Exception as e:
-            logger.error(f"LLM chat failed: {e}")
-            raise
+            error_message = self._format_llm_exception(e)
+            logger.error(f"LLM chat failed: {error_message}", exc_info=True)
+            raise RuntimeError(error_message) from e
 
     def chat(
         self,

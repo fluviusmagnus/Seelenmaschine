@@ -206,6 +206,31 @@ class TestMCPClient:
 
         assert tools == cached_tools
 
+    def test_extract_text_from_content_block_omits_base64_image_payload(
+        self, mcp_client
+    ):
+        """Large base64/image content should be summarized instead of injected raw."""
+        block = {
+            "type": "image",
+            "mimeType": "image/png",
+            "data": "A" * 2048,
+        }
+
+        result = mcp_client._extract_text_from_content_block(block)
+
+        assert result.startswith("[non-text MCP content omitted")
+        assert "image/png" in result
+        assert "A" * 100 not in result
+
+    def test_extract_text_from_content_block_truncates_large_text(self, mcp_client):
+        """Oversized text blocks should be truncated before returning to the LLM."""
+        text = "x" * 13050
+
+        result = mcp_client._extract_text_from_content_block({"text": text})
+
+        assert "[tool output truncated, omitted" in result
+        assert len(result) < len(text)
+
     @pytest.mark.asyncio
     async def test_call_tool_no_client(self, mcp_client):
         """Test calling tool when client is not connected."""

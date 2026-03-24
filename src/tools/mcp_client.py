@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from fastmcp import Client
 import asyncio
+import re
 
 from config import Config
 from utils.logger import get_logger
@@ -12,6 +13,9 @@ logger = get_logger()
 
 class MCPClient:
     """MCP client wrapper using fastmcp.Client"""
+
+    _MAX_TEXT_BLOCK_CHARS = 12000
+    _BASE64_SEQUENCE_PATTERN = re.compile(r"[A-Za-z0-9+/=]{512,}")
 
     def __init__(
         self,
@@ -148,15 +152,191 @@ class MCPClient:
 
     def _extract_text_from_content_block(self, content_block: Any) -> str:
         """Extract text from an MCP content block."""
-        if hasattr(content_block, "text") and content_block.text is not None:
-            return str(content_block.text)
+        block_type = self._get_content_block_attr(content_block, "type")
+        mime_type = self._get_content_block_attr(content_block, "mimeType")
+        if mime_type is None:
+            mime_type = self._get_content_block_attr(content_block, "mime_type")
+
+        text = self._get_content_block_attr(content_block, "text")
+        if text is not None:
+            return self._sanitize_text_block(
+                str(text), block_type=block_type, mime_type=mime_type
+            )
+
+        if self._is_binary_like_content_block(content_block, block_type, mime_type):
+            return self._summarize_non_text_content_block(
+                content_block, block_type, mime_type
+            )
 
         if isinstance(content_block, dict):
-            if content_block.get("text") is not None:
-                return str(content_block["text"])
-            return json.dumps(content_block, ensure_ascii=False)
+            serialized = json.dumps(content_block, ensure_ascii=False)
+            return self._sanitize_text_block(
+                serialized, block_type=block_type, mime_type=mime_type
+            )
 
-        return str(content_block)
+        return self._sanitize_text_block(
+            str(content_block), block_type=block_type, mime_type=mime_type
+        )
+
+    def _get_content_block_attr(self, content_block: Any, key: str) -> Any:
+        """Get attribute/key value from MCP content block objects or dicts."""
+        if isinstance(content_block, dict):
+            return content_block.get(key)
+        return getattr(content_block, key, None)
+
+    def _is_binary_like_content_block(
+        self, content_block: Any, block_type: Any, mime_type: Any
+    ) -> bool:
+        """Detect MCP content blocks that should not be injected as raw text."""
+        normalized_type = str(block_type or "").lower()
+        normalized_mime = str(mime_type or "").lower()
+
+        if normalized_type in {
+            "image",
+            "audio",
+            "video",
+            "resource",
+            "blob",
+            "binary",
+            "file",
+        }:
+            return True
+
+        if normalized_mime and not normalized_mime.startswith("text/"):
+            if normalized_mime.startswith(("image/", "audio/", "video/")):
+                return True
+            if normalized_mime in {
+                "application/octet-stream",
+                "application/pdf",
+                "application/zip",
+                "application/json+binary",
+            }:
+                return True
+
+        data = self._get_content_block_attr(content_block, "data")
+        if data is None:
+            data = self._get_content_block_attr(content_block, "blob")
+        if data is None:
+            data = self._get_content_block_attr(content_block, "bytes")
+
+        if isinstance(data, (bytes, bytearray)):
+            return True
+        if isinstance(data, str) and self._BASE64_SEQUENCE_PATTERN.search(data):
+            return True
+
+        if isinstance(content_block, dict):
+            for suspicious_key in ("data", "blob", "bytes", "base64"):
+                value = content_block.get(suspicious_key)
+                if isinstance(value, (bytes, bytearray)):
+                    return True
+                if isinstance(value, str) and self._BASE64_SEQUENCE_PATTERN.search(
+                    value
+                ):
+                    return True
+
+        return False
+
+    def _sanitize_text_block(
+        self,
+        text: str,
+        block_type: Optional[str] = None,
+        mime_type: Optional[str] = None,
+    ) -> str:
+        """Prevent huge/base64-heavy tool payloads from entering the prompt."""
+        if not text:
+            return ""
+
+        base64_match = self._find_base64_like_sequence(text)
+        if base64_match is not None:
+            return self._build_omitted_binary_message(
+                block_type=block_type,
+                mime_type=mime_type,
+                details=f"base64_length≈{len(base64_match)}",
+            )
+
+        if len(text) <= self._MAX_TEXT_BLOCK_CHARS:
+            return text
+
+        omitted_chars = len(text) - self._MAX_TEXT_BLOCK_CHARS
+        head = text[:6000].rstrip()
+        tail = text[-2000:].lstrip()
+        return (
+            f"{head}\n\n"
+            f"[tool output truncated, omitted {omitted_chars} characters]\n\n"
+            f"{tail}"
+        )
+
+    def _find_base64_like_sequence(self, text: str) -> Optional[str]:
+        """Return a suspicious base64-like sequence if one is found."""
+        for match in self._BASE64_SEQUENCE_PATTERN.finditer(text):
+            candidate = match.group(0)
+            if self._looks_like_base64_payload(candidate):
+                return candidate
+        return None
+
+    def _looks_like_base64_payload(self, candidate: str) -> bool:
+        """Heuristic to avoid misclassifying long plain text as base64."""
+        if len(candidate) < 512:
+            return False
+
+        if not any(ch in candidate for ch in "+/="):
+            return False
+
+        distinct_chars = len(set(candidate))
+        if distinct_chars < 8:
+            return False
+
+        return True
+
+    def _summarize_non_text_content_block(
+        self, content_block: Any, block_type: Any, mime_type: Any
+    ) -> str:
+        """Return a short summary instead of raw binary/resource content."""
+        details: List[str] = []
+
+        uri = self._get_content_block_attr(content_block, "uri")
+        if uri:
+            details.append(f"uri={uri}")
+
+        name = self._get_content_block_attr(content_block, "name")
+        if name:
+            details.append(f"name={name}")
+
+        for key in ("data", "blob", "bytes", "base64"):
+            value = self._get_content_block_attr(content_block, key)
+            if value is None and isinstance(content_block, dict):
+                value = content_block.get(key)
+
+            if isinstance(value, (bytes, bytearray)):
+                details.append(f"bytes={len(value)}")
+                break
+            if isinstance(value, str):
+                details.append(f"data_length={len(value)}")
+                break
+
+        return self._build_omitted_binary_message(
+            block_type=block_type,
+            mime_type=mime_type,
+            details=", ".join(details) if details else None,
+        )
+
+    def _build_omitted_binary_message(
+        self,
+        block_type: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        details: Optional[str] = None,
+    ) -> str:
+        """Build a compact placeholder for omitted binary content."""
+        info_parts = []
+        if block_type:
+            info_parts.append(f"type={block_type}")
+        if mime_type:
+            info_parts.append(f"mime={mime_type}")
+        if details:
+            info_parts.append(details)
+
+        suffix = f" ({', '.join(info_parts)})" if info_parts else ""
+        return f"[non-text MCP content omitted{suffix}]"
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Call tool and return result text"""

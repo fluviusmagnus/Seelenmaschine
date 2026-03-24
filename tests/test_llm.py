@@ -46,6 +46,43 @@ class TestLLMClient:
         llm_client.set_tools(tools)
         assert llm_client._tools_cache == tools
 
+    def test_sanitize_tool_response_for_prompt_omits_large_base64(self, llm_client):
+        """Binary-looking tool payloads should not be appended to prompt verbatim."""
+        base64_payload = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo+/=" * 64
+        response = f"prefix {base64_payload} suffix"
+
+        sanitized = llm_client._sanitize_tool_response_for_prompt(response)
+
+        assert sanitized.startswith("[tool output omitted: detected large base64")
+        assert "A" * 100 not in sanitized
+
+    def test_sanitize_tool_response_for_prompt_truncates_large_text(self, llm_client):
+        """Very long tool output should be truncated before re-injection."""
+        response = "x" * 13050
+
+        sanitized = llm_client._sanitize_tool_response_for_prompt(response)
+
+        assert "[tool output truncated, omitted" in sanitized
+        assert len(sanitized) < len(response)
+
+    def test_format_llm_exception_extracts_openai_error_message(self, llm_client):
+        """Structured upstream errors should become readable RuntimeError messages."""
+
+        class FakeError(Exception):
+            def __init__(self):
+                super().__init__("raw error")
+                self.body = {
+                    "error": {
+                        "message": "maximum context length exceeded",
+                        "code": 400,
+                    }
+                }
+
+        message = llm_client._format_llm_exception(FakeError())
+
+        assert "maximum context length exceeded" in message
+        assert "code=400" in message
+
     @patch("llm.client.get_cacheable_system_prompt", return_value="System prompt")
     @patch("llm.client.get_current_time_str", return_value="2026-01-28 12:00:00")
     def test_build_chat_messages(self, mock_time, mock_system_prompt, llm_client):
@@ -277,6 +314,83 @@ class TestLLMClient:
             "role": "tool",
             "content": "tool output",
         }
+
+    @pytest.mark.asyncio
+    async def test_chat_async_sanitizes_tool_output_before_reinjection(
+        self, llm_client
+    ):
+        """Tool outputs should be sanitized before being appended to next LLM round."""
+        base64_payload = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo+/=" * 64
+        llm_client._build_chat_messages = Mock(
+            return_value=[{"role": "user", "content": "Hello"}]
+        )
+        llm_client._tool_executor = AsyncMock(return_value=base64_payload)
+        llm_client._async_chat = AsyncMock(
+            side_effect=[
+                {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "name": "demo_tool",
+                            "arguments": '{"q": "hi"}',
+                        }
+                    ],
+                    "api_tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "demo_tool",
+                                "arguments": '{"q": "hi"}',
+                            },
+                        }
+                    ],
+                    "reasoning_content": None,
+                },
+                {
+                    "content": "done",
+                    "tool_calls": None,
+                    "api_tool_calls": None,
+                    "reasoning_content": None,
+                },
+            ]
+        )
+
+        result = await llm_client.chat_async([], [], [])
+
+        assert result == "done"
+        second_call_messages = llm_client._async_chat.await_args_list[1].args[0]
+        tool_message = second_call_messages[-1]
+        assert tool_message["role"] == "tool"
+        assert tool_message["content"].startswith(
+            "[tool output omitted: detected large base64"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_chat_wraps_exception_with_readable_message(self, llm_client):
+        """_async_chat should raise a readable RuntimeError for upstream errors."""
+
+        class FakeError(Exception):
+            def __init__(self):
+                super().__init__("raw error")
+                self.body = {
+                    "error": {
+                        "message": "maximum context length exceeded",
+                        "code": 400,
+                    }
+                }
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=FakeError())
+        llm_client._chat_client = mock_client
+
+        with pytest.raises(RuntimeError, match="maximum context length exceeded"):
+            await llm_client._async_chat(
+                [{"role": "user", "content": "hello"}],
+                use_tools=False,
+                force_chat_model=True,
+            )
 
     @pytest.mark.asyncio
     async def test_chat_async_detailed_collects_intermediate_assistant_messages(

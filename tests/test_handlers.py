@@ -132,6 +132,17 @@ class TestMessageProcessing:
         # - Tool execution
         pass
 
+    def test_format_exception_for_user_truncates_long_messages(self):
+        """User-facing error summaries should stay concise."""
+        from tg_bot.handlers import MessageHandler
+
+        error = RuntimeError("x" * 500)
+
+        formatted = MessageHandler._format_exception_for_user(error)
+
+        assert len(formatted) == 300
+        assert formatted.endswith("...")
+
     @pytest.mark.asyncio
     async def test_process_message_saves_intermediate_assistant_messages(self):
         """Assistant text emitted during tool calling should also be saved to memory."""
@@ -219,6 +230,39 @@ class TestMessageProcessing:
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
         handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")
+
+    @pytest.mark.asyncio
+    async def test_handle_message_returns_error_details_on_failure(self):
+        """Top-level message errors should include readable details for debugging."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler._process_message = AsyncMock(
+            side_effect=RuntimeError("maximum context length exceeded")
+        )
+        handler._format_exception_for_user = MessageHandler._format_exception_for_user
+        handler.handle_message = MessageHandler.handle_message.__get__(handler, Mock)
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "你好"
+        update.message.reply_text = AsyncMock()
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        await handler.handle_message(update, context)
+
+        sent_text = update.message.reply_text.await_args.args[0]
+        assert "Sorry, an error occurred while processing your message." in sent_text
+        assert "maximum context length exceeded" in sent_text
 
 
 class TestFileHandling:
