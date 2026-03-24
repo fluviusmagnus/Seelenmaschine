@@ -205,31 +205,31 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
         f"""## Your Self-Awareness
 
 **Basic Information:**
-- Name: {bot.get('name', 'AI Assistant')}
-- Gender: {bot.get('gender', 'neutral')}
-- Birthday: {bot.get('birthday', '')}
-- Role: {bot.get('role', 'AI assistant')}
-- Appearance: {bot.get('appearance', '')}
+- Name: {bot.get("name", "AI Assistant")}
+- Gender: {bot.get("gender", "neutral")}
+- Birthday: {bot.get("birthday", "")}
+- Role: {bot.get("role", "AI assistant")}
+- Appearance: {bot.get("appearance", "")}
 
 **Personality:**
-- MBTI: {bot.get('personality', {}).get('mbti', '')}
-- Description: {bot.get('personality', {}).get('description', '')}
-- Worldview & Values: {bot.get('personality', {}).get('worldview_and_values', '')}
+- MBTI: {bot.get("personality", {}).get("mbti", "")}
+- Description: {bot.get("personality", {}).get("description", "")}
+- Worldview & Values: {bot.get("personality", {}).get("worldview_and_values", "")}
 
 **Language Style:**
-- Description: {bot.get('language_style', {}).get('description', 'concise and helpful')}
-- Examples: {', '.join(bot.get('language_style', {}).get('examples', []))}
+- Description: {bot.get("language_style", {}).get("description", "concise and helpful")}
+- Examples: {", ".join(bot.get("language_style", {}).get("examples", []))}
 
 **Preferences:**
-- Likes: {', '.join(bot.get('likes', [])) if bot.get('likes') else 'Not specified'}
-- Dislikes: {', '.join(bot.get('dislikes', [])) if bot.get('dislikes') else 'Not specified'}
+- Likes: {", ".join(bot.get("likes", [])) if bot.get("likes") else "Not specified"}
+- Dislikes: {", ".join(bot.get("dislikes", [])) if bot.get("dislikes") else "Not specified"}
 
 **Current Emotions & Needs:**
-- Long-term: {bot.get('emotions_and_needs', {}).get('long_term', '')}
-- Short-term: {bot.get('emotions_and_needs', {}).get('short_term', '')}
+- Long-term: {bot.get("emotions_and_needs", {}).get("long_term", "")}
+- Short-term: {bot.get("emotions_and_needs", {}).get("short_term", "")}
 
 **Relationship with User:**
-{bot.get('relationship_with_user', 'Not yet established')}
+{bot.get("relationship_with_user", "Not yet established")}
 
 ---"""
     )
@@ -239,26 +239,26 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
         f"""## User Profile
 
 **Basic Information:**
-- Name: {user.get('name', 'User')}
-- Gender: {user.get('gender', '')}
-- Birthday: {user.get('birthday', '')}
+- Name: {user.get("name", "User")}
+- Gender: {user.get("gender", "")}
+- Birthday: {user.get("birthday", "")}
 
 **Personality:**
-- MBTI: {user.get('personality', {}).get('mbti', '')}
-- Description: {user.get('personality', {}).get('description', '')}
-- Worldview & Values: {user.get('personality', {}).get('worldview_and_values', '')}
+- MBTI: {user.get("personality", {}).get("mbti", "")}
+- Description: {user.get("personality", {}).get("description", "")}
+- Worldview & Values: {user.get("personality", {}).get("worldview_and_values", "")}
 
 **Abilities & Preferences:**
-- Abilities: {', '.join(user.get('abilities', [])) if user.get('abilities') else 'Not specified'}
-- Likes: {', '.join(user.get('likes', [])) if user.get('likes') else 'Not specified'}
-- Dislikes: {', '.join(user.get('dislikes', [])) if user.get('dislikes') else 'Not specified'}
+- Abilities: {", ".join(user.get("abilities", [])) if user.get("abilities") else "Not specified"}
+- Likes: {", ".join(user.get("likes", [])) if user.get("likes") else "Not specified"}
+- Dislikes: {", ".join(user.get("dislikes", [])) if user.get("dislikes") else "Not specified"}
 
 **Personal Facts:**
-{chr(10).join('- ' + fact for fact in user.get('personal_facts', [])) if user.get('personal_facts') else '- None recorded yet'}
+{chr(10).join("- " + fact for fact in user.get("personal_facts", [])) if user.get("personal_facts") else "- None recorded yet"}
 
 **Current Emotions & Needs:**
-- Long-term: {user.get('emotions_and_needs', {}).get('long_term', '')}
-- Short-term: {user.get('emotions_and_needs', {}).get('short_term', '')}
+- Long-term: {user.get("emotions_and_needs", {}).get("long_term", "")}
+- Short-term: {user.get("emotions_and_needs", {}).get("short_term", "")}
 
 ---"""
     )
@@ -291,7 +291,7 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
     # Section 6: Recent Summaries (if any)
     if recent_summaries:
         summaries_text = "\n\n".join(
-            f"**Summary {i+1}:**\n{s}" for i, s in enumerate(recent_summaries)
+            f"**Summary {i + 1}:**\n{s}" for i, s in enumerate(recent_summaries)
         )
         sections.append(
             f"""## Recent Conversation Summaries
@@ -397,6 +397,10 @@ The seele.json structure:
   - /user/emotions_and_needs: {{long_term: string, short_term: string}}
 - /memorable_events (array of objects: [{{"time": "YYYY-MM-DD", "details": "string"}}])
   **LIMIT: Maximum 20 events. When adding new events would exceed this limit, you MUST remove less important/older events first.**
+  **IMPORTANT UPDATE GUIDELINES for memorable_events:**
+  - Only keep memorable events worth commemorating; ignore daily trivial matters
+  - Merge events that occurred on the same day, unless they have exceptional significance
+  - Delete the least important events, not necessarily the earliest ones
 - /commands_and_agreements (array of strings)
 
 JSON Patch Operations (RFC 6902):
@@ -572,6 +576,10 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
     }}
   ],
   (NOTE: MAXIMUM 20 events in memorable_events array - prioritize most important/recent events)
+  **IMPORTANT UPDATE GUIDELINES for memorable_events:**
+  - Only keep memorable events worth commemorating; ignore daily trivial matters
+  - Merge events that occurred on the same day, unless they have exceptional significance
+  - Delete the least important events, not necessarily the earliest ones
   "commands_and_agreements": ["string"]
 }}
 
