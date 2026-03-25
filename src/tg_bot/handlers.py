@@ -22,7 +22,7 @@ from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_task_tool import ScheduledTaskTool
 from tools.send_telegram_file_tool import SendTelegramFileTool
-from tools.file_io import ReadFileTool, WriteFileTool, ReplaceFileContentTool
+from tools.file_io import ReadFileTool, WriteFileTool, ReplaceFileContentTool, AppendFileTool
 from tools.file_search import GrepSearchTool, GlobSearchTool
 from tools.shell import ShellCommandTool
 from llm.client import LLMClient
@@ -90,6 +90,7 @@ class MessageHandler:
         self.read_file_tool = None
         self.write_file_tool = None
         self.replace_file_content_tool = None
+        self.append_file_tool = None
         self.grep_search_tool = None
         self.glob_search_tool = None
         self.shell_command_tool = None
@@ -163,6 +164,9 @@ class MessageHandler:
 
             self.replace_file_content_tool = ReplaceFileContentTool()
             self.replace_file_content_tool_def = {"type": "function", "function": {"name": self.replace_file_content_tool.name, "description": self.replace_file_content_tool.description, "parameters": self.replace_file_content_tool.parameters}}
+            
+            self.append_file_tool = AppendFileTool()
+            self.append_file_tool_def = {"type": "function", "function": {"name": self.append_file_tool.name, "description": self.append_file_tool.description, "parameters": self.append_file_tool.parameters}}
             
             self.grep_search_tool = GrepSearchTool()
             self.grep_search_tool_def = {"type": "function", "function": {"name": self.grep_search_tool.name, "description": self.grep_search_tool.description, "parameters": self.grep_search_tool.parameters}}
@@ -408,6 +412,7 @@ class MessageHandler:
             getattr(self, "read_file_tool_def", None),
             getattr(self, "write_file_tool_def", None),
             getattr(self, "replace_file_content_tool_def", None),
+            getattr(self, "append_file_tool_def", None),
             getattr(self, "grep_search_tool_def", None),
             getattr(self, "glob_search_tool_def", None),
             getattr(self, "shell_command_tool_def", None)
@@ -488,6 +493,7 @@ class MessageHandler:
                     getattr(self, "read_file_tool_def", None),
                     getattr(self, "write_file_tool_def", None),
                     getattr(self, "replace_file_content_tool_def", None),
+                    getattr(self, "append_file_tool_def", None),
                     getattr(self, "grep_search_tool_def", None),
                     getattr(self, "glob_search_tool_def", None),
                     getattr(self, "shell_command_tool_def", None)
@@ -540,6 +546,8 @@ class MessageHandler:
             return await self.write_file_tool.execute(**arguments)
         if hasattr(self, "replace_file_content_tool") and self.replace_file_content_tool and tool_name == self.replace_file_content_tool.name:
             return await self.replace_file_content_tool.execute(**arguments)
+        if hasattr(self, "append_file_tool") and self.append_file_tool and tool_name == self.append_file_tool.name:
+            return await self.append_file_tool.execute(**arguments)
         if hasattr(self, "grep_search_tool") and self.grep_search_tool and tool_name == self.grep_search_tool.name:
             return await self.grep_search_tool.execute(**arguments)
         if hasattr(self, "glob_search_tool") and self.glob_search_tool and tool_name == self.glob_search_tool.name:

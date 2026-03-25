@@ -121,6 +121,8 @@ Use start_line/end_line to read a specific line range (output includes line numb
                     f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
                 )
 
+            text += "\n\n[Note: The line numbers prefixed to each line are for your reference only. DO NOT include them when using replace_file_content!]"
+
             return text
 
         except Exception as e:
@@ -181,7 +183,7 @@ class ReplaceFileContentTool:
 
     @property
     def description(self) -> str:
-        return "Replace a specific contiguous block of text in a file with new content. Use this for editing existing files. Requires exact match of the target text (including indentation and spaces)."
+        return "Replace a specific contiguous block of text in a file with new content. Use this for editing existing files. Requires exact match of the target text (including indentation and spaces). DO NOT include line numbers in target_text or replacement_text."
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -240,6 +242,15 @@ class ReplaceFileContentTool:
             occurrences = content.count(target_text)
 
             if occurrences == 0:
+                import re
+                # Heuristic: LLM copied line numbers from read_file output
+                stripped_lines = [re.sub(r'^\d+:\s?', '', line) for line in target_text.splitlines()]
+                stripped_target = '\n'.join(stripped_lines)
+                
+                # Check if stripped target text is actually in the file
+                if stripped_target and stripped_target != target_text and content.count(stripped_target) > 0:
+                    return "Error: The `target_text` was not found. However, a match was found for the text WITHOUT line numbers. Did you accidentally copy the line numbers from `read_file`? Please strictly remove the line numbers (e.g., '12: ') from both `target_text` and `replacement_text` and try again."
+
                 return "Error: The `target_text` was not found in the file. Make sure you matched indentation and line breaks exactly."
 
             if occurrences > 1 and not allow_multiple:
@@ -253,4 +264,50 @@ class ReplaceFileContentTool:
             return f"Successfully replaced {occurrences} occurrence(s) of the target text in {resolved_path}."
         except Exception as e:
             return f"Error: Edit file failed due to \n{e}"
+
+
+class AppendFileTool:
+    """Tool for LLM to append content to a local file."""
+
+    @property
+    def name(self) -> str:
+        return "append_file"
+
+    @property
+    def description(self) -> str:
+        return "Append content to the end of a file. Relative paths resolve from WORKSPACE_DIR. Safely handles newlines and cross-platform writing."
+
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to append to the end of the file.",
+                },
+            },
+            "required": ["file_path", "content"],
+        }
+
+    async def execute(self, file_path: str, content: str) -> str:
+        if not file_path:
+            return "Error: No `file_path` provided."
+
+        resolved_path = _resolve_file_path(file_path)
+
+        try:
+            # Ensure parent directories exist
+            Path(resolved_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(resolved_path, "a", encoding="utf-8") as f:
+                f.write(content)
+            return f"Appended {len(content)} characters to {resolved_path}."
+        except Exception as e:
+            return f"Error: Append file failed due to \n{e}"
+
 
