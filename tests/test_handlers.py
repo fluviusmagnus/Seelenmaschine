@@ -181,7 +181,7 @@ class TestMessageProcessing:
 
         response = await handler._process_message("你好")
 
-        assert response == "我先查一下\n\n最终答复"
+        assert response == "最终答复"
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我先查一下")
         handler.memory.add_assistant_message_async.assert_any_await("最终答复")
@@ -226,7 +226,7 @@ class TestMessageProcessing:
 
         response = await handler._process_scheduled_task("提醒喝水", "喝水提醒")
 
-        assert response == "我提醒你一下\n\n别忘了喝水。"
+        assert response == "别忘了喝水。"
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
         handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")

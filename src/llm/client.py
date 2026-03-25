@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 
 from openai import AsyncOpenAI
 
@@ -252,7 +252,9 @@ class LLMClient:
         return content_str
 
     async def _run_chat_with_tool_loop(
-        self, messages: List[Dict[str, str]]
+        self,
+        messages: List[Dict[str, str]],
+        intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Run chat completion loop with tool execution and collect assistant texts."""
         assistant_messages: List[str] = []
@@ -272,6 +274,8 @@ class LLMClient:
                     "LLM emitted intermediate assistant text before tool execution: "
                     f"{self._preview_text(assistant_text)}"
                 )
+                if intermediate_callback:
+                    await intermediate_callback(assistant_text)
 
             if self._tool_executor is None:
                 logger.warning("Tool calls but no executor registered")
@@ -506,6 +510,7 @@ class LLMClient:
         retrieved_summaries: List[str],
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
+        intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Async chat returning both final text and intermediate assistant messages."""
         messages = self._build_chat_messages(
@@ -515,7 +520,9 @@ class LLMClient:
             recent_summaries,
         )
 
-        return await self._run_chat_with_tool_loop(messages)
+        return await self._run_chat_with_tool_loop(
+            messages, intermediate_callback=intermediate_callback
+        )
 
     async def chat_with_custom_message_async(
         self,
@@ -558,6 +565,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Async chat with custom message, returning detailed assistant outputs."""
         messages = self._build_chat_messages(
@@ -568,7 +576,9 @@ class LLMClient:
             custom_user_message=custom_user_message,
         )
 
-        return await self._run_chat_with_tool_loop(messages)
+        return await self._run_chat_with_tool_loop(
+            messages, intermediate_callback=intermediate_callback
+        )
 
     def _build_chat_messages(
         self,

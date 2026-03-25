@@ -1203,17 +1203,46 @@ class MessageHandler:
 
             # Step 6: Call LLM with full context and tools
             logger.debug("Step 6: Calling LLM")
+
+            # Define intermediate message callback for Telegram streaming
+            async def send_intermediate(text: str):
+                if not text.strip():
+                    return
+                # Formatting and splitting logic similar to handle_message
+                formatted = self._format_response_for_telegram(text)
+                segments = self._split_message_into_segments(formatted)
+                for i, segment in enumerate(segments):
+                    try:
+                        if hasattr(self, "telegram_bot") and self.telegram_bot:
+                            await self.telegram_bot.send_message(
+                                chat_id=self.config.TELEGRAM_USER_ID,
+                                text=segment,
+                                parse_mode="HTML"
+                            )
+                            if i < len(segments) - 1:
+                                await asyncio.sleep(random.uniform(1.0, 2.0))
+                    except Exception as e:
+                        # Fallback to plain text if HTML parsing fails
+                        try:
+                            if hasattr(self, "telegram_bot") and self.telegram_bot:
+                                await self.telegram_bot.send_message(
+                                    chat_id=self.config.TELEGRAM_USER_ID,
+                                    text=segment,
+                                )
+                        except Exception as e2:
+                            logger.error(f"Failed to send intermediate segment: {e2}")
+
             llm_result = await self.llm_client.chat_async_detailed(
                 current_context=current_context,
                 retrieved_summaries=retrieved_summaries,
                 retrieved_conversations=retrieved_conversations,
                 recent_summaries=recent_summaries,
+                intermediate_callback=send_intermediate,
             )
 
             assistant_messages = llm_result.get("assistant_messages", [])
-            response = "\n\n".join(msg for msg in assistant_messages if msg.strip())
-            if not response:
-                response = llm_result.get("final_text", "")
+            # Return only the final text to be sent by handle_message, avoiding duplicates
+            response = llm_result.get("final_text", "")
 
             logger.info(
                 "LLM detailed result for current message: "
@@ -1341,20 +1370,47 @@ class MessageHandler:
             # Step 5 & 6: Call LLM with custom user message (task message not in current_context)
             # Use chat_with_custom_message_async to handle message building and LLM calling
             logger.debug("Step 5-6: Calling LLM with custom task message")
+
+            # Define intermediate message callback for Telegram streaming
+            async def send_intermediate(text: str):
+                if not text.strip():
+                    return
+                # Formatting and splitting logic similar to handle_message
+                formatted = self._format_response_for_telegram(text)
+                segments = self._split_message_into_segments(formatted)
+                for i, segment in enumerate(segments):
+                    try:
+                        if hasattr(self, "telegram_bot") and self.telegram_bot:
+                            await self.telegram_bot.send_message(
+                                chat_id=self.config.TELEGRAM_USER_ID,
+                                text=segment,
+                                parse_mode="HTML"
+                            )
+                            if i < len(segments) - 1:
+                                await asyncio.sleep(random.uniform(1.0, 2.0))
+                    except Exception as e:
+                        # Fallback to plain text if HTML parsing fails
+                        try:
+                            if hasattr(self, "telegram_bot") and self.telegram_bot:
+                                await self.telegram_bot.send_message(
+                                    chat_id=self.config.TELEGRAM_USER_ID,
+                                    text=segment,
+                                )
+                        except Exception as e2:
+                            logger.error(f"Failed to send intermediate segment: {e2}")
+
             llm_result = await self.llm_client.chat_with_custom_message_async_detailed(
                 current_context=current_context,
                 retrieved_summaries=retrieved_summaries,
                 retrieved_conversations=retrieved_conversations,
                 recent_summaries=recent_summaries,
                 custom_user_message=wrapped_message,
+                intermediate_callback=send_intermediate,
             )
 
             assistant_messages = llm_result.get("assistant_messages", [])
-            response_text = "\n\n".join(
-                msg for msg in assistant_messages if msg.strip()
-            )
-            if not response_text:
-                response_text = llm_result.get("final_text", "")
+            # Return only the final text to be sent by handle_message, avoiding duplicates
+            response_text = llm_result.get("final_text", "")
 
             logger.info(
                 "LLM detailed result for scheduled task: "
