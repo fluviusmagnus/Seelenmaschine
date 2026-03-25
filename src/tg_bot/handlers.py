@@ -22,6 +22,9 @@ from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_task_tool import ScheduledTaskTool
 from tools.send_telegram_file_tool import SendTelegramFileTool
+from tools.file_io import ReadFileTool, WriteFileTool, ReplaceFileContentTool
+from tools.file_search import GrepSearchTool, GlobSearchTool
+from tools.shell import ShellCommandTool
 from llm.client import LLMClient
 from utils.logger import get_logger
 
@@ -83,6 +86,15 @@ class MessageHandler:
         # Initialize LLM client
         self.llm_client = LLMClient()
 
+        # Initialize builtin system tools
+        self.read_file_tool = None
+        self.write_file_tool = None
+        self.replace_file_content_tool = None
+        self.grep_search_tool = None
+        self.glob_search_tool = None
+        self.shell_command_tool = None
+        self._register_builtin_tools()
+
         # Initialize attributes
         self.memory_search_tool = None
         self.mcp_client = None
@@ -139,6 +151,30 @@ class MessageHandler:
         """Inject Telegram bot instance for proactive file sending."""
         self.telegram_bot = bot
         logger.info("Telegram bot instance injected into MessageHandler")
+
+    def _register_builtin_tools(self):
+        """Register builtin file and shell tools."""
+        try:
+            self.read_file_tool = ReadFileTool()
+            self.read_file_tool_def = {"type": "function", "function": {"name": self.read_file_tool.name, "description": self.read_file_tool.description, "parameters": self.read_file_tool.parameters}}
+            
+            self.write_file_tool = WriteFileTool()
+            self.write_file_tool_def = {"type": "function", "function": {"name": self.write_file_tool.name, "description": self.write_file_tool.description, "parameters": self.write_file_tool.parameters}}
+
+            self.replace_file_content_tool = ReplaceFileContentTool()
+            self.replace_file_content_tool_def = {"type": "function", "function": {"name": self.replace_file_content_tool.name, "description": self.replace_file_content_tool.description, "parameters": self.replace_file_content_tool.parameters}}
+            
+            self.grep_search_tool = GrepSearchTool()
+            self.grep_search_tool_def = {"type": "function", "function": {"name": self.grep_search_tool.name, "description": self.grep_search_tool.description, "parameters": self.grep_search_tool.parameters}}
+            
+            self.glob_search_tool = GlobSearchTool()
+            self.glob_search_tool_def = {"type": "function", "function": {"name": self.glob_search_tool.name, "description": self.glob_search_tool.description, "parameters": self.glob_search_tool.parameters}}
+            
+            self.shell_command_tool = ShellCommandTool()
+            self.shell_command_tool_def = {"type": "function", "function": {"name": self.shell_command_tool.name, "description": self.shell_command_tool.description, "parameters": self.shell_command_tool.parameters}}
+            logger.info("Registered builtin file and shell tools")
+        except Exception as e:
+            logger.error(f"Failed to register builtin tools: {e}")
 
     async def _handle_scheduled_message(
         self, message: str, task_name: str = "Scheduled Task"
@@ -367,6 +403,18 @@ class MessageHandler:
             tools.append(self.send_telegram_file_tool_def)
             logger.info("Added send_telegram_file tool")
 
+        # Add basic builtin tools
+        for tool_def in [
+            getattr(self, "read_file_tool_def", None),
+            getattr(self, "write_file_tool_def", None),
+            getattr(self, "replace_file_content_tool_def", None),
+            getattr(self, "grep_search_tool_def", None),
+            getattr(self, "glob_search_tool_def", None),
+            getattr(self, "shell_command_tool_def", None)
+        ]:
+            if tool_def:
+                tools.append(tool_def)
+
         # Add memory search tool
         session_id = self.memory.get_current_session_id()
         if not hasattr(self, "memory_search_tool") or self.memory_search_tool is None:
@@ -435,6 +483,18 @@ class MessageHandler:
                 }
                 all_tools.append(memory_search_tool_def)
 
+                # 5. Add builtin system tools
+                for tool_def in [
+                    getattr(self, "read_file_tool_def", None),
+                    getattr(self, "write_file_tool_def", None),
+                    getattr(self, "replace_file_content_tool_def", None),
+                    getattr(self, "grep_search_tool_def", None),
+                    getattr(self, "glob_search_tool_def", None),
+                    getattr(self, "shell_command_tool_def", None)
+                ]:
+                    if tool_def:
+                        all_tools.append(tool_def)
+
                 self.llm_client.set_tools(all_tools)
                 logger.info(
                     f"Updated tools: {len(all_tools)} total including {len(mcp_tools)} MCP tools"
@@ -454,6 +514,38 @@ class MessageHandler:
             return f"Error: Invalid JSON arguments: {e}"
 
         logger.info(f"Executing tool: {tool_name} with args: {arguments}")
+
+        # Send Telegram notification (does not save to memory)
+        if hasattr(self, "telegram_bot") and self.telegram_bot:
+            try:
+                msg = f"🔧 <b>Tool execution:</b> <code>{tool_name}</code>\n"
+                args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:500])
+                msg += f"<b>Arguments:</b> <pre>{args_str}</pre>"
+                
+                # Using create_task so it doesn't block evaluation
+                asyncio.create_task(
+                    self.telegram_bot.send_message(
+                        chat_id=self.config.TELEGRAM_USER_ID,
+                        text=msg,
+                        parse_mode="HTML"
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send tool execute notification: {e}")
+
+        # Check basic builtins
+        if hasattr(self, "read_file_tool") and self.read_file_tool and tool_name == self.read_file_tool.name:
+            return await self.read_file_tool.execute(**arguments)
+        if hasattr(self, "write_file_tool") and self.write_file_tool and tool_name == self.write_file_tool.name:
+            return await self.write_file_tool.execute(**arguments)
+        if hasattr(self, "replace_file_content_tool") and self.replace_file_content_tool and tool_name == self.replace_file_content_tool.name:
+            return await self.replace_file_content_tool.execute(**arguments)
+        if hasattr(self, "grep_search_tool") and self.grep_search_tool and tool_name == self.grep_search_tool.name:
+            return await self.grep_search_tool.execute(**arguments)
+        if hasattr(self, "glob_search_tool") and self.glob_search_tool and tool_name == self.glob_search_tool.name:
+            return await self.glob_search_tool.execute(**arguments)
+        if hasattr(self, "shell_command_tool") and self.shell_command_tool and tool_name == self.shell_command_tool.name:
+            return await self.shell_command_tool.execute(**arguments)
 
         # Check if it's the memory search tool
         if tool_name == self.memory_search_tool.name:
