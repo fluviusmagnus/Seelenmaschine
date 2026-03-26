@@ -691,6 +691,40 @@ class TestSplitMessageIntoSegments:
                 assert "code line 2" in segment
                 assert "code line 3" in segment
 
+    def test_text_around_code_blocks_still_splits_normally(self, mock_handler):
+        """Text around code blocks should still be segmented, while code stays intact."""
+        text = "Intro paragraph.\n\n<pre>print('hi')</pre>\n\nOutro paragraph."
+
+        segments = mock_handler._split_message_into_segments(text, max_length=100)
+
+        assert segments == [
+            "Intro paragraph.",
+            "<pre>print('hi')</pre>",
+            "Outro paragraph.",
+        ]
+
+    def test_multiple_code_blocks_with_text_between_keep_original_batching(
+        self, mock_handler
+    ):
+        """Each code block should remain atomic while surrounding text stays independently segmented."""
+        text = (
+            "First paragraph.\n\n"
+            "<pre>first()</pre>\n\n"
+            "Middle paragraph.\n\n"
+            "<pre>second()</pre>\n\n"
+            "Last paragraph."
+        )
+
+        segments = mock_handler._split_message_into_segments(text, max_length=100)
+
+        assert segments == [
+            "First paragraph.",
+            "<pre>first()</pre>",
+            "Middle paragraph.",
+            "<pre>second()</pre>",
+            "Last paragraph.",
+        ]
+
     def test_blockquote_not_split(self, mock_handler):
         """Test that blockquotes are never split"""
         text = "Introduction\n\n<blockquote>Citation content here</blockquote>\n\nConclusion"

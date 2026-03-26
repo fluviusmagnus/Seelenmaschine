@@ -276,18 +276,34 @@ class MessageHandler:
         if not Config.DEBUG_MODE:
             text = strip_blockquotes(text)
 
-        # Step 1: Extract blockquotes
+        # Step 1: Extract blockquotes and fenced code blocks
         placeholders = []
+
+        def _save_preformatted_block(content: str) -> str:
+            placeholders.append(content)
+            return f"PREFORMATTEDPLACEHOLDER{len(placeholders) - 1}END"
+
+        def save_fenced_code_block(match):
+            content = match.group(2)
+            if content is None:
+                content = ""
+            return _save_preformatted_block(content.strip())
 
         def save_blockquote(match):
             content = match.group(1).strip()
-            placeholders.append(content)
-            return f"BLOCKQUOTEPLACEHOLDER{len(placeholders) - 1}END"
+            return _save_preformatted_block(content)
+
+        text_with_fenced_placeholders = re.sub(
+            r"```([^\n`]*)\n(.*?)```",
+            save_fenced_code_block,
+            text,
+            flags=re.DOTALL,
+        )
 
         text_with_placeholders = re.sub(
             r"<\s*blockquote[^>]*>(.*?)<\s*/\s*blockquote\s*>",
             save_blockquote,
-            text,
+            text_with_fenced_placeholders,
             flags=re.DOTALL | re.IGNORECASE,
         )
 
@@ -326,16 +342,18 @@ class MessageHandler:
             r"\[(.*?)\]\((.*?)\)", r'<a href="\2">\1</a>', escaped_text
         )
 
-        # Step 4: Restore blockquotes as <pre> blocks
-        # We need to escape the content inside the blockquote too, because it's going into HTML
-        def restore_blockquote(match):
+        # Step 4: Restore preformatted content as <pre> blocks
+        # We need to escape the content inside the block too, because it's going into HTML
+        def restore_preformatted_block(match):
             idx = int(match.group(1))
             original_content = placeholders[idx]
             escaped_content = html.escape(original_content)
             return f"<pre>{escaped_content}</pre>"
 
         final_text = re.sub(
-            r"BLOCKQUOTEPLACEHOLDER(\d+)END", restore_blockquote, escaped_text
+            r"PREFORMATTEDPLACEHOLDER(\d+)END",
+            restore_preformatted_block,
+            escaped_text,
         )
 
         return final_text
@@ -387,7 +405,7 @@ class MessageHandler:
         pattern = r"(<pre>.*?</pre>|<blockquote>.*?</blockquote>)"
 
         # Split by the pattern, keeping delimiters
-        parts = re.split(f"({pattern})", text, flags=re.DOTALL)
+        parts = re.split(pattern, text, flags=re.DOTALL)
 
         for part in parts:
             if not part:

@@ -1,16 +1,12 @@
 import unittest
+from config import Config
 from tg_bot.handlers import MessageHandler
 
 
 class TestFormatting(unittest.TestCase):
     def setUp(self):
-        # We only need to test the static method logic, but it's an instance method.
-        # We can mock the dependencies since we won't be using them.
-        import collections
-
-        Config = collections.namedtuple(
-            "Config", ["ENABLE_MCP", "TELEGRAM_USER_ID", "TELEGRAM_USE_MARKDOWN"]
-        )
+        self._original_debug_mode = Config.DEBUG_MODE
+        Config.DEBUG_MODE = True
 
         # Mocking __init__ effectively by creating a dummy class or just instantiating and mocking
         # But MessageHandler does a lot in __init__.
@@ -21,6 +17,9 @@ class TestFormatting(unittest.TestCase):
             self.handler = MessageHandler()
         finally:
             MessageHandler.__init__ = original_init
+
+    def tearDown(self):
+        Config.DEBUG_MODE = self._original_debug_mode
 
     def test_format_blockquote_simple(self):
         text = "Here is a quote: <blockquote>This is quoted text.</blockquote>"
@@ -59,6 +58,12 @@ class TestFormatting(unittest.TestCase):
         text = "Use `print()` for output."
         formatted = self.handler._format_response_for_telegram(text)
         expected = "Use <code>print()</code> for output."
+        self.assertEqual(formatted, expected)
+
+    def test_format_fenced_code_block(self):
+        text = "Here is code:\n\n```python\nprint('hi')\n```\n\nDone."
+        formatted = self.handler._format_response_for_telegram(text)
+        expected = "Here is code:\n\n<pre>print(&#x27;hi&#x27;)</pre>\n\nDone."
         self.assertEqual(formatted, expected)
 
     def test_format_link(self):
