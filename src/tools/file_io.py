@@ -243,11 +243,10 @@ class ReplaceFileContentTool:
 
             if occurrences == 0:
                 import re
+                
                 # Heuristic: LLM copied line numbers from read_file output
                 stripped_lines = [re.sub(r'^\d+:\s?', '', line) for line in target_text.splitlines()]
                 stripped_target = '\n'.join(stripped_lines)
-                
-                # Check if stripped target text is actually in the file
                 if stripped_target and stripped_target != target_text and content.count(stripped_target) > 0:
                     return "Error: The `target_text` was not found. However, a match was found for the text WITHOUT line numbers. Did you accidentally copy the line numbers from `read_file`? Please strictly remove the line numbers (e.g., '12: ') from both `target_text` and `replacement_text` and try again."
 

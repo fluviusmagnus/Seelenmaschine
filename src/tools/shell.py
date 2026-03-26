@@ -14,11 +14,20 @@ from utils.logger import get_logger
 logger = get_logger()
 
 def smart_decode(data: bytes) -> str:
+    if not isinstance(data, bytes):
+        if data is None:
+            return ""
+        return str(data)
     try:
         decoded_str = data.decode("utf-8")
     except UnicodeDecodeError:
-        encoding = locale.getpreferredencoding(False) or "utf-8"
-        decoded_str = data.decode(encoding, errors="replace")
+        try:
+            encoding = locale.getpreferredencoding(False) or "utf-8"
+            decoded_str = data.decode(encoding, errors="replace")
+        except Exception:
+            decoded_str = data.decode("utf-8", errors="replace")
+    except Exception as e:
+        return f"[Decode Error Occurred: {e}]"
     return decoded_str.strip("\n")
 
 
@@ -61,7 +70,7 @@ def _execute_subprocess_sync(
 
     try:
         cmd = _sanitize_win_cmd(cmd)
-        wrapped = f'cmd /D /S /C "{cmd}"'
+        wrapped = f'cmd /D /S /C "chcp 65001 >nul & {cmd}"'
 
         stdout_fd, stdout_path = tempfile.mkstemp(prefix="seelen_out_")
         stderr_fd, stderr_path = tempfile.mkstemp(prefix="seelen_err_")
@@ -183,6 +192,8 @@ class ShellCommandTool:
             pass
 
         env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"  # Enforce Python subprocesses to use UTF-8
+        
         python_bin_dir = str(Path(sys.executable).parent)
         existing_path = env.get("PATH", "")
         if existing_path:
