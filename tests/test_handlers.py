@@ -297,9 +297,6 @@ class TestMessageProcessing:
         handler._send_status_message = MessageHandler._send_status_message.__get__(
             handler, Mock
         )
-        handler._notify_approved_action_execution = (
-            MessageHandler._notify_approved_action_execution.__get__(handler, Mock)
-        )
         handler._notify_approved_action_finished = (
             MessageHandler._notify_approved_action_finished.__get__(handler, Mock)
         )
@@ -334,9 +331,7 @@ class TestMessageProcessing:
 
         assert result == "dangerous command completed"
         shell_tool.execute.assert_awaited_once_with(command="rm /etc/passwd")
-        update.message.reply_text.assert_awaited_once_with(
-            "✅ Action approved. Resuming execute_shell_command."
-        )
+        update.message.reply_text.assert_not_awaited()
         assert handler._pending_approval is None
 
         sent_texts = [
@@ -344,8 +339,10 @@ class TestMessageProcessing:
             for call in handler.telegram_bot.send_message.await_args_list
         ]
         assert any("DANGEROUS ACTION DETECTED" in text for text in sent_texts)
-        assert any("Approved action is now executing" in text for text in sent_texts)
         assert any("Approved action finished" in text for text in sent_texts)
+        assert not any(
+            "Approved action is now executing" in text for text in sent_texts
+        )
 
     @pytest.mark.asyncio
     async def test_handle_message_aborts_pending_approval_on_regular_message(self):

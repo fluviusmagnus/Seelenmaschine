@@ -649,19 +649,6 @@ class MessageHandler:
         except Exception as e:
             logger.warning(f"Failed to send status message: {e}")
 
-    async def _notify_approved_action_execution(
-        self, tool_name: str, arguments: dict, reason: str
-    ) -> None:
-        """Inform user that an approved action is resuming execution."""
-        args_preview = html.escape(json.dumps(arguments, ensure_ascii=False)[:500])
-        msg = (
-            "▶️ <b>Approved action is now executing</b>\n\n"
-            f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
-            f"<b>Reason:</b> <code>{html.escape(reason)}</code>\n"
-            f"<b>Arguments:</b> <pre>{args_preview}</pre>"
-        )
-        await self._send_status_message(msg, parse_mode="HTML")
-
     async def _notify_approved_action_finished(
         self, tool_name: str, result: str
     ) -> None:
@@ -707,9 +694,6 @@ class MessageHandler:
                 "Approval received from user: "
                 f"tool={pending_request.tool_name}, reason={pending_request.reason}"
             )
-            await update.message.reply_text(
-                f"✅ Action approved. Resuming {pending_request.tool_name}."
-            )
         else:
             await update.message.reply_text("No pending action to approve.")
 
@@ -723,8 +707,13 @@ class MessageHandler:
 
         logger.info(f"Executing tool: {tool_name} with args: {arguments}")
 
-        # Send Telegram notification (does not save to memory)
-        if hasattr(self, "telegram_bot") and self.telegram_bot:
+        # HITL: Check if this action requires user approval
+        dangerous, reason = self._is_dangerous_action(tool_name, arguments)
+        approval_granted = False
+
+        # Send generic tool notification only for non-dangerous actions to avoid
+        # spamming the user with duplicate status messages.
+        if not dangerous and hasattr(self, "telegram_bot") and self.telegram_bot:
             try:
                 msg = f"🔧 <b>Tool execution:</b> <code>{tool_name}</code>\n"
                 args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:500])
@@ -741,9 +730,6 @@ class MessageHandler:
             except Exception as e:
                 logger.warning(f"Failed to send tool execute notification: {e}")
 
-        # HITL: Check if this action requires user approval
-        dangerous, reason = self._is_dangerous_action(tool_name, arguments)
-        approval_granted = False
         if dangerous:
             logger.warning(f"Dangerous action detected: {tool_name} reason={reason}")
             approved = await self._request_approval(tool_name, arguments, reason)
@@ -752,7 +738,6 @@ class MessageHandler:
                 return f"Error: Action was rejected by the user (reason: {reason}). Do NOT retry this action."
             logger.info(f"User approved dangerous action: {tool_name}")
             approval_granted = True
-            await self._notify_approved_action_execution(tool_name, arguments, reason)
 
         try:
             # Dispatch via tool registry (covers builtins, memory search,
