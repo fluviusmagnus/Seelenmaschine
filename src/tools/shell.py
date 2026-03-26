@@ -31,6 +31,51 @@ def smart_decode(data: bytes) -> str:
     return decoded_str.strip("\n")
 
 
+import re as _re
+
+# Compiled regex patterns for dangerous shell command detection
+_DANGEROUS_PATTERNS: list[tuple[str, _re.Pattern]] = [
+    # 1. Deletion / destructive move
+    ("data_loss",       _re.compile(r"\b(rm|rmdir|del|rd)\b", _re.I)),
+    ("file_move",       _re.compile(r"\b(mv|move|ren|rename)\b", _re.I)),
+    # 2. Low-level disk formatting / wiping
+    ("disk_wipe",       _re.compile(r"\b(mkfs|dd|shred|wipefs|format|diskpart|fdisk|parted)\b", _re.I)),
+    # 3. Fork bombs / mass process kill
+    ("fork_bomb",       _re.compile(r":\(\)\s*\{|%0\|%0|\bforkbomb\b", _re.I)),
+    ("mass_kill",       _re.compile(r"\b(killall|pkill|kill\s+-9\s+-1|taskkill\s+/f)\b", _re.I)),
+    # 4. Remote payload execution (curl|bash pattern)
+    ("remote_exec",     _re.compile(r"(curl|wget|fetch)\s+.*\|\s*(bash|sh|zsh|dash|python|perl|ruby|node)", _re.I)),
+    ("powershell_exec", _re.compile(r"Invoke-Expression|iex\s*\(|IEX\s*\(|DownloadString", _re.I)),
+    # 5. Reverse shells / tunnels
+    ("reverse_shell",   _re.compile(r"\b(nc|ncat|netcat|socat)\b.*(-e|exec)|/dev/tcp/|/dev/udp/", _re.I)),
+    ("tunnel",          _re.compile(r"\b(ngrok|chisel|frp|bore)\b", _re.I)),
+    # 6. Sensitive system access
+    ("sudo",            _re.compile(r"\bsudo\b", _re.I)),
+    ("crontab",         _re.compile(r"\bcrontab\b", _re.I)),
+    ("ssh_keys",        _re.compile(r"\.ssh/(authorized_keys|id_rsa|id_ed25519|config)", _re.I)),
+    ("shadow",          _re.compile(r"/etc/(shadow|passwd|sudoers)", _re.I)),
+    # 7. Permission escalation
+    ("chmod_777",       _re.compile(r"\bchmod\s+(\+[rwxst]*\s+|)7[0-7]{2}\b", _re.I)),
+    ("chattr",          _re.compile(r"\bchattr\b", _re.I)),
+    ("setuid",          _re.compile(r"\bchmod\s+[ugo]*\+s\b", _re.I)),
+    # 8. Base64-to-shell execution
+    ("base64_exec",     _re.compile(r"base64\s+(-d|--decode).*\|\s*(bash|sh|python|perl)", _re.I)),
+    ("echo_decode",     _re.compile(r"echo\s+.*\|\s*base64\s+(-d|--decode).*\|\s*(bash|sh)", _re.I)),
+]
+
+
+def is_dangerous_command(cmd: str) -> tuple[bool, str]:
+    """Check if a shell command matches known dangerous patterns.
+
+    Returns:
+        (is_dangerous, reason): If dangerous, reason describes the matched threat category.
+    """
+    for category, pattern in _DANGEROUS_PATTERNS:
+        if pattern.search(cmd):
+            return True, category
+    return False, ""
+
+
 def _kill_process_tree_win32(pid: int) -> None:
     try:
         subprocess.call(

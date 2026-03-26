@@ -24,7 +24,8 @@ from tools.scheduled_task_tool import ScheduledTaskTool
 from tools.send_telegram_file_tool import SendTelegramFileTool
 from tools.file_io import ReadFileTool, WriteFileTool, ReplaceFileContentTool, AppendFileTool
 from tools.file_search import GrepSearchTool, GlobSearchTool
-from tools.shell import ShellCommandTool
+from tools.shell import ShellCommandTool, is_dangerous_command
+from tools.file_io import _resolve_file_path
 from llm.client import LLMClient
 from utils.logger import get_logger
 
@@ -95,6 +96,10 @@ class MessageHandler:
         self.glob_search_tool = None
         self.shell_command_tool = None
         self._register_builtin_tools()
+
+        # HITL approval state
+        self._pending_approval: Optional[asyncio.Future] = None
+        self._approval_lock = asyncio.Lock()
 
         # Initialize attributes
         self.memory_search_tool = None
@@ -511,6 +516,106 @@ class MessageHandler:
                 # Ensure we still have basic tools even if MCP fails
                 self._setup_basic_tools()
 
+    def _is_file_outside_workspace(self, arguments: dict) -> bool:
+        """Check if a file tool targets a path outside WORKSPACE_DIR."""
+        file_path = arguments.get("file_path", "")
+        if not file_path:
+            return False
+        try:
+            resolved = Path(_resolve_file_path(file_path)).resolve()
+            workspace = Path(self.config.WORKSPACE_DIR).resolve()
+            return not str(resolved).startswith(str(workspace))
+        except Exception:
+            return True  # If we can't resolve, assume dangerous
+
+    def _is_dangerous_action(self, tool_name: str, arguments: dict) -> tuple[bool, str]:
+        """Determine if a tool call requires user approval.
+
+        Returns:
+            (needs_approval, reason)
+        """
+        _FILE_IO_TOOLS = {"write_file", "replace_file_content", "append_file", "read_file"}
+
+        # Shell command: check against threat signatures
+        if tool_name == "execute_shell_command":
+            cmd = arguments.get("command", "")
+            dangerous, category = is_dangerous_command(cmd)
+            if dangerous:
+                return True, f"shell_threat:{category}"
+
+        # File I/O tools: check if path is outside workspace
+        if tool_name in _FILE_IO_TOOLS:
+            if self._is_file_outside_workspace(arguments):
+                return True, "file_outside_workspace"
+
+        return False, ""
+
+    async def _request_approval(self, tool_name: str, arguments: dict, reason: str) -> bool:
+        """Send an approval request to the user via Telegram and wait for /approve or rejection.
+
+        Returns:
+            True if approved, False if rejected.
+        """
+        async with self._approval_lock:
+            loop = asyncio.get_running_loop()
+            self._pending_approval = loop.create_future()
+
+            # Build notification message
+            args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:800])
+            msg = (
+                f"⚠️ <b>DANGEROUS ACTION DETECTED</b> ⚠️\n\n"
+                f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
+                f"<b>Reason:</b> <code>{html.escape(reason)}</code>\n"
+                f"<b>Arguments:</b>\n<pre>{args_str}</pre>\n\n"
+                f"Reply <b>/approve</b> to execute.\n"
+                f"Any other message will <b>ABORT</b> this action."
+            )
+
+            if hasattr(self, "telegram_bot") and self.telegram_bot:
+                try:
+                    await self.telegram_bot.send_message(
+                        chat_id=self.config.TELEGRAM_USER_ID,
+                        text=msg,
+                        parse_mode="HTML",
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send approval request: {e}")
+                    self._pending_approval = None
+                    return False
+
+            # Wait for user response (timeout: 120 seconds)
+            try:
+                approved = await asyncio.wait_for(self._pending_approval, timeout=600.0)
+            except asyncio.TimeoutError:
+                approved = False
+                if hasattr(self, "telegram_bot") and self.telegram_bot:
+                    try:
+                        await self.telegram_bot.send_message(
+                            chat_id=self.config.TELEGRAM_USER_ID,
+                            text="⏰ Approval timed out. Action aborted.",
+                        )
+                    except Exception:
+                        pass
+            finally:
+                self._pending_approval = None
+
+            return approved
+
+    async def handle_approve(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /approve command to authorize a pending dangerous action."""
+        if not update.effective_user or not update.message:
+            return
+        if update.effective_user.id != self.config.TELEGRAM_USER_ID:
+            return
+
+        if self._pending_approval and not self._pending_approval.done():
+            self._pending_approval.set_result(True)
+            await update.message.reply_text("✅ Action approved.")
+        else:
+            await update.message.reply_text("No pending action to approve.")
+
     async def _execute_tool(self, tool_name: str, arguments_json: str) -> str:
         """Execute a tool call from LLM"""
         try:
@@ -538,6 +643,16 @@ class MessageHandler:
                 )
             except Exception as e:
                 logger.warning(f"Failed to send tool execute notification: {e}")
+
+        # HITL: Check if this action requires user approval
+        dangerous, reason = self._is_dangerous_action(tool_name, arguments)
+        if dangerous:
+            logger.warning(f"Dangerous action detected: {tool_name} reason={reason}")
+            approved = await self._request_approval(tool_name, arguments, reason)
+            if not approved:
+                logger.info(f"User rejected dangerous action: {tool_name}")
+                return f"Error: Action was rejected by the user (reason: {reason}). Do NOT retry this action."
+            logger.info(f"User approved dangerous action: {tool_name}")
 
         # Check basic builtins
         if hasattr(self, "read_file_tool") and self.read_file_tool and tool_name == self.read_file_tool.name:
@@ -605,6 +720,12 @@ class MessageHandler:
 
         user_message = update.message.text
         logger.info(f"Received message: {user_message[:50]}...")
+
+        # HITL: If there's a pending approval and user sends a non-/approve message, reject it
+        if self._pending_approval and not self._pending_approval.done():
+            self._pending_approval.set_result(False)
+            await update.message.reply_text("❌ Pending action aborted.")
+            return
 
         async def _keep_typing_indicator():
             """Background task to keep typing indicator active"""

@@ -163,6 +163,9 @@ class TelegramBot:
         self._application.add_handler(
             CommandHandler("reset", self.message_handler.handle_reset_session)
         )
+        self._application.add_handler(
+            CommandHandler("approve", self.message_handler.handle_approve)
+        )
 
         # Add message handler for regular text messages
         self._application.add_handler(
@@ -192,6 +195,7 @@ class TelegramBot:
             commands = [
                 BotCommand("new", "Archive current session and start new"),
                 BotCommand("reset", "Delete current session and start fresh"),
+                BotCommand("approve", "Approve a pending dangerous action"),
                 BotCommand("help", "Show help and available commands"),
                 BotCommand("start", "Welcome message"),
             ]

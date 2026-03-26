@@ -139,8 +139,8 @@ class TestTelegramBotApplication:
                 # Verify token was set
                 mock_builder.return_value.token.assert_called_once_with("test_token")
 
-                # Verify handlers were added (start, help, new, reset, text, file)
-                assert mock_application.add_handler.call_count == 6
+                # Verify handlers were added (start, help, new, reset, approve, text, file)
+                assert mock_application.add_handler.call_count == 7
 
     @pytest.mark.asyncio
     async def test_post_init_hook(
@@ -173,7 +173,7 @@ class TestTelegramBotApplication:
                 # Verify commands were registered
                 mock_app.bot.set_my_commands.assert_called_once()
                 commands = mock_app.bot.set_my_commands.call_args[0][0]
-                assert len(commands) == 4
+                assert len(commands) == 5
                 assert all(isinstance(cmd, BotCommand) for cmd in commands)
 
 
