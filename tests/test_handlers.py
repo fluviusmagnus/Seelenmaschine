@@ -239,6 +239,7 @@ class TestMessageProcessing:
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
         handler.config.TELEGRAM_USER_ID = 123456789
+        handler._pending_approval = None
         handler._process_message = AsyncMock(
             side_effect=RuntimeError("maximum context length exceeded")
         )

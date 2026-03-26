@@ -87,6 +87,9 @@ class MessageHandler:
         # Initialize LLM client
         self.llm_client = LLMClient()
 
+        # Tool registry: maps tool_name -> tool instance (for fast dispatch)
+        self._tool_registry: Dict[str, Any] = {}
+
         # Initialize builtin system tools
         self.read_file_tool = None
         self.write_file_tool = None
@@ -158,29 +161,42 @@ class MessageHandler:
         self.telegram_bot = bot
         logger.info("Telegram bot instance injected into MessageHandler")
 
+    @staticmethod
+    def _make_tool_def(tool: Any) -> Dict[str, Any]:
+        """Build an OpenAI-format tool definition from a tool instance."""
+        return {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            },
+        }
+
     def _register_builtin_tools(self):
         """Register builtin file and shell tools."""
         try:
             self.read_file_tool = ReadFileTool()
-            self.read_file_tool_def = {"type": "function", "function": {"name": self.read_file_tool.name, "description": self.read_file_tool.description, "parameters": self.read_file_tool.parameters}}
-            
             self.write_file_tool = WriteFileTool()
-            self.write_file_tool_def = {"type": "function", "function": {"name": self.write_file_tool.name, "description": self.write_file_tool.description, "parameters": self.write_file_tool.parameters}}
-
             self.replace_file_content_tool = ReplaceFileContentTool()
-            self.replace_file_content_tool_def = {"type": "function", "function": {"name": self.replace_file_content_tool.name, "description": self.replace_file_content_tool.description, "parameters": self.replace_file_content_tool.parameters}}
-            
             self.append_file_tool = AppendFileTool()
-            self.append_file_tool_def = {"type": "function", "function": {"name": self.append_file_tool.name, "description": self.append_file_tool.description, "parameters": self.append_file_tool.parameters}}
-            
             self.grep_search_tool = GrepSearchTool()
-            self.grep_search_tool_def = {"type": "function", "function": {"name": self.grep_search_tool.name, "description": self.grep_search_tool.description, "parameters": self.grep_search_tool.parameters}}
-            
             self.glob_search_tool = GlobSearchTool()
-            self.glob_search_tool_def = {"type": "function", "function": {"name": self.glob_search_tool.name, "description": self.glob_search_tool.description, "parameters": self.glob_search_tool.parameters}}
-            
             self.shell_command_tool = ShellCommandTool()
-            self.shell_command_tool_def = {"type": "function", "function": {"name": self.shell_command_tool.name, "description": self.shell_command_tool.description, "parameters": self.shell_command_tool.parameters}}
+
+            # Build registry and tool defs
+            builtin_tools = [
+                self.read_file_tool,
+                self.write_file_tool,
+                self.replace_file_content_tool,
+                self.append_file_tool,
+                self.grep_search_tool,
+                self.glob_search_tool,
+                self.shell_command_tool,
+            ]
+            for tool in builtin_tools:
+                self._tool_registry[tool.name] = tool
+
             logger.info("Registered builtin file and shell tools")
         except Exception as e:
             logger.error(f"Failed to register builtin tools: {e}")
@@ -381,15 +397,15 @@ class MessageHandler:
 
         return [seg for seg in segments if seg]
 
+    def _collect_builtin_tool_defs(self) -> List[Dict[str, Any]]:
+        """Collect OpenAI-format tool definitions for all registered builtin tools."""
+        defs = []
+        for tool in self._tool_registry.values():
+            defs.append(self._make_tool_def(tool))
+        return defs
+
     def _setup_tools(self):
         """Setup tool system for LLM"""
-        tools = []
-
-        # Add scheduled task tool
-        if self.scheduled_task_tool_def:
-            tools.append(self.scheduled_task_tool_def)
-            logger.info("Added scheduled_task tool")
-
         # Add MCP tools (will be initialized async later)
         if self.config.ENABLE_MCP:
             self.mcp_client = MCPClient()
@@ -401,8 +417,8 @@ class MessageHandler:
         self._setup_basic_tools()
 
     def _setup_basic_tools(self):
-        """Setup basic (non-MCP) tools"""
-        tools = []
+        """Setup basic (non-MCP) tools and register executor in LLM client."""
+        tools: List[Dict[str, Any]] = []
 
         if self.scheduled_task_tool_def:
             tools.append(self.scheduled_task_tool_def)
@@ -412,18 +428,8 @@ class MessageHandler:
             tools.append(self.send_telegram_file_tool_def)
             logger.info("Added send_telegram_file tool")
 
-        # Add basic builtin tools
-        for tool_def in [
-            getattr(self, "read_file_tool_def", None),
-            getattr(self, "write_file_tool_def", None),
-            getattr(self, "replace_file_content_tool_def", None),
-            getattr(self, "append_file_tool_def", None),
-            getattr(self, "grep_search_tool_def", None),
-            getattr(self, "glob_search_tool_def", None),
-            getattr(self, "shell_command_tool_def", None)
-        ]:
-            if tool_def:
-                tools.append(tool_def)
+        # Add builtin tools from registry
+        tools.extend(self._collect_builtin_tool_defs())
 
         # Add memory search tool
         session_id = self.memory.get_current_session_id()
@@ -434,16 +440,14 @@ class MessageHandler:
                 embedding_client=self.embedding_client,
                 reranker_client=self.reranker_client,
             )
+        # Register memory/scheduled/telegram tools in the registry too
+        self._tool_registry[self.memory_search_tool.name] = self.memory_search_tool
+        if self.scheduled_task_tool:
+            self._tool_registry[self.scheduled_task_tool.name] = self.scheduled_task_tool
+        if self.send_telegram_file_tool:
+            self._tool_registry[self.send_telegram_file_tool.name] = self.send_telegram_file_tool
 
-        memory_search_tool_def = {
-            "type": "function",
-            "function": {
-                "name": self.memory_search_tool.name,
-                "description": self.memory_search_tool.description,
-                "parameters": self.memory_search_tool.parameters,
-            },
-        }
-        tools.append(memory_search_tool_def)
+        tools.append(self._make_tool_def(self.memory_search_tool))
         logger.info("Added memory_search tool")
 
         # Set tools and executor in LLM client
@@ -469,42 +473,13 @@ class MessageHandler:
                     logger.debug(f"  - [MCP Tool] {name}: {desc}")
 
                 # Rebuild all tools list
-                all_tools = []
+                all_tools: List[Dict[str, Any]] = []
 
-                # 1. Add scheduled task tool
-                if self.scheduled_task_tool_def:
-                    all_tools.append(self.scheduled_task_tool_def)
-
-                # 2. Add MCP tools
+                # 1. Add MCP tools
                 all_tools.extend(mcp_tools)
 
-                # 3. Add send_telegram_file tool
-                if self.send_telegram_file_tool_def:
-                    all_tools.append(self.send_telegram_file_tool_def)
-
-                # 4. Add memory search tool
-                memory_search_tool_def = {
-                    "type": "function",
-                    "function": {
-                        "name": self.memory_search_tool.name,
-                        "description": self.memory_search_tool.description,
-                        "parameters": self.memory_search_tool.parameters,
-                    },
-                }
-                all_tools.append(memory_search_tool_def)
-
-                # 5. Add builtin system tools
-                for tool_def in [
-                    getattr(self, "read_file_tool_def", None),
-                    getattr(self, "write_file_tool_def", None),
-                    getattr(self, "replace_file_content_tool_def", None),
-                    getattr(self, "append_file_tool_def", None),
-                    getattr(self, "grep_search_tool_def", None),
-                    getattr(self, "glob_search_tool_def", None),
-                    getattr(self, "shell_command_tool_def", None)
-                ]:
-                    if tool_def:
-                        all_tools.append(tool_def)
+                # 2. Add all locally registered tools (builtin, memory_search, etc.)
+                all_tools.extend(self._collect_builtin_tool_defs())
 
                 self.llm_client.set_tools(all_tools)
                 logger.info(
@@ -524,8 +499,19 @@ class MessageHandler:
         try:
             resolved = Path(_resolve_file_path(file_path)).resolve()
             workspace = Path(self.config.WORKSPACE_DIR).resolve()
-            return not str(resolved).startswith(str(workspace))
-        except Exception:
+            try:
+                resolved.relative_to(workspace)
+                return False  # Inside workspace
+            except ValueError:
+                # Check MEDIA_DIR as well
+                media_dir = Path(self.config.MEDIA_DIR).resolve()
+                try:
+                    resolved.relative_to(media_dir)
+                    return False  # Inside media dir
+                except ValueError:
+                    return True  # Outside both
+        except Exception as e:
+            logger.error(f"Error checking path bounds: {e}")
             return True  # If we can't resolve, assume dangerous
 
     def _is_dangerous_action(self, tool_name: str, arguments: dict) -> tuple[bool, str]:
@@ -654,44 +640,17 @@ class MessageHandler:
                 return f"Error: Action was rejected by the user (reason: {reason}). Do NOT retry this action."
             logger.info(f"User approved dangerous action: {tool_name}")
 
-        # Check basic builtins
-        if hasattr(self, "read_file_tool") and self.read_file_tool and tool_name == self.read_file_tool.name:
-            return await self.read_file_tool.execute(**arguments)
-        if hasattr(self, "write_file_tool") and self.write_file_tool and tool_name == self.write_file_tool.name:
-            return await self.write_file_tool.execute(**arguments)
-        if hasattr(self, "replace_file_content_tool") and self.replace_file_content_tool and tool_name == self.replace_file_content_tool.name:
-            return await self.replace_file_content_tool.execute(**arguments)
-        if hasattr(self, "append_file_tool") and self.append_file_tool and tool_name == self.append_file_tool.name:
-            return await self.append_file_tool.execute(**arguments)
-        if hasattr(self, "grep_search_tool") and self.grep_search_tool and tool_name == self.grep_search_tool.name:
-            return await self.grep_search_tool.execute(**arguments)
-        if hasattr(self, "glob_search_tool") and self.glob_search_tool and tool_name == self.glob_search_tool.name:
-            return await self.glob_search_tool.execute(**arguments)
-        if hasattr(self, "shell_command_tool") and self.shell_command_tool and tool_name == self.shell_command_tool.name:
-            return await self.shell_command_tool.execute(**arguments)
+        # Dispatch via tool registry (covers builtins, memory search,
+        # scheduled task, send_telegram_file)
+        tool_instance = self._tool_registry.get(tool_name)
+        if tool_instance is not None:
+            return await tool_instance.execute(**arguments)
 
-        # Check if it's the memory search tool
-        if tool_name == self.memory_search_tool.name:
-            return await self.memory_search_tool.execute(**arguments)
-
-        # Check if it's the scheduled task tool
-        if self.scheduled_task_tool and tool_name == self.scheduled_task_tool.name:
-            return await self.scheduled_task_tool.execute(**arguments)
-
-        # Check if it's the Telegram file sending tool
-        if (
-            self.send_telegram_file_tool
-            and tool_name == self.send_telegram_file_tool.name
-        ):
-            return await self.send_telegram_file_tool.execute(**arguments)
-
-        # Check if it's an MCP tool
+        # Fallback: check MCP tools
         if self.mcp_client:
-            # Ensure MCP is connected
             await self._ensure_mcp_connected()
 
             if self._mcp_connected:
-                # Optimized check: search in cached tools if available
                 mcp_tools = self.mcp_client.get_tools_sync()
                 if any(t["function"]["name"] == tool_name for t in mcp_tools):
                     return await self.mcp_client.call_tool(tool_name, arguments)

@@ -671,7 +671,7 @@ class LLMClient:
             # Add emphasis to highlight this is the current request
             emphasized_message = {
                 "role": current_user_message["role"],
-                "content": f"Please respond to the current user request based on all context provided.\n\n⚡ [Current Request]\n{current_user_message['content']}",
+                "content": f"Now continue the conversation. Please respond to the following input based on all context provided.\n\n⚡ [Current Request]\n\n{current_user_message['content']}",
             }
             messages.append(emphasized_message)
 

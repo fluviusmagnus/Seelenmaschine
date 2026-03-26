@@ -396,11 +396,13 @@ The seele.json structure:
   - /user/personality: {{mbti: string, description: string, worldview_and_values: string}}
   - /user/emotions_and_needs: {{long_term: string, short_term: string}}
 - /memorable_events (array of objects: [{{"time": "YYYY-MM-DD", "details": "string"}}])
-  **LIMIT: Maximum 20 events. When adding new events would exceed this limit, you MUST remove less important/older events first.**
+  **CRITICAL LIMIT: Maximum 20 events. This is a hard limit.**
+  **When adding new events would exceed this limit, you MUST remove less important or redundant events first.**
   **IMPORTANT UPDATE GUIDELINES for memorable_events:**
-  - Only keep memorable events worth commemorating; ignore daily trivial matters
-  - Merge events that occurred on the same day, unless they have exceptional significance
-  - Delete the least important events, not necessarily the earliest ones
+  - **Be selective**: Only keep events worth commemorating; ignore daily trivial matters.
+  - **Merge & Synthesize**: Proactively merge events from the same day or related themes. If a new event is a continuation of an old one, update the old entry instead of adding a new one.
+  - **Prioritize Significance**: If at the 20-event limit, you must make a trade-off. Delete the least significant events (even if they are recent) to make room for truly memorable milestones.
+  - **Conciseness**: Keep event details brief but evocative.
 - /commands_and_agreements (array of strings)
 
 JSON Patch Operations (RFC 6902):
@@ -422,7 +424,7 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
    - User explicitly corrects or retracts previous information
    - Preferences or facts are no longer relevant
    - Duplicate or contradictory entries exist in arrays
-   - **CRITICAL for /memorable_events: MAXIMUM 20 events allowed. Before adding new events, check current count and remove less important/older events if at limit**
+   - **CRITICAL for /memorable_events: MAXIMUM 20 events allowed. (STRICT LIMIT: Merge, synthesize, or delete less significant events to stay under 20.)**
 10. **LANGUAGE REQUIREMENT: All text values in the JSON patch MUST use the SAME LANGUAGE as the main language used in the conversations**
     - If conversations are primarily in Chinese, all "value" fields should be in Chinese
     - If conversations are primarily in English, all "value" fields should be in English
@@ -456,12 +458,11 @@ Example 4 - Removing outdated array items (use index):
   {{"op": "add", "path": "/user/personal_facts/-", "value": "Updated fact replacing the removed one"}}
 ]
 
-Example 5 - Managing memorable_events limit (max 20 events):
+Example 5 - Managing memorable_events limit (max 20 events) - Merging/Removing to stay under limit:
 [
   {{"op": "remove", "path": "/memorable_events/0"}},
-  {{"op": "remove", "path": "/memorable_events/0"}},
-  {{"op": "add", "path": "/memorable_events/-", "value": {{"time": "2026-01-28", "details": "User successfully debugged a complex async issue"}}}},
-  {{"op": "add", "path": "/memorable_events/-", "value": {{"time": "2026-01-28", "details": "Had a meaningful conversation about AI ethics"}}}}
+  {{"op": "replace", "path": "/memorable_events/5/details", "value": "Updated details merging previous event with new insights"}},
+  {{"op": "add", "path": "/memorable_events/-", "value": {{"time": "2026-01-28", "details": "Highly significant milestone achieved today"}}}}
 ]
 
 Invalid examples (DO NOT output like these):
@@ -575,11 +576,11 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
       "details": "string"
     }}
   ],
-  (NOTE: MAXIMUM 20 events in memorable_events array - prioritize most important/recent events)
+  (NOTE: MAXIMUM 20 events in memorable_events array - STRICT LIMIT.)
   **IMPORTANT UPDATE GUIDELINES for memorable_events:**
-  - Only keep memorable events worth commemorating; ignore daily trivial matters
-  - Merge events that occurred on the same day, unless they have exceptional significance
-  - Delete the least important events, not necessarily the earliest ones
+  - **Be selective**: Only keep events worth commemorating; ignore daily trivial matters.
+  - **Merge & Synthesize**: Proactively merge events from the same day or related themes. Update existing entries to incorporate new developments.
+  - **Make Trade-offs**: If at the 20-event limit, prioritize the most significant milestones. Delete the least important ones to maintain the limit.
   "commands_and_agreements": ["string"]
 }}
 
@@ -605,8 +606,9 @@ CRITICAL OUTPUT REQUIREMENTS:
    - If conversations are primarily in Chinese, all text fields should be in Chinese
    - If conversations are primarily in English, all text fields should be in English
 7. Focus on ADJUSTING the content to conform to the schema rather than keeping invalid structures
-8. **IMPORTANT: memorable_events array MUST NOT exceed 20 events**
-   - If current seele.json already has 20 events and you need to add new ones, remove less important/older events first
-   - Prioritize events that are: more recent, more significant, more relevant to the relationship
+8. **CRITICAL: memorable_events array MUST NOT exceed 20 events (STRICT LIMIT).**
+   - **Merge & Synthesize**: Proactively merge related events or those on the same day.
+   - **Make Trade-offs**: If you need to add a significant new event but are at the limit, you MUST delete the least significant existing event to make room.
+   - Prioritize events that represent major relationship milestones or identity-shaping experiences.
 
 Complete seele.json (remember: pure JSON object only, starting with '{{' and ending with '}}'):"""

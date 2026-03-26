@@ -78,7 +78,12 @@ def mock_llm_client():
     """Mock LLMClient"""
     with patch("tg_bot.handlers.LLMClient") as mock:
         client = Mock()
-        client.chat_async = AsyncMock(return_value="This is a test response")
+        client.chat_async_detailed = AsyncMock(
+            return_value={
+                "final_text": "This is a test response",
+                "assistant_messages": ["This is a test response"],
+            }
+        )
         client.set_tools = Mock()
         client.set_tool_executor = Mock()
         mock.return_value = client
@@ -244,10 +249,11 @@ def test_execute_tool_memory_search(
     """Test tool execution for memory search"""
     handler = MessageHandler()
 
-    # Mock memory search tool
+    # Mock memory search tool and update the registry
     handler.memory_search_tool = Mock()
     handler.memory_search_tool.name = "search_memories"
     handler.memory_search_tool.execute = AsyncMock(return_value="Found memories")
+    handler._tool_registry["search_memories"] = handler.memory_search_tool
 
     # Execute tool (should await the result)
     import asyncio

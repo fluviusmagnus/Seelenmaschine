@@ -35,30 +35,32 @@ import re as _re
 
 # Compiled regex patterns for dangerous shell command detection
 _DANGEROUS_PATTERNS: list[tuple[str, _re.Pattern]] = [
-    # 1. Deletion / destructive move
+    # 1. Redirection/Pipe to system paths (Check this first to categorize redirections correctly)
+    ("system_write",    _re.compile(r"(?:[12]?>|>>|\|\s*tee\s+(?:-a\s+)?)\s*(?!/tmp/)(?:/etc/|/usr/|/bin/|/sbin/|/var/|/lib/|/boot/|/root/|C:\\Windows|C:\\Program Files)", _re.I)),
+    # 2. Deletion / destructive move
     ("data_loss",       _re.compile(r"\b(rm|rmdir|del|rd)\b", _re.I)),
     ("file_move",       _re.compile(r"\b(mv|move|ren|rename)\b", _re.I)),
-    # 2. Low-level disk formatting / wiping
+    # 3. Low-level disk formatting / wiping
     ("disk_wipe",       _re.compile(r"\b(mkfs|dd|shred|wipefs|format|diskpart|fdisk|parted)\b", _re.I)),
-    # 3. Fork bombs / mass process kill
+    # 4. Fork bombs / mass process kill
     ("fork_bomb",       _re.compile(r":\(\)\s*\{|%0\|%0|\bforkbomb\b", _re.I)),
     ("mass_kill",       _re.compile(r"\b(killall|pkill|kill\s+-9\s+-1|taskkill\s+/f)\b", _re.I)),
-    # 4. Remote payload execution (curl|bash pattern)
+    # 5. Remote payload execution (curl|bash pattern)
     ("remote_exec",     _re.compile(r"(curl|wget|fetch)\s+.*\|\s*(bash|sh|zsh|dash|python|perl|ruby|node)", _re.I)),
     ("powershell_exec", _re.compile(r"Invoke-Expression|iex\s*\(|IEX\s*\(|DownloadString", _re.I)),
-    # 5. Reverse shells / tunnels
+    # 6. Reverse shells / tunnels
     ("reverse_shell",   _re.compile(r"\b(nc|ncat|netcat|socat)\b.*(-e|exec)|/dev/tcp/|/dev/udp/", _re.I)),
     ("tunnel",          _re.compile(r"\b(ngrok|chisel|frp|bore)\b", _re.I)),
-    # 6. Sensitive system access
+    # 7. Sensitive system access
     ("sudo",            _re.compile(r"\bsudo\b", _re.I)),
     ("crontab",         _re.compile(r"\bcrontab\b", _re.I)),
     ("ssh_keys",        _re.compile(r"\.ssh/(authorized_keys|id_rsa|id_ed25519|config)", _re.I)),
     ("shadow",          _re.compile(r"/etc/(shadow|passwd|sudoers)", _re.I)),
-    # 7. Permission escalation
+    # 8. Permission escalation
     ("chmod_777",       _re.compile(r"\bchmod\s+(\+[rwxst]*\s+|)7[0-7]{2}\b", _re.I)),
     ("chattr",          _re.compile(r"\bchattr\b", _re.I)),
     ("setuid",          _re.compile(r"\bchmod\s+[ugo]*\+s\b", _re.I)),
-    # 8. Base64-to-shell execution
+    # 9. Base64-to-shell execution
     ("base64_exec",     _re.compile(r"base64\s+(-d|--decode).*\|\s*(bash|sh|python|perl)", _re.I)),
     ("echo_decode",     _re.compile(r"echo\s+.*\|\s*base64\s+(-d|--decode).*\|\s*(bash|sh)", _re.I)),
 ]
@@ -71,7 +73,39 @@ def is_dangerous_command(cmd: str) -> tuple[bool, str]:
         (is_dangerous, reason): If dangerous, reason describes the matched threat category.
     """
     for category, pattern in _DANGEROUS_PATTERNS:
-        if pattern.search(cmd):
+        for match in pattern.finditer(cmd):
+            # HITL logic refinement: Consider /tmp/ as a safe context.
+            match_start = match.start()
+            
+            # Find the full "word" (path or command) containing this match
+            prefix = cmd[:match_start]
+            last_delim = _re.search(r"[ ;&|<>][^ ;&|<>]*$", prefix)
+            word_start = last_delim.start() + 1 if last_delim else 0
+            
+            suffix = cmd[match_start:]
+            next_delim = _re.search(r"[ ;&|<>]", suffix)
+            word_end = match_start + (next_delim.start() if next_delim else len(suffix))
+            
+            full_word = cmd[word_start:word_end].lower()
+            
+            # If the current match is part of a /tmp/ path, and it's a file-based category, we consider it safe.
+            if any(p in full_word for p in ("/tmp/", "c:\\tmp\\", "/private/tmp/")):
+                if category not in ("data_loss", "file_move", "disk_wipe", "mass_kill", "fork_bomb", "sudo"):
+                    continue # Skip this match, look for others or other categories
+
+            # Special case for destructive commands: if they ONLY operate on /tmp/, skip
+            if category in ("data_loss", "file_move"):
+                # Find all absolute paths in the entire command
+                paths = _re.findall(r'(?:/|[a-zA-Z]:\\)[^\s;&|<>"\']*', cmd)
+                if paths:
+                    non_tmp_paths = [p for p in paths if not p.lower().startswith(("/tmp/", "c:\\tmp\\", "/private/tmp/"))]
+                    if not non_tmp_paths:
+                        continue # All absolute paths are in /tmp/, so this category doesn't trigger for this match
+                else:
+                    # No absolute paths found (e.g., 'rm relative_file').
+                    # We keep the warning as we can't be sure it's safe without absolute context.
+                    pass
+
             return True, category
     return False, ""
 

@@ -8,7 +8,7 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
-DISABLE_SEARCH_MEMORIES = False
+
 
 
 class MemorySearchTool:
@@ -23,6 +23,7 @@ class MemorySearchTool:
     ):
         self.session_id = int(session_id)
         self.db = db
+        self._disabled = False
 
     @property
     def name(self) -> str:
@@ -102,16 +103,13 @@ Leave empty to search using only filters (role, time range).""",
         }
 
     def disable(self) -> None:
-        global DISABLE_SEARCH_MEMORIES
-        DISABLE_SEARCH_MEMORIES = True
+        self._disabled = True
 
     def enable(self) -> None:
-        global DISABLE_SEARCH_MEMORIES
-        DISABLE_SEARCH_MEMORIES = False
+        self._disabled = False
 
     def is_disabled(self) -> bool:
-        global DISABLE_SEARCH_MEMORIES
-        return DISABLE_SEARCH_MEMORIES
+        return self._disabled
 
     def _validate_fts_query(self, query: str) -> tuple[bool, str]:
         """Validate FTS5 query syntax and provide helpful error messages.
@@ -185,7 +183,7 @@ Leave empty to search using only filters (role, time range).""",
         end_date: str = None,
     ) -> str:
         """Execute keyword-based memory search with optional filters"""
-        if DISABLE_SEARCH_MEMORIES:
+        if self._disabled:
             return "Memory search is disabled during response generation to prevent recursion"
 
         try:
@@ -229,7 +227,7 @@ Leave empty to search using only filters (role, time range).""",
                         dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S")
                     except ValueError:
                         dt = datetime.strptime(start_date, "%Y-%m-%d")
-                    dt = tz.localize(dt)
+                    dt = dt.replace(tzinfo=tz)
                     start_timestamp = int(dt.timestamp())
                 except ValueError:
                     return f"Invalid start_date format: {start_date}. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
@@ -243,7 +241,7 @@ Leave empty to search using only filters (role, time range).""",
                         dt = datetime.strptime(end_date, "%Y-%m-%d")
                         # Set to end of day
                         dt = dt.replace(hour=23, minute=59, second=59)
-                    dt = tz.localize(dt)
+                    dt = dt.replace(tzinfo=tz)
                     end_timestamp = int(dt.timestamp())
                 except ValueError:
                     return f"Invalid end_date format: {end_date}. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
