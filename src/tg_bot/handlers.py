@@ -22,7 +22,12 @@ from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_task_tool import ScheduledTaskTool
 from tools.send_telegram_file_tool import SendTelegramFileTool
-from tools.file_io import ReadFileTool, WriteFileTool, ReplaceFileContentTool, AppendFileTool
+from tools.file_io import (
+    ReadFileTool,
+    WriteFileTool,
+    ReplaceFileContentTool,
+    AppendFileTool,
+)
 from tools.file_search import GrepSearchTool, GlobSearchTool
 from tools.shell import ShellCommandTool, is_dangerous_command
 from tools.file_io import _resolve_file_path
@@ -443,9 +448,13 @@ class MessageHandler:
         # Register memory/scheduled/telegram tools in the registry too
         self._tool_registry[self.memory_search_tool.name] = self.memory_search_tool
         if self.scheduled_task_tool:
-            self._tool_registry[self.scheduled_task_tool.name] = self.scheduled_task_tool
+            self._tool_registry[self.scheduled_task_tool.name] = (
+                self.scheduled_task_tool
+            )
         if self.send_telegram_file_tool:
-            self._tool_registry[self.send_telegram_file_tool.name] = self.send_telegram_file_tool
+            self._tool_registry[self.send_telegram_file_tool.name] = (
+                self.send_telegram_file_tool
+            )
 
         tools.append(self._make_tool_def(self.memory_search_tool))
         logger.info("Added memory_search tool")
@@ -475,11 +484,11 @@ class MessageHandler:
                 # Rebuild all tools list
                 all_tools: List[Dict[str, Any]] = []
 
-                # 1. Add MCP tools
-                all_tools.extend(mcp_tools)
-
-                # 2. Add all locally registered tools (builtin, memory_search, etc.)
+                # 1. Add all locally registered tools (builtin, memory_search, scheduled_task, send_telegram_file etc.)
                 all_tools.extend(self._collect_builtin_tool_defs())
+
+                # 2. Add MCP tools last - keep them at the end of the tool list
+                all_tools.extend(mcp_tools)
 
                 self.llm_client.set_tools(all_tools)
                 logger.info(
@@ -520,7 +529,12 @@ class MessageHandler:
         Returns:
             (needs_approval, reason)
         """
-        _FILE_IO_TOOLS = {"write_file", "replace_file_content", "append_file", "read_file"}
+        _FILE_IO_TOOLS = {
+            "write_file",
+            "replace_file_content",
+            "append_file",
+            "read_file",
+        }
 
         # Shell command: check against threat signatures
         if tool_name == "execute_shell_command":
@@ -536,7 +550,9 @@ class MessageHandler:
 
         return False, ""
 
-    async def _request_approval(self, tool_name: str, arguments: dict, reason: str) -> bool:
+    async def _request_approval(
+        self, tool_name: str, arguments: dict, reason: str
+    ) -> bool:
         """Send an approval request to the user via Telegram and wait for /approve or rejection.
 
         Returns:
@@ -618,13 +634,13 @@ class MessageHandler:
                 msg = f"🔧 <b>Tool execution:</b> <code>{tool_name}</code>\n"
                 args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:500])
                 msg += f"<b>Arguments:</b> <pre>{args_str}</pre>"
-                
+
                 # Using create_task so it doesn't block evaluation
                 asyncio.create_task(
                     self.telegram_bot.send_message(
                         chat_id=self.config.TELEGRAM_USER_ID,
                         text=msg,
-                        parse_mode="HTML"
+                        parse_mode="HTML",
                     )
                 )
             except Exception as e:
@@ -1297,11 +1313,11 @@ class MessageHandler:
                             await self.telegram_bot.send_message(
                                 chat_id=self.config.TELEGRAM_USER_ID,
                                 text=segment,
-                                parse_mode="HTML"
+                                parse_mode="HTML",
                             )
                             if i < len(segments) - 1:
                                 await asyncio.sleep(random.uniform(1.0, 2.0))
-                    except Exception as e:
+                    except Exception:
                         # Fallback to plain text if HTML parsing fails
                         try:
                             if hasattr(self, "telegram_bot") and self.telegram_bot:
@@ -1464,11 +1480,11 @@ class MessageHandler:
                             await self.telegram_bot.send_message(
                                 chat_id=self.config.TELEGRAM_USER_ID,
                                 text=segment,
-                                parse_mode="HTML"
+                                parse_mode="HTML",
                             )
                             if i < len(segments) - 1:
                                 await asyncio.sleep(random.uniform(1.0, 2.0))
-                    except Exception as e:
+                    except Exception:
                         # Fallback to plain text if HTML parsing fails
                         try:
                             if hasattr(self, "telegram_bot") and self.telegram_bot:
