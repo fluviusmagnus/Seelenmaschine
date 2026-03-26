@@ -28,9 +28,15 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
 - 📱 **Telegram Bot Interface**: Supports Markdown v2 format
 - 🌐 **Web Search**: Jina Deepsearch API integration
 - 🔌 **MCP (Model Context Protocol) Support**:
-  - Dynamically connect external tools and data sources
-  - Support multiple transport methods (stdio, HTTP, SSE)
+   - Dynamically connect external tools and data sources
+   - Support multiple transport methods (stdio, HTTP, SSE)
 - ⏰ **Scheduled Tasks**: Support for one-time and interval tasks
+- 🛡️ **Built-in Local Tools**:
+  - File operations (read, write, edit, append)
+  - File search (Grep content search, Glob pattern matching)
+  - Shell command execution (with dangerous command detection and human approval)
+- 📤 **File Sending**: Support sending generated files directly via Telegram
+- 🤝 **Human-in-the-Loop**: Dangerous operations require user approval to prevent accidental modifications
 
 ## Technical Architecture
 
@@ -86,6 +92,7 @@ Seelenmaschine supports multi-environment configuration. You can use different c
 DEBUG_MODE=false
 DEBUG_LOG_LEVEL=INFO
 DEBUG_SHOW_FULL_PROMPT=false
+DEBUG_LOG_DATABASE_OPS=false
 TIMEZONE=Asia/Shanghai
 
 # Context Window Configuration
@@ -129,6 +136,14 @@ MCP_CONFIG_PATH=mcp_servers.json
 # Web Search Configuration
 ENABLE_WEB_SEARCH=false
 JINA_API_KEY=
+
+# Workspace Configuration (Restricts local file operations)
+WORKSPACE_DIR=          # Optional, workspace root directory, defaults to data/<profile>/workspace
+MEDIA_DIR=              # Optional, media file storage directory, defaults to WORKSPACE_DIR/media
+
+# Skills Configuration
+ENABLE_SKILLS=true
+SKILLS_DIR=skills/
 ```
 
 ### Data Directory Structure
@@ -136,7 +151,9 @@ JINA_API_KEY=
 ```
 data/<profile>/
 ├── seele.json           # Long-term memory (personality and user profile)
-└── chatbot.db           # SQLite database
+├── chatbot.db           # SQLite database
+└── workspace/           # Accessible workspace directory (for local file operations)
+    └── media/           # Media file storage directory
 ```
 
 ## Usage Guide
@@ -192,11 +209,17 @@ See [Search Examples Documentation](docs/SEARCH_EXAMPLES.md) for details.
 
 The system integrates the following tool capabilities:
 
-1. **MCP (Model Context Protocol)** - External tools and data sources
-2. **Memory Search** - Self-query memory
-3. **Web Search** - Web search (requires enabling)
+1. **Built-in Local Tools**
+   - File operations (read, write, edit, append)
+   - File search (Grep content search/Glob pattern matching)
+   - Shell command execution (with danger detection and human approval)
+2. **MCP (Model Context Protocol)** - External tools and data sources
+3. **Memory Search** - Self-query memory
+4. **Web Search** - Web search (requires enabling)
+5. **Scheduled Tasks** - Task management
+6. **File Send** - Telegram file sending
 
-Control the enabling status of each tool through configuration files.
+Control the enabling status of each tool through configuration files. Dangerous commands require user approval before execution.
 
 ## Project Structure
 
@@ -218,7 +241,11 @@ Seelenmaschine/
 │   ├── tools/                    # Tool system
 │   │   ├── mcp_client.py         # MCP client
 │   │   ├── memory_search.py      # Self-query tool
-│   │   └── internal/             # Built-in tools
+│   │   ├── scheduled_task_tool.py # Scheduled task tool
+│   │   ├── send_telegram_file_tool.py # Telegram file sending tool
+│   │   ├── file_io.py            # File operation tools
+│   │   ├── file_search.py        # File search tools
+│   │   └── shell.py              # Shell command execution tool
 │   ├── tg_bot/                   # Telegram Bot interface
 │   │   ├── bot.py                # Bot main logic
 │   │   └── handlers.py           # Message handlers
