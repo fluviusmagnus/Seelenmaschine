@@ -149,10 +149,16 @@ class TelegramBot:
 
     def create_application(self) -> None:
         """Create and configure the Telegram application"""
-        self._application = (
-            Application.builder().token(self.config.TELEGRAM_BOT_TOKEN).build()
-        )
+        builder = Application.builder().token(self.config.TELEGRAM_BOT_TOKEN)
+        # Allow /approve and other control commands to be processed while another
+        # update is blocked waiting for human approval.
+        builder = builder.concurrent_updates(True)
+        self._application = builder.build()
         self.message_handler.set_telegram_bot(self._application.bot)
+
+        logger.info(
+            "Telegram application created with concurrent update processing enabled"
+        )
 
         # Add command handlers
         self._application.add_handler(CommandHandler("start", self._cmd_start))

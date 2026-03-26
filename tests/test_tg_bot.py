@@ -121,9 +121,12 @@ class TestTelegramBotApplication:
 
         with patch("tg_bot.bot.Config", return_value=mock_config):
             with patch("tg_bot.bot.Application.builder") as mock_builder:
-                mock_builder.return_value.token.return_value.build.return_value = (
-                    mock_application
+                mock_builder_instance = mock_builder.return_value
+                mock_builder_instance.token.return_value = mock_builder_instance
+                mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
                 )
+                mock_builder_instance.build.return_value = mock_application
 
                 bot = TelegramBot(message_handler=mock_message_handler)
                 bot.create_application()
@@ -137,10 +140,31 @@ class TestTelegramBotApplication:
                 )
 
                 # Verify token was set
-                mock_builder.return_value.token.assert_called_once_with("test_token")
+                mock_builder_instance.token.assert_called_once_with("test_token")
+                mock_builder_instance.concurrent_updates.assert_called_once_with(True)
 
                 # Verify handlers were added (start, help, new, reset, approve, text, file)
                 assert mock_application.add_handler.call_count == 7
+
+    def test_create_application_enables_concurrent_updates(
+        self, mock_config, mock_message_handler, mock_application
+    ):
+        """Bot should enable concurrent update handling so /approve isn't blocked."""
+        from tg_bot.bot import TelegramBot
+
+        with patch("tg_bot.bot.Config", return_value=mock_config):
+            with patch("tg_bot.bot.Application.builder") as mock_builder:
+                mock_builder_instance = mock_builder.return_value
+                mock_builder_instance.token.return_value = mock_builder_instance
+                mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.build.return_value = mock_application
+
+                bot = TelegramBot(message_handler=mock_message_handler)
+                bot.create_application()
+
+                mock_builder_instance.concurrent_updates.assert_called_once_with(True)
 
     @pytest.mark.asyncio
     async def test_post_init_hook(
@@ -151,9 +175,12 @@ class TestTelegramBotApplication:
 
         with patch("tg_bot.bot.Config", return_value=mock_config):
             with patch("tg_bot.bot.Application.builder") as mock_builder:
-                mock_builder.return_value.token.return_value.build.return_value = (
-                    mock_application
+                mock_builder_instance = mock_builder.return_value
+                mock_builder_instance.token.return_value = mock_builder_instance
+                mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
                 )
+                mock_builder_instance.build.return_value = mock_application
 
                 bot = TelegramBot(message_handler=mock_message_handler)
                 bot.create_application()

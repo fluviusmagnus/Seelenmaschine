@@ -4,6 +4,7 @@ This module tests the message handler functionality,
 including tool execution, MCP client integration, and message processing.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
@@ -264,6 +265,127 @@ class TestMessageProcessing:
         sent_text = update.message.reply_text.await_args.args[0]
         assert "Sorry, an error occurred while processing your message." in sent_text
         assert "maximum context length exceeded" in sent_text
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
+        """Dangerous shell actions should continue executing after /approve."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.telegram_bot = Mock()
+        handler.telegram_bot.send_message = AsyncMock()
+        handler._approval_lock = asyncio.Lock()
+        handler._pending_approval = None
+        handler.mcp_client = None
+        handler._mcp_connected = False
+        handler._tool_registry = {}
+
+        shell_tool = Mock()
+        shell_tool.execute = AsyncMock(return_value="dangerous command completed")
+        handler._tool_registry["execute_shell_command"] = shell_tool
+
+        handler._preview_text = MessageHandler._preview_text
+        handler._format_exception_for_user = MessageHandler._format_exception_for_user
+        handler._is_dangerous_action = MessageHandler._is_dangerous_action.__get__(
+            handler, Mock
+        )
+        handler._request_approval = MessageHandler._request_approval.__get__(
+            handler, Mock
+        )
+        handler._send_status_message = MessageHandler._send_status_message.__get__(
+            handler, Mock
+        )
+        handler._notify_approved_action_execution = (
+            MessageHandler._notify_approved_action_execution.__get__(handler, Mock)
+        )
+        handler._notify_approved_action_finished = (
+            MessageHandler._notify_approved_action_finished.__get__(handler, Mock)
+        )
+        handler._notify_approved_action_failed = (
+            MessageHandler._notify_approved_action_failed.__get__(handler, Mock)
+        )
+        handler.handle_approve = MessageHandler.handle_approve.__get__(handler, Mock)
+        handler._execute_tool = MessageHandler._execute_tool.__get__(handler, Mock)
+
+        execution_task = asyncio.create_task(
+            handler._execute_tool(
+                "execute_shell_command", json.dumps({"command": "rm /etc/passwd"})
+            )
+        )
+
+        await asyncio.sleep(0)
+
+        assert handler._pending_approval is not None
+        assert handler._pending_approval.tool_name == "execute_shell_command"
+        shell_tool.execute.assert_not_awaited()
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.message = Mock()
+        update.message.reply_text = AsyncMock()
+        context = Mock()
+
+        await handler.handle_approve(update, context)
+        result = await execution_task
+        await asyncio.sleep(0)
+
+        assert result == "dangerous command completed"
+        shell_tool.execute.assert_awaited_once_with(command="rm /etc/passwd")
+        update.message.reply_text.assert_awaited_once_with(
+            "✅ Action approved. Resuming execute_shell_command."
+        )
+        assert handler._pending_approval is None
+
+        sent_texts = [
+            call.kwargs["text"]
+            for call in handler.telegram_bot.send_message.await_args_list
+        ]
+        assert any("DANGEROUS ACTION DETECTED" in text for text in sent_texts)
+        assert any("Approved action is now executing" in text for text in sent_texts)
+        assert any("Approved action finished" in text for text in sent_texts)
+
+    @pytest.mark.asyncio
+    async def test_handle_message_aborts_pending_approval_on_regular_message(self):
+        """A non-/approve message should abort the pending dangerous action."""
+        from tg_bot.handlers import MessageHandler, PendingApprovalRequest
+
+        handler = Mock(spec=MessageHandler)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler._process_message = AsyncMock()
+        handler.handle_message = MessageHandler.handle_message.__get__(handler, Mock)
+
+        loop = asyncio.get_running_loop()
+        handler._pending_approval = PendingApprovalRequest(
+            tool_name="execute_shell_command",
+            arguments={"command": "rm /etc/passwd"},
+            reason="shell_threat:data_loss",
+            future=loop.create_future(),
+            created_at=loop.time(),
+        )
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "继续"
+        update.message.reply_text = AsyncMock()
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        await handler.handle_message(update, context)
+
+        assert handler._pending_approval.future.done() is True
+        assert handler._pending_approval.future.result() is False
+        handler._process_message.assert_not_called()
+        update.message.reply_text.assert_awaited_once_with("❌ Pending action aborted.")
 
 
 class TestFileHandling:

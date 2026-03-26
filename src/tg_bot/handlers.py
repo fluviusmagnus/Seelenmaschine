@@ -1,6 +1,7 @@
 """Message handlers for Telegram bot"""
 
 import asyncio
+from dataclasses import dataclass
 import html
 import json
 import mimetypes
@@ -35,6 +36,17 @@ from llm.client import LLMClient
 from utils.logger import get_logger
 
 logger = get_logger()
+
+
+@dataclass
+class PendingApprovalRequest:
+    """Represents a dangerous action waiting for user approval."""
+
+    tool_name: str
+    arguments: Dict[str, Any]
+    reason: str
+    future: asyncio.Future
+    created_at: float
 
 
 class MessageHandler:
@@ -106,7 +118,7 @@ class MessageHandler:
         self._register_builtin_tools()
 
         # HITL approval state
-        self._pending_approval: Optional[asyncio.Future] = None
+        self._pending_approval: Optional[PendingApprovalRequest] = None
         self._approval_lock = asyncio.Lock()
 
         # Initialize attributes
@@ -560,7 +572,14 @@ class MessageHandler:
         """
         async with self._approval_lock:
             loop = asyncio.get_running_loop()
-            self._pending_approval = loop.create_future()
+            pending_request = PendingApprovalRequest(
+                tool_name=tool_name,
+                arguments=dict(arguments),
+                reason=reason,
+                future=loop.create_future(),
+                created_at=loop.time(),
+            )
+            self._pending_approval = pending_request
 
             # Build notification message
             args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:800])
@@ -585,11 +604,19 @@ class MessageHandler:
                     self._pending_approval = None
                     return False
 
-            # Wait for user response (timeout: 120 seconds)
+            logger.info(
+                "Approval request created for dangerous action: "
+                f"tool={tool_name}, reason={reason}, args={arguments}"
+            )
+
+            # Wait for user response (timeout: 600 seconds)
             try:
-                approved = await asyncio.wait_for(self._pending_approval, timeout=600.0)
+                approved = await asyncio.wait_for(pending_request.future, timeout=600.0)
             except asyncio.TimeoutError:
                 approved = False
+                logger.warning(
+                    "Approval request timed out: " f"tool={tool_name}, reason={reason}"
+                )
                 if hasattr(self, "telegram_bot") and self.telegram_bot:
                     try:
                         await self.telegram_bot.send_message(
@@ -599,9 +626,70 @@ class MessageHandler:
                     except Exception:
                         pass
             finally:
-                self._pending_approval = None
+                if self._pending_approval is pending_request:
+                    self._pending_approval = None
 
             return approved
+
+    async def _send_status_message(
+        self, text: str, parse_mode: Optional[str] = None
+    ) -> None:
+        """Best-effort Telegram status notification."""
+        if not hasattr(self, "telegram_bot") or not self.telegram_bot:
+            return
+
+        try:
+            kwargs: Dict[str, Any] = {
+                "chat_id": self.config.TELEGRAM_USER_ID,
+                "text": text,
+            }
+            if parse_mode:
+                kwargs["parse_mode"] = parse_mode
+            await self.telegram_bot.send_message(**kwargs)
+        except Exception as e:
+            logger.warning(f"Failed to send status message: {e}")
+
+    async def _notify_approved_action_execution(
+        self, tool_name: str, arguments: dict, reason: str
+    ) -> None:
+        """Inform user that an approved action is resuming execution."""
+        args_preview = html.escape(json.dumps(arguments, ensure_ascii=False)[:500])
+        msg = (
+            "▶️ <b>Approved action is now executing</b>\n\n"
+            f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
+            f"<b>Reason:</b> <code>{html.escape(reason)}</code>\n"
+            f"<b>Arguments:</b> <pre>{args_preview}</pre>"
+        )
+        await self._send_status_message(msg, parse_mode="HTML")
+
+    async def _notify_approved_action_finished(
+        self, tool_name: str, result: str
+    ) -> None:
+        """Inform user that an approved action finished running."""
+        result_preview = html.escape(self._preview_text(result, max_length=300))
+        if result.startswith("Error:") or result.startswith("Command failed"):
+            prefix = "⚠️ <b>Approved action finished with an error-like result</b>"
+        else:
+            prefix = "✅ <b>Approved action finished</b>"
+
+        msg = (
+            f"{prefix}\n\n"
+            f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
+            f"<b>Result preview:</b> <pre>{result_preview}</pre>"
+        )
+        await self._send_status_message(msg, parse_mode="HTML")
+
+    async def _notify_approved_action_failed(
+        self, tool_name: str, error: Exception
+    ) -> None:
+        """Inform user that an approved action failed unexpectedly."""
+        error_preview = html.escape(self._format_exception_for_user(error))
+        msg = (
+            "❌ <b>Approved action failed unexpectedly</b>\n\n"
+            f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
+            f"<b>Error:</b> <pre>{error_preview}</pre>"
+        )
+        await self._send_status_message(msg, parse_mode="HTML")
 
     async def handle_approve(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -612,9 +700,16 @@ class MessageHandler:
         if update.effective_user.id != self.config.TELEGRAM_USER_ID:
             return
 
-        if self._pending_approval and not self._pending_approval.done():
-            self._pending_approval.set_result(True)
-            await update.message.reply_text("✅ Action approved.")
+        pending_request = self._pending_approval
+        if pending_request and not pending_request.future.done():
+            pending_request.future.set_result(True)
+            logger.info(
+                "Approval received from user: "
+                f"tool={pending_request.tool_name}, reason={pending_request.reason}"
+            )
+            await update.message.reply_text(
+                f"✅ Action approved. Resuming {pending_request.tool_name}."
+            )
         else:
             await update.message.reply_text("No pending action to approve.")
 
@@ -648,6 +743,7 @@ class MessageHandler:
 
         # HITL: Check if this action requires user approval
         dangerous, reason = self._is_dangerous_action(tool_name, arguments)
+        approval_granted = False
         if dangerous:
             logger.warning(f"Dangerous action detected: {tool_name} reason={reason}")
             approved = await self._request_approval(tool_name, arguments, reason)
@@ -655,23 +751,51 @@ class MessageHandler:
                 logger.info(f"User rejected dangerous action: {tool_name}")
                 return f"Error: Action was rejected by the user (reason: {reason}). Do NOT retry this action."
             logger.info(f"User approved dangerous action: {tool_name}")
+            approval_granted = True
+            await self._notify_approved_action_execution(tool_name, arguments, reason)
 
-        # Dispatch via tool registry (covers builtins, memory search,
-        # scheduled task, send_telegram_file)
-        tool_instance = self._tool_registry.get(tool_name)
-        if tool_instance is not None:
-            return await tool_instance.execute(**arguments)
+        try:
+            # Dispatch via tool registry (covers builtins, memory search,
+            # scheduled task, send_telegram_file)
+            tool_instance = self._tool_registry.get(tool_name)
+            if tool_instance is not None:
+                result = await tool_instance.execute(**arguments)
+                logger.info(
+                    f"Tool execution finished: {tool_name}, preview={self._preview_text(result)}"
+                )
+                if approval_granted:
+                    await self._notify_approved_action_finished(tool_name, result)
+                return result
 
-        # Fallback: check MCP tools
-        if self.mcp_client:
-            await self._ensure_mcp_connected()
+            # Fallback: check MCP tools
+            if self.mcp_client:
+                await self._ensure_mcp_connected()
 
-            if self._mcp_connected:
-                mcp_tools = self.mcp_client.get_tools_sync()
-                if any(t["function"]["name"] == tool_name for t in mcp_tools):
-                    return await self.mcp_client.call_tool(tool_name, arguments)
+                if self._mcp_connected:
+                    mcp_tools = self.mcp_client.get_tools_sync()
+                    if any(t["function"]["name"] == tool_name for t in mcp_tools):
+                        result = await self.mcp_client.call_tool(tool_name, arguments)
+                        logger.info(
+                            f"MCP tool execution finished: {tool_name}, preview={self._preview_text(result)}"
+                        )
+                        if approval_granted:
+                            await self._notify_approved_action_finished(
+                                tool_name, result
+                            )
+                        return result
 
-        return f"Error: Tool not found: {tool_name}"
+            result = f"Error: Tool not found: {tool_name}"
+            if approval_granted:
+                await self._notify_approved_action_finished(tool_name, result)
+            return result
+        except Exception as e:
+            logger.error(
+                f"Tool execution raised exception after approval state={approval_granted}: {tool_name} - {e}",
+                exc_info=True,
+            )
+            if approval_granted:
+                await self._notify_approved_action_failed(tool_name, e)
+            raise
 
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -697,8 +821,13 @@ class MessageHandler:
         logger.info(f"Received message: {user_message[:50]}...")
 
         # HITL: If there's a pending approval and user sends a non-/approve message, reject it
-        if self._pending_approval and not self._pending_approval.done():
-            self._pending_approval.set_result(False)
+        pending_request = self._pending_approval
+        if pending_request and not pending_request.future.done():
+            pending_request.future.set_result(False)
+            logger.info(
+                "Pending approval aborted by non-/approve user message: "
+                f"tool={pending_request.tool_name}, reason={pending_request.reason}"
+            )
             await update.message.reply_text("❌ Pending action aborted.")
             return
 
