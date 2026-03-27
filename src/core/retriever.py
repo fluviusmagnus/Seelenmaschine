@@ -350,10 +350,22 @@ class MemoryRetriever:
         formatted = []
 
         from config import Config
+        from prompts.system import load_seele_json
+
+        seele_data = load_seele_json()
+        bot_name = (
+            seele_data.get("bot", {}).get("name", "AI Assistant") or "AI Assistant"
+        )
+        user_name = seele_data.get("user", {}).get("name", "User") or "User"
+
+        role_to_name = {
+            "user": user_name,
+            "assistant": bot_name,
+        }
 
         for conv in conversations:
             time_str = timestamp_to_str(conv.timestamp, tz=Config.TIMEZONE)
-            role_display = "User" if conv.role == "user" else "Assistant"
+            role_display = role_to_name.get(conv.role, conv.role)
             formatted.append(f"[{time_str}] {role_display}: {conv.text}")
 
         return formatted
