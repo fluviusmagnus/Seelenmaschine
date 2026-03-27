@@ -1,6 +1,7 @@
 """Test for MessageHandler with message processing"""
 
 import sys
+import json
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -11,13 +12,16 @@ from tg_bot.handlers import MessageHandler
 
 
 @pytest.fixture
-def mock_config():
+def mock_config(tmp_path):
     """Mock Config"""
     with patch("tg_bot.handlers.Config") as mock:
         config_instance = Mock()
         config_instance.ENABLE_MCP = False
         config_instance.TELEGRAM_USER_ID = 12345
         config_instance.TELEGRAM_USE_MARKDOWN = True
+        config_instance.DATA_DIR = tmp_path
+        config_instance.WORKSPACE_DIR = tmp_path / "workspace"
+        config_instance.MEDIA_DIR = tmp_path / "workspace" / "media"
         mock.return_value = config_instance
         yield config_instance
 
@@ -262,6 +266,37 @@ def test_execute_tool_memory_search(
 
     assert result == "Found memories"
     handler.memory_search_tool.execute.assert_called_once_with(query="test")
+
+    trace_path = handler.config.DATA_DIR / "tool_traces.jsonl"
+    assert trace_path.exists()
+    records = [
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(records) == 1
+    assert records[0]["tool_name"] == "search_memories"
+    assert records[0]["status"] == "success"
+
+
+def test_query_tool_history_is_not_self_logged(
+    mock_config,
+    mock_db,
+    mock_embedding_client,
+    mock_reranker_client,
+    mock_memory,
+    mock_llm_client,
+    mock_scheduler,
+):
+    """query_tool_history should not create recursive log entries."""
+    handler = MessageHandler()
+
+    import asyncio
+
+    result = asyncio.run(handler._execute_tool("query_tool_history", "{}"))
+
+    assert "No tool history records found." in result
+    trace_path = handler.config.DATA_DIR / "tool_traces.jsonl"
+    if trace_path.exists():
+        assert trace_path.read_text(encoding="utf-8").strip() == ""
 
 
 if __name__ == "__main__":

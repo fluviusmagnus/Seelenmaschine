@@ -7,6 +7,7 @@ import json
 import mimetypes
 import random
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,7 @@ from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_task_tool import ScheduledTaskTool
 from tools.send_telegram_file_tool import SendTelegramFileTool
+from tools.tool_trace import ToolTraceStore, ToolTraceQueryTool
 from tools.file_io import (
     ReadFileTool,
     WriteFileTool,
@@ -100,6 +102,12 @@ class MessageHandler:
         self.send_telegram_file_tool_def = None
         self.telegram_bot = None
         self._register_send_telegram_file_tool()
+
+        # Initialize tool trace logging and query tool
+        self.tool_trace_store = ToolTraceStore(self.config.DATA_DIR)
+        self.tool_trace_query_tool = ToolTraceQueryTool(
+            self.tool_trace_store, self.memory.get_current_session_id
+        )
 
         # Initialize LLM client
         self.llm_client = LLMClient()
@@ -463,6 +471,12 @@ class MessageHandler:
             tools.append(self.send_telegram_file_tool_def)
             logger.info("Added send_telegram_file tool")
 
+        if self.tool_trace_query_tool:
+            self._tool_registry[self.tool_trace_query_tool.name] = (
+                self.tool_trace_query_tool
+            )
+            logger.info("Added query_tool_history tool")
+
         # Add builtin tools from registry
         tools.extend(self._collect_builtin_tool_defs())
 
@@ -717,6 +731,7 @@ class MessageHandler:
 
     async def _execute_tool(self, tool_name: str, arguments_json: str) -> str:
         """Execute a tool call from LLM"""
+        start_time = time.perf_counter()
         try:
             arguments = json.loads(arguments_json)
         except json.JSONDecodeError as e:
@@ -753,7 +768,20 @@ class MessageHandler:
             approved = await self._request_approval(tool_name, arguments, reason)
             if not approved:
                 logger.info(f"User rejected dangerous action: {tool_name}")
-                return f"Error: Action was rejected by the user (reason: {reason}). Do NOT retry this action."
+                result = (
+                    f"Error: Action was rejected by the user (reason: {reason}). "
+                    "Do NOT retry this action."
+                )
+                await self._record_tool_trace(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    result=result,
+                    status="rejected",
+                    duration_ms=self._get_elapsed_ms(start_time),
+                    approval_required=True,
+                    approved_by_user=False,
+                )
+                return result
             logger.info(f"User approved dangerous action: {tool_name}")
             approval_granted = True
 
@@ -765,6 +793,15 @@ class MessageHandler:
                 result = await tool_instance.execute(**arguments)
                 logger.info(
                     f"Tool execution finished: {tool_name}, preview={self._preview_text(result)}"
+                )
+                await self._record_tool_trace(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    result=result,
+                    status=self._infer_tool_trace_status(result),
+                    duration_ms=self._get_elapsed_ms(start_time),
+                    approval_required=dangerous,
+                    approved_by_user=approval_granted,
                 )
                 if approval_granted:
                     await self._notify_approved_action_finished(tool_name, result)
@@ -781,6 +818,15 @@ class MessageHandler:
                         logger.info(
                             f"MCP tool execution finished: {tool_name}, preview={self._preview_text(result)}"
                         )
+                        await self._record_tool_trace(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            result=result,
+                            status=self._infer_tool_trace_status(result),
+                            duration_ms=self._get_elapsed_ms(start_time),
+                            approval_required=dangerous,
+                            approved_by_user=approval_granted,
+                        )
                         if approval_granted:
                             await self._notify_approved_action_finished(
                                 tool_name, result
@@ -788,6 +834,15 @@ class MessageHandler:
                         return result
 
             result = f"Error: Tool not found: {tool_name}"
+            await self._record_tool_trace(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                status="error",
+                duration_ms=self._get_elapsed_ms(start_time),
+                approval_required=dangerous,
+                approved_by_user=approval_granted,
+            )
             if approval_granted:
                 await self._notify_approved_action_finished(tool_name, result)
             return result
@@ -796,9 +851,62 @@ class MessageHandler:
                 f"Tool execution raised exception after approval state={approval_granted}: {tool_name} - {e}",
                 exc_info=True,
             )
+            await self._record_tool_trace(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=f"{type(e).__name__}: {e}",
+                status="error",
+                duration_ms=self._get_elapsed_ms(start_time),
+                approval_required=dangerous,
+                approved_by_user=approval_granted,
+            )
             if approval_granted:
                 await self._notify_approved_action_failed(tool_name, e)
             raise
+
+    def _get_elapsed_ms(self, start_time: float) -> int:
+        """Convert a perf_counter start time into an integer millisecond duration."""
+        return int((time.perf_counter() - start_time) * 1000)
+
+    def _infer_tool_trace_status(self, result: Any) -> str:
+        """Classify a tool result into success/error for logging."""
+        result_text = str(result)
+        if result_text.startswith("Error:") or result_text.startswith("Command failed"):
+            return "error"
+        return "success"
+
+    async def _record_tool_trace(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result: Any,
+        status: str,
+        duration_ms: int,
+        approval_required: bool,
+        approved_by_user: bool,
+    ) -> None:
+        """Persist a tool execution trace unless the tool is the trace query tool itself."""
+        if tool_name == "query_tool_history":
+            return
+
+        try:
+            session_id = None
+            if hasattr(self, "memory") and self.memory is not None:
+                session_id = self.memory.get_current_session_id()
+
+            self.tool_trace_store.append_trace(
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                status=status,
+                duration_ms=duration_ms,
+                approval_required=approval_required,
+                approved_by_user=approved_by_user,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist tool trace for {tool_name}: {e}")
 
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -1329,6 +1437,8 @@ class MessageHandler:
                     f"Updated memory_search_tool session_id to {new_session_id}"
                 )
 
+            self.tool_trace_store.prune_to_max_records()
+
             await update.message.reply_text(
                 "✓ New session created! Previous conversations have been summarized and archived.\n\n"
                 "I still remember our history and can recall it when relevant."
@@ -1361,6 +1471,13 @@ class MessageHandler:
 
             # Reset session (delete current and create new)
             self.memory.reset_session()
+
+            if hasattr(self, "memory_search_tool") and self.memory_search_tool:
+                self.memory_search_tool.session_id = int(
+                    self.memory.get_current_session_id()
+                )
+
+            self.tool_trace_store.prune_to_max_records()
 
             await update.message.reply_text(
                 "✓ Session reset! Current conversation has been deleted.\n\n"

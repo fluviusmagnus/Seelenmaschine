@@ -35,6 +35,7 @@ class TestMessageHandlerInitialization:
     def test_handler_initializes_components(self, mock_dependencies):
         """Test that handler initializes all required components"""
         from tg_bot.handlers import MessageHandler
+        from pathlib import Path
 
         with patch("tg_bot.handlers.Config") as mock_config_class:
             with patch("tg_bot.handlers.DatabaseManager"):
@@ -46,6 +47,16 @@ class TestMessageHandlerInitialization:
                                     with patch("tg_bot.handlers.LLMClient"):
                                         with patch("tg_bot.handlers.MemorySearchTool"):
                                             mock_config_instance = Mock()
+                                            mock_config_instance.ENABLE_MCP = False
+                                            mock_config_instance.DATA_DIR = Path(
+                                                "data/test"
+                                            )
+                                            mock_config_instance.WORKSPACE_DIR = Path(
+                                                "data/test/workspace"
+                                            )
+                                            mock_config_instance.MEDIA_DIR = Path(
+                                                "data/test/workspace/media"
+                                            )
                                             mock_config_class.return_value = (
                                                 mock_config_instance
                                             )
