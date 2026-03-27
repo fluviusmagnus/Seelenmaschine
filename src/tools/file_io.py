@@ -12,16 +12,17 @@ _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
 
 
 def _resolve_file_path(file_path: str) -> str:
-    """Resolve file path: use absolute path as-is,
-    resolve relative path from current workspace or WORKING_DIR.
+    """Resolve a tool-provided path into a normalized absolute path.
+
+    Rules:
+    - expand ``~`` to the user home directory
+    - resolve relative paths from ``WORKSPACE_DIR``
+    - normalize ``.`` / ``..`` segments
     """
     path = Path(file_path).expanduser()
-    if path.is_absolute():
-        return str(path)
-    else:
-        # Use workspace_dir from config
-        workspace_dir = Config.WORKSPACE_DIR
-        return str(workspace_dir / file_path)
+    if not path.is_absolute():
+        path = Path(Config.WORKSPACE_DIR) / path
+    return str(path.resolve(strict=False))
 
 
 class ReadFileTool:
@@ -91,7 +92,7 @@ Use start_line/end_line to read a specific line range (output includes line numb
 
             with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-                
+
             all_lines = content.split("\n")
             total = len(all_lines)
 
@@ -107,7 +108,9 @@ Use start_line/end_line to read a specific line range (output includes line numb
 
             # Extract selected lines and format with line numbers
             selected_lines = all_lines[s - 1 : e]
-            text = "\n".join(f"{s + i}: {line}" for i, line in enumerate(selected_lines))
+            text = "\n".join(
+                f"{s + i}: {line}" for i, line in enumerate(selected_lines)
+            )
 
             # Truncate if too long (optional simple logic)
             if len(text) > 20000:
@@ -166,7 +169,7 @@ class WriteFileTool:
         try:
             # Ensure parent directories exist
             Path(resolved_path).parent.mkdir(parents=True, exist_ok=True)
-            
+
             with open(resolved_path, "w", encoding="utf-8") as f:
                 f.write(content)
             return f"Wrote {len(content)} characters to {resolved_path}."
@@ -243,11 +246,17 @@ class ReplaceFileContentTool:
 
             if occurrences == 0:
                 import re
-                
+
                 # Heuristic: LLM copied line numbers from read_file output
-                stripped_lines = [re.sub(r'^\d+:\s?', '', line) for line in target_text.splitlines()]
-                stripped_target = '\n'.join(stripped_lines)
-                if stripped_target and stripped_target != target_text and content.count(stripped_target) > 0:
+                stripped_lines = [
+                    re.sub(r"^\d+:\s?", "", line) for line in target_text.splitlines()
+                ]
+                stripped_target = "\n".join(stripped_lines)
+                if (
+                    stripped_target
+                    and stripped_target != target_text
+                    and content.count(stripped_target) > 0
+                ):
                     return "Error: The `target_text` was not found. However, a match was found for the text WITHOUT line numbers. Did you accidentally copy the line numbers from `read_file`? Please strictly remove the line numbers (e.g., '12: ') from both `target_text` and `replacement_text` and try again."
 
                 return "Error: The `target_text` was not found in the file. Make sure you matched indentation and line breaks exactly."
@@ -302,11 +311,9 @@ class AppendFileTool:
         try:
             # Ensure parent directories exist
             Path(resolved_path).parent.mkdir(parents=True, exist_ok=True)
-            
+
             with open(resolved_path, "a", encoding="utf-8") as f:
                 f.write(content)
             return f"Appended {len(content)} characters to {resolved_path}."
         except Exception as e:
             return f"Error: Append file failed due to \n{e}"
-
-

@@ -639,6 +639,108 @@ class TestFileHandling:
             await mock_handler._send_telegram_file_to_user(str(outside_file))
 
 
+class TestPathSafetyApproval:
+    """Test unified path safety approval for builtin tools."""
+
+    @pytest.fixture
+    def path_check_handler(self, tmp_path):
+        """Create a minimal handler with bound path safety methods."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.config = Mock()
+        handler.config.WORKSPACE_DIR = tmp_path
+        handler.config.MEDIA_DIR = tmp_path / "media"
+
+        handler._is_path_outside_allowed_dirs = (
+            MessageHandler._is_path_outside_allowed_dirs.__get__(handler, Mock)
+        )
+        handler._is_file_outside_workspace = (
+            MessageHandler._is_file_outside_workspace.__get__(handler, Mock)
+        )
+        handler._is_dangerous_action = MessageHandler._is_dangerous_action.__get__(
+            handler, Mock
+        )
+
+        return handler
+
+    def test_grep_search_path_with_dotdot_inside_workspace_is_allowed(
+        self, path_check_handler
+    ):
+        """Normalized .. paths staying in workspace should not require approval."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "grep_search",
+            {"pattern": "todo", "path": "src/../src"},
+        )
+
+        assert not dangerous
+        assert reason == ""
+
+    def test_grep_search_parent_traversal_outside_workspace_requires_approval(
+        self, path_check_handler
+    ):
+        """Relative traversal escaping workspace should require approval."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "grep_search",
+            {"pattern": "todo", "path": "../outside"},
+        )
+
+        assert dangerous
+        assert reason == "file_outside_workspace"
+
+    def test_glob_search_home_expansion_requires_approval(self, path_check_handler):
+        """Home-expanded paths should be checked against the same boundary rules."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "glob_search",
+            {"pattern": "*.py", "path": "~"},
+        )
+
+        assert dangerous
+        assert reason == "file_outside_workspace"
+
+    def test_glob_search_without_explicit_path_stays_allowed(self, path_check_handler):
+        """Omitted search root should default to workspace and stay non-dangerous."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "glob_search",
+            {"pattern": "*.py"},
+        )
+
+        assert not dangerous
+        assert reason == ""
+
+    def test_shell_command_parent_traversal_requires_approval(self, path_check_handler):
+        """Shell commands referencing explicit outside-workspace paths should require approval."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "execute_shell_command",
+            {"command": "cat ../secret.txt"},
+        )
+
+        assert dangerous
+        assert reason == "shell_threat:outside_workspace_path"
+
+    def test_shell_command_workspace_relative_path_stays_allowed(
+        self, path_check_handler
+    ):
+        """Shell commands using in-workspace relative paths should remain allowed."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "execute_shell_command",
+            {"command": "cat src/file.txt"},
+        )
+
+        assert not dangerous
+        assert reason == ""
+
+    def test_shell_command_outside_cwd_requires_approval(self, path_check_handler):
+        """Shell cwd outside allowed directories should also require approval."""
+        dangerous, reason = path_check_handler._is_dangerous_action(
+            "execute_shell_command",
+            {"command": "echo hi", "cwd": "../outside"},
+        )
+
+        assert dangerous
+        assert reason == "file_outside_workspace"
+
+
 class TestSplitMessageIntoSegments:
     """Test the _split_message_into_segments method"""
 

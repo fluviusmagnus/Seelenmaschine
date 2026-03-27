@@ -13,6 +13,7 @@ from utils.logger import get_logger
 
 logger = get_logger()
 
+
 def smart_decode(data: bytes) -> str:
     if not isinstance(data, bytes):
         if data is None:
@@ -36,34 +37,165 @@ import re as _re
 # Compiled regex patterns for dangerous shell command detection
 _DANGEROUS_PATTERNS: list[tuple[str, _re.Pattern]] = [
     # 1. Redirection/Pipe to system paths (Check this first to categorize redirections correctly)
-    ("system_write",    _re.compile(r"(?:[12]?>|>>|\|\s*tee\s+(?:-a\s+)?)\s*(?!/tmp/)(?:/etc/|/usr/|/bin/|/sbin/|/var/|/lib/|/boot/|/root/|C:\\Windows|C:\\Program Files)", _re.I)),
+    (
+        "system_write",
+        _re.compile(
+            r"(?:[12]?>|>>|\|\s*tee\s+(?:-a\s+)?)\s*(?!/tmp/)(?:/etc/|/usr/|/bin/|/sbin/|/var/|/lib/|/boot/|/root/|C:\\Windows|C:\\Program Files)",
+            _re.I,
+        ),
+    ),
     # 2. Deletion / destructive move
-    ("data_loss",       _re.compile(r"\b(rm|rmdir|del|rd)\b", _re.I)),
-    ("file_move",       _re.compile(r"\b(mv|move|ren|rename)\b", _re.I)),
+    ("data_loss", _re.compile(r"\b(rm|rmdir|del|rd)\b", _re.I)),
+    ("file_move", _re.compile(r"\b(mv|move|ren|rename)\b", _re.I)),
     # 3. Low-level disk formatting / wiping
-    ("disk_wipe",       _re.compile(r"\b(mkfs|dd|shred|wipefs|format|diskpart|fdisk|parted)\b", _re.I)),
+    (
+        "disk_wipe",
+        _re.compile(r"\b(mkfs|dd|shred|wipefs|format|diskpart|fdisk|parted)\b", _re.I),
+    ),
     # 4. Fork bombs / mass process kill
-    ("fork_bomb",       _re.compile(r":\(\)\s*\{|%0\|%0|\bforkbomb\b", _re.I)),
-    ("mass_kill",       _re.compile(r"\b(killall|pkill|kill\s+-9\s+-1|taskkill\s+/f)\b", _re.I)),
+    ("fork_bomb", _re.compile(r":\(\)\s*\{|%0\|%0|\bforkbomb\b", _re.I)),
+    (
+        "mass_kill",
+        _re.compile(r"\b(killall|pkill|kill\s+-9\s+-1|taskkill\s+/f)\b", _re.I),
+    ),
     # 5. Remote payload execution (curl|bash pattern)
-    ("remote_exec",     _re.compile(r"(curl|wget|fetch)\s+.*\|\s*(bash|sh|zsh|dash|python|perl|ruby|node)", _re.I)),
-    ("powershell_exec", _re.compile(r"Invoke-Expression|iex\s*\(|IEX\s*\(|DownloadString", _re.I)),
+    (
+        "remote_exec",
+        _re.compile(
+            r"(curl|wget|fetch)\s+.*\|\s*(bash|sh|zsh|dash|python|perl|ruby|node)",
+            _re.I,
+        ),
+    ),
+    (
+        "powershell_exec",
+        _re.compile(r"Invoke-Expression|iex\s*\(|IEX\s*\(|DownloadString", _re.I),
+    ),
     # 6. Reverse shells / tunnels
-    ("reverse_shell",   _re.compile(r"\b(nc|ncat|netcat|socat)\b.*(-e|exec)|/dev/tcp/|/dev/udp/", _re.I)),
-    ("tunnel",          _re.compile(r"\b(ngrok|chisel|frp|bore)\b", _re.I)),
+    (
+        "reverse_shell",
+        _re.compile(
+            r"\b(nc|ncat|netcat|socat)\b.*(-e|exec)|/dev/tcp/|/dev/udp/", _re.I
+        ),
+    ),
+    ("tunnel", _re.compile(r"\b(ngrok|chisel|frp|bore)\b", _re.I)),
     # 7. Sensitive system access
-    ("sudo",            _re.compile(r"\bsudo\b", _re.I)),
-    ("crontab",         _re.compile(r"\bcrontab\b", _re.I)),
-    ("ssh_keys",        _re.compile(r"\.ssh/(authorized_keys|id_rsa|id_ed25519|config)", _re.I)),
-    ("shadow",          _re.compile(r"/etc/(shadow|passwd|sudoers)", _re.I)),
+    ("sudo", _re.compile(r"\bsudo\b", _re.I)),
+    ("crontab", _re.compile(r"\bcrontab\b", _re.I)),
+    (
+        "ssh_keys",
+        _re.compile(r"\.ssh/(authorized_keys|id_rsa|id_ed25519|config)", _re.I),
+    ),
+    ("shadow", _re.compile(r"/etc/(shadow|passwd|sudoers)", _re.I)),
     # 8. Permission escalation
-    ("chmod_777",       _re.compile(r"\bchmod\s+(\+[rwxst]*\s+|)7[0-7]{2}\b", _re.I)),
-    ("chattr",          _re.compile(r"\bchattr\b", _re.I)),
-    ("setuid",          _re.compile(r"\bchmod\s+[ugo]*\+s\b", _re.I)),
+    ("chmod_777", _re.compile(r"\bchmod\s+(\+[rwxst]*\s+|)7[0-7]{2}\b", _re.I)),
+    ("chattr", _re.compile(r"\bchattr\b", _re.I)),
+    ("setuid", _re.compile(r"\bchmod\s+[ugo]*\+s\b", _re.I)),
     # 9. Base64-to-shell execution
-    ("base64_exec",     _re.compile(r"base64\s+(-d|--decode).*\|\s*(bash|sh|python|perl)", _re.I)),
-    ("echo_decode",     _re.compile(r"echo\s+.*\|\s*base64\s+(-d|--decode).*\|\s*(bash|sh)", _re.I)),
+    (
+        "base64_exec",
+        _re.compile(r"base64\s+(-d|--decode).*\|\s*(bash|sh|python|perl)", _re.I),
+    ),
+    (
+        "echo_decode",
+        _re.compile(r"echo\s+.*\|\s*base64\s+(-d|--decode).*\|\s*(bash|sh)", _re.I),
+    ),
 ]
+
+_URL_SCHEME_PATTERN = _re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+_WINDOWS_DRIVE_PATTERN = _re.compile(r"^[a-zA-Z]:[\\/]")
+_SAFE_TMP_PREFIXES = (
+    "/tmp/",
+    "/private/tmp/",
+    "c:\\tmp\\",
+)
+
+
+def _normalize_shell_path(candidate: str) -> Path:
+    """Normalize a shell path candidate against WORKSPACE_DIR."""
+    path = Path(candidate).expanduser()
+    if not path.is_absolute():
+        path = Path(Config.WORKSPACE_DIR) / path
+    return path.resolve(strict=False)
+
+
+def _is_path_in_allowed_dirs(path: Path) -> bool:
+    """Return whether a path is inside workspace/media."""
+    normalized_str = str(path).lower().replace("/", "\\")
+    if normalized_str.startswith("\\tmp\\"):
+        normalized_str = "/tmp/" + normalized_str[len("\\tmp\\") :]
+
+    lower_path = str(path).lower()
+    if lower_path.startswith(_SAFE_TMP_PREFIXES):
+        return True
+
+    allowed_dirs = [
+        Path(Config.WORKSPACE_DIR).resolve(),
+        Path(Config.MEDIA_DIR).resolve(),
+    ]
+
+    for allowed_dir in allowed_dirs:
+        try:
+            path.relative_to(allowed_dir)
+            return True
+        except ValueError:
+            continue
+
+    return False
+
+
+def _looks_like_path_token(token: str) -> bool:
+    """Heuristically determine whether a shell token looks like a path."""
+    if not token:
+        return False
+
+    if _URL_SCHEME_PATTERN.match(token):
+        return False
+
+    if token.startswith(("~", "./", "../", ".\\", "..\\", "/", "\\")):
+        return True
+
+    if _WINDOWS_DRIVE_PATTERN.match(token):
+        return True
+
+    if "/" in token or "\\" in token:
+        return True
+
+    return False
+
+
+def _extract_suspicious_path_tokens(cmd: str) -> list[str]:
+    """Extract path-like shell tokens conservatively.
+
+    This is intentionally heuristic rather than a full shell parser.
+    """
+    token_pattern = _re.compile(
+        r'"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\'|([^\s;|&<>]+)'
+    )
+    tokens: list[str] = []
+
+    for match in token_pattern.finditer(cmd):
+        token = next(group for group in match.groups() if group is not None)
+        token = token.strip()
+        if not token:
+            continue
+        if _looks_like_path_token(token):
+            tokens.append(token)
+
+    return tokens
+
+
+def has_outside_workspace_path(cmd: str) -> tuple[bool, str]:
+    """Check whether a shell command references an explicit path outside workspace/media."""
+    for token in _extract_suspicious_path_tokens(cmd):
+        try:
+            normalized = _normalize_shell_path(token)
+        except Exception:
+            return True, token
+
+        if not _is_path_in_allowed_dirs(normalized):
+            return True, token
+
+    return False, ""
 
 
 def is_dangerous_command(cmd: str) -> tuple[bool, str]:
@@ -76,37 +208,55 @@ def is_dangerous_command(cmd: str) -> tuple[bool, str]:
         for match in pattern.finditer(cmd):
             # HITL logic refinement: Consider /tmp/ as a safe context.
             match_start = match.start()
-            
+
             # Find the full "word" (path or command) containing this match
             prefix = cmd[:match_start]
             last_delim = _re.search(r"[ ;&|<>][^ ;&|<>]*$", prefix)
             word_start = last_delim.start() + 1 if last_delim else 0
-            
+
             suffix = cmd[match_start:]
             next_delim = _re.search(r"[ ;&|<>]", suffix)
             word_end = match_start + (next_delim.start() if next_delim else len(suffix))
-            
+
             full_word = cmd[word_start:word_end].lower()
-            
+
             # If the current match is part of a /tmp/ path, and it's a file-based category, we consider it safe.
             if any(p in full_word for p in ("/tmp/", "c:\\tmp\\", "/private/tmp/")):
-                if category not in ("data_loss", "file_move", "disk_wipe", "mass_kill", "fork_bomb", "sudo"):
-                    continue # Skip this match, look for others or other categories
+                if category not in (
+                    "data_loss",
+                    "file_move",
+                    "disk_wipe",
+                    "mass_kill",
+                    "fork_bomb",
+                    "sudo",
+                ):
+                    continue  # Skip this match, look for others or other categories
 
             # Special case for destructive commands: if they ONLY operate on /tmp/, skip
             if category in ("data_loss", "file_move"):
                 # Find all absolute paths in the entire command
                 paths = _re.findall(r'(?:/|[a-zA-Z]:\\)[^\s;&|<>"\']*', cmd)
                 if paths:
-                    non_tmp_paths = [p for p in paths if not p.lower().startswith(("/tmp/", "c:\\tmp\\", "/private/tmp/"))]
+                    non_tmp_paths = [
+                        p
+                        for p in paths
+                        if not p.lower().startswith(
+                            ("/tmp/", "c:\\tmp\\", "/private/tmp/")
+                        )
+                    ]
                     if not non_tmp_paths:
-                        continue # All absolute paths are in /tmp/, so this category doesn't trigger for this match
+                        continue  # All absolute paths are in /tmp/, so this category doesn't trigger for this match
                 else:
                     # No absolute paths found (e.g., 'rm relative_file').
                     # We keep the warning as we can't be sure it's safe without absolute context.
                     pass
 
             return True, category
+
+    outside_workspace, _ = has_outside_workspace_path(cmd)
+    if outside_workspace:
+        return True, "outside_workspace_path"
+
     return False, ""
 
 
@@ -190,7 +340,9 @@ def _execute_subprocess_sync(
         stderr_str = _read_temp_file(stderr_path)
 
         if timed_out:
-            timeout_msg = f"Command execution exceeded the timeout of {timeout} seconds."
+            timeout_msg = (
+                f"Command execution exceeded the timeout of {timeout} seconds."
+            )
             if stderr_str:
                 stderr_str = f"{stderr_str}\n{timeout_msg}"
             else:
@@ -263,7 +415,7 @@ class ShellCommandTool:
                 working_dir = Config.WORKSPACE_DIR / working_dir
         else:
             working_dir = Config.WORKSPACE_DIR
-            
+
         # create working dir if it doesn't exist
         try:
             working_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +424,7 @@ class ShellCommandTool:
 
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"  # Enforce Python subprocesses to use UTF-8
-        
+
         python_bin_dir = str(Path(sys.executable).parent)
         existing_path = env.get("PATH", "")
         if existing_path:
@@ -326,7 +478,8 @@ class ShellCommandTool:
 
                         try:
                             stdout, stderr = await asyncio.wait_for(
-                                proc.communicate(), timeout=1,
+                                proc.communicate(),
+                                timeout=1,
                             )
                         except asyncio.TimeoutError:
                             stdout, stderr = b"", b""

@@ -33,7 +33,6 @@ from tools.file_io import (
 )
 from tools.file_search import GrepSearchTool, GlobSearchTool
 from tools.shell import ShellCommandTool, is_dangerous_command
-from tools.file_io import _resolve_file_path
 from llm.client import LLMClient
 from utils.logger import get_logger
 
@@ -544,28 +543,35 @@ class MessageHandler:
                 # Ensure we still have basic tools even if MCP fails
                 self._setup_basic_tools()
 
-    def _is_file_outside_workspace(self, arguments: dict) -> bool:
-        """Check if a file tool targets a path outside WORKSPACE_DIR."""
-        file_path = arguments.get("file_path", "")
-        if not file_path:
+    def _is_path_outside_allowed_dirs(self, target_path: str) -> bool:
+        """Check whether a path resolves outside workspace/media allowed dirs."""
+        if not target_path:
             return False
         try:
-            resolved = Path(_resolve_file_path(file_path)).resolve()
-            workspace = Path(self.config.WORKSPACE_DIR).resolve()
-            try:
-                resolved.relative_to(workspace)
-                return False  # Inside workspace
-            except ValueError:
-                # Check MEDIA_DIR as well
-                media_dir = Path(self.config.MEDIA_DIR).resolve()
+            candidate = Path(target_path).expanduser()
+            if not candidate.is_absolute():
+                candidate = Path(self.config.WORKSPACE_DIR) / candidate
+            resolved = candidate.resolve(strict=False)
+            allowed_dirs = [
+                Path(self.config.WORKSPACE_DIR).resolve(),
+                Path(self.config.MEDIA_DIR).resolve(),
+            ]
+
+            for allowed_dir in allowed_dirs:
                 try:
-                    resolved.relative_to(media_dir)
-                    return False  # Inside media dir
+                    resolved.relative_to(allowed_dir)
+                    return False
                 except ValueError:
-                    return True  # Outside both
+                    continue
+
+            return True
         except Exception as e:
             logger.error(f"Error checking path bounds: {e}")
             return True  # If we can't resolve, assume dangerous
+
+    def _is_file_outside_workspace(self, arguments: dict) -> bool:
+        """Check if a file tool targets a path outside WORKSPACE_DIR."""
+        return self._is_path_outside_allowed_dirs(arguments.get("file_path", ""))
 
     def _is_dangerous_action(self, tool_name: str, arguments: dict) -> tuple[bool, str]:
         """Determine if a tool call requires user approval.
@@ -573,11 +579,13 @@ class MessageHandler:
         Returns:
             (needs_approval, reason)
         """
-        _FILE_IO_TOOLS = {
-            "write_file",
-            "replace_file_content",
-            "append_file",
-            "read_file",
+        _PATH_GUARDED_TOOLS = {
+            "write_file": "file_path",
+            "replace_file_content": "file_path",
+            "append_file": "file_path",
+            "read_file": "file_path",
+            "grep_search": "path",
+            "glob_search": "path",
         }
 
         # Shell command: check against threat signatures
@@ -587,9 +595,14 @@ class MessageHandler:
             if dangerous:
                 return True, f"shell_threat:{category}"
 
-        # File I/O tools: check if path is outside workspace
-        if tool_name in _FILE_IO_TOOLS:
-            if self._is_file_outside_workspace(arguments):
+            cwd = arguments.get("cwd", "")
+            if cwd and self._is_path_outside_allowed_dirs(cwd):
+                return True, "file_outside_workspace"
+
+        # Path-based tools: require approval when target resolves outside workspace/media.
+        path_argument = _PATH_GUARDED_TOOLS.get(tool_name)
+        if path_argument:
+            if self._is_path_outside_allowed_dirs(arguments.get(path_argument, "")):
                 return True, "file_outside_workspace"
 
         return False, ""
