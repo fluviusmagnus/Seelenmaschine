@@ -96,7 +96,6 @@ class TestToolExecution:
     async def test_execute_memory_search_tool(self, mock_handler):
         """Test executing memory search tool"""
         # This is a placeholder - actual implementation would test the real handler
-        tool_name = "memory_search"
         arguments = '{"query": "test query"}'
 
         # Mock the execution
@@ -108,7 +107,6 @@ class TestToolExecution:
     @pytest.mark.asyncio
     async def test_execute_scheduled_task_tool(self, mock_handler):
         """Test executing scheduled task tool"""
-        tool_name = "scheduled_task"
         arguments = '{"message": "Test message", "trigger": "in 1 hour"}'
 
         # Mock the execution
@@ -811,6 +809,22 @@ class TestSplitMessageIntoSegments:
 
         assert segments == ["Paragraph 1.", "Paragraph 2.", "Paragraph 3."]
 
+    def test_single_newlines_split_even_when_short(self, mock_handler):
+        """Single line breaks should also create separate Telegram segments."""
+        text = "Line 1\nLine 2\nLine 3"
+
+        segments = mock_handler._split_message_into_segments(text)
+
+        assert segments == ["Line 1", "Line 2", "Line 3"]
+
+    def test_consecutive_list_items_stay_grouped(self, mock_handler):
+        """List items should stay together instead of being split per line."""
+        text = "Intro\n- first item\n- second item\nAfter"
+
+        segments = mock_handler._split_message_into_segments(text)
+
+        assert segments == ["Intro", "- first item\n- second item", "After"]
+
     def test_message_split_at_paragraphs(self, mock_handler):
         """Test that messages are split at paragraph boundaries"""
         # Create a message with multiple paragraphs
@@ -953,6 +967,18 @@ class TestSplitMessageIntoSegments:
             assert not segment.isspace() or len(segment) == 0
             if len(segment) > 0:
                 assert segment.strip()
+
+    def test_long_html_segment_keeps_tags_balanced(self, mock_handler):
+        """Long formatted text should be split without breaking HTML tags."""
+        text = "<b>" + ("word " * 30).strip() + "</b>"
+
+        segments = mock_handler._split_message_into_segments(text, max_length=40)
+
+        assert len(segments) > 1
+        for segment in segments:
+            assert len(segment) <= 40
+            assert segment.startswith("<b>")
+            assert segment.endswith("</b>")
 
 
 # Run tests if executed directly

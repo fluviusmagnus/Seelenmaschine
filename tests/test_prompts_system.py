@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, mock_open
 import json
-from datetime import datetime
 from zoneinfo import ZoneInfo
 import pytest
 
@@ -39,7 +38,7 @@ class TestLoadSeeleJson:
     
     def test_load_seele_json_uses_cache(self):
         """Test that load_seele_json uses cache after first load"""
-        from prompts.system import load_seele_json, _seele_json_cache
+        from prompts.system import load_seele_json
         
         # Clear cache first
         import prompts.system
@@ -128,6 +127,7 @@ class TestBuildSystemPrompt:
                 # Should contain summaries
                 assert "Summary 1" in result
                 assert "Summary 2" in result
+                assert "Markdown is allowed in normal replies" in result
 
 
 class TestJsonPatchConversion:

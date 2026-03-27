@@ -283,22 +283,26 @@ class MessageHandler:
         if not Config.DEBUG_MODE:
             text = strip_blockquotes(text)
 
-        # Step 1: Extract blockquotes and fenced code blocks
+        # Step 1: Extract blockquotes, fenced code blocks, and inline code so
+        # formatting markers inside code stay literal.
         placeholders = []
 
-        def _save_preformatted_block(content: str) -> str:
-            placeholders.append(content)
-            return f"PREFORMATTEDPLACEHOLDER{len(placeholders) - 1}END"
+        def _save_placeholder(content: str, tag: str) -> str:
+            placeholders.append((tag, content))
+            return f"TGFORMATPLACEHOLDER{len(placeholders) - 1}END"
 
         def save_fenced_code_block(match):
             content = match.group(2)
             if content is None:
                 content = ""
-            return _save_preformatted_block(content.strip())
+            return _save_placeholder(content.strip(), "pre")
 
         def save_blockquote(match):
             content = match.group(1).strip()
-            return _save_preformatted_block(content)
+            return _save_placeholder(content, "pre")
+
+        def save_inline_code(match):
+            return _save_placeholder(match.group(1), "code")
 
         text_with_fenced_placeholders = re.sub(
             r"```([^\n`]*)\n(.*?)```",
@@ -307,11 +311,17 @@ class MessageHandler:
             flags=re.DOTALL,
         )
 
-        text_with_placeholders = re.sub(
+        text_with_block_placeholders = re.sub(
             r"<\s*blockquote[^>]*>(.*?)<\s*/\s*blockquote\s*>",
             save_blockquote,
             text_with_fenced_placeholders,
             flags=re.DOTALL | re.IGNORECASE,
+        )
+
+        text_with_placeholders = re.sub(
+            r"`([^`\n]+)`",
+            save_inline_code,
+            text_with_block_placeholders,
         )
 
         # Step 2: Escape HTML in the main text
@@ -333,9 +343,6 @@ class MessageHandler:
         # Underline (__text__) -> <u>text</u>
         escaped_text = re.sub(r"__(.*?)__", r"<u>\1</u>", escaped_text)
 
-        # Inline code (`code`) -> <code>code</code>
-        escaped_text = re.sub(r"`(.*?)`", r"<code>\1</code>", escaped_text)
-
         # Strikethrough (~~text~~ or ~text~) -> <s>text</s>
         escaped_text = re.sub(r"~~(.*?)~~", r"<s>\1</s>", escaped_text)
 
@@ -349,17 +356,19 @@ class MessageHandler:
             r"\[(.*?)\]\((.*?)\)", r'<a href="\2">\1</a>', escaped_text
         )
 
-        # Step 4: Restore preformatted content as <pre> blocks
-        # We need to escape the content inside the block too, because it's going into HTML
-        def restore_preformatted_block(match):
+        # Step 4: Restore preserved code content after markdown conversion so
+        # markers like "_" inside code are not interpreted as formatting.
+        def restore_placeholder(match):
             idx = int(match.group(1))
-            original_content = placeholders[idx]
+            tag, original_content = placeholders[idx]
             escaped_content = html.escape(original_content)
+            if tag == "code":
+                return f"<code>{escaped_content}</code>"
             return f"<pre>{escaped_content}</pre>"
 
         final_text = re.sub(
-            r"PREFORMATTEDPLACEHOLDER(\d+)END",
-            restore_preformatted_block,
+            r"TGFORMATPLACEHOLDER(\d+)END",
+            restore_placeholder,
             escaped_text,
         )
 
@@ -383,29 +392,145 @@ class MessageHandler:
             if content and content.strip():
                 segments.append(content.strip())
 
+        def _find_safe_split_index(content: str, limit: int) -> int:
+            in_tag = False
+            last_whitespace = -1
+            last_text_boundary = -1
+
+            for idx, char in enumerate(content):
+                if idx >= limit:
+                    break
+                if char == "<":
+                    in_tag = True
+                    continue
+                if char == ">":
+                    in_tag = False
+                    continue
+                if in_tag:
+                    continue
+                last_text_boundary = idx + 1
+                if char.isspace():
+                    last_whitespace = idx
+
+            if last_whitespace > 0:
+                return last_whitespace
+            if last_text_boundary > 0:
+                return last_text_boundary
+            return min(limit, len(content))
+
+        def _get_open_html_tags(content: str) -> List[tuple[str, str]]:
+            tag_pattern = re.compile(r"<(/?)([a-zA-Z0-9-]+)([^<>]*?)(/?)>")
+            open_tags: List[tuple[str, str]] = []
+
+            for match in tag_pattern.finditer(content):
+                is_closing = match.group(1) == "/"
+                tag_name = match.group(2)
+                is_self_closing = match.group(4) == "/"
+                full_tag = match.group(0)
+
+                if is_self_closing:
+                    continue
+
+                if is_closing:
+                    for index in range(len(open_tags) - 1, -1, -1):
+                        if open_tags[index][0] == tag_name:
+                            del open_tags[index]
+                            break
+                    continue
+
+                open_tags.append((tag_name, full_tag))
+
+            return open_tags
+
         def _split_long_text(content: str, limit: int) -> List[str]:
             if len(content) <= limit:
                 return [content]
 
             chunks: List[str] = []
-            remaining = content
+            remaining = content.strip()
 
             while len(remaining) > limit:
-                slice_text = remaining[:limit]
-                split_index = max(slice_text.rfind("\n"), slice_text.rfind(" "))
-                if split_index <= 0:
-                    split_index = limit
+                split_index = _find_safe_split_index(remaining, limit)
+                chunk = remaining[:split_index].rstrip()
 
-                chunk = remaining[:split_index].strip()
+                while chunk:
+                    open_tags = _get_open_html_tags(chunk)
+                    closing_tags = "".join(
+                        f"</{tag_name}>" for tag_name, _ in reversed(open_tags)
+                    )
+                    if len(chunk) + len(closing_tags) <= limit:
+                        break
+
+                    next_index = _find_safe_split_index(chunk, len(chunk) - 1)
+                    if next_index >= len(chunk):
+                        next_index = len(chunk) - 1
+                    if next_index <= 0:
+                        break
+                    chunk = chunk[:next_index].rstrip()
+
+                if not chunk:
+                    chunk = remaining[:limit].rstrip()
+                    open_tags = _get_open_html_tags(chunk)
+                    closing_tags = "".join(
+                        f"</{tag_name}>" for tag_name, _ in reversed(open_tags)
+                    )
+                else:
+                    open_tags = _get_open_html_tags(chunk)
+                    closing_tags = "".join(
+                        f"</{tag_name}>" for tag_name, _ in reversed(open_tags)
+                    )
+
                 if chunk:
-                    chunks.append(chunk)
+                    chunks.append(f"{chunk}{closing_tags}")
 
-                remaining = remaining[split_index:].lstrip()
+                reopened_tags = "".join(open_tag for _, open_tag in open_tags)
+                remaining = f"{reopened_tags}{remaining[len(chunk):].lstrip()}"
 
             if remaining:
                 chunks.append(remaining.strip())
 
             return chunks
+
+        def _line_group_kind(content: str) -> str:
+            if re.match(r"^([-*+]\s+|\d+\.\s+|\d+\)\s+|\[[ xX]\]\s+)", content):
+                return "list"
+            if content.startswith("&gt;") or content.startswith(">"):
+                return "quote"
+            return "text"
+
+        def _split_regular_text(part: str) -> List[str]:
+            grouped_lines: List[str] = []
+            current_lines: List[str] = []
+            current_kind: Optional[str] = None
+
+            for raw_line in re.split(r"\n+", part):
+                line = raw_line.strip()
+                if not line:
+                    if current_lines:
+                        grouped_lines.append("\n".join(current_lines))
+                        current_lines = []
+                        current_kind = None
+                    continue
+
+                line_kind = _line_group_kind(line)
+                if (
+                    current_lines
+                    and line_kind == current_kind
+                    and line_kind in {"list", "quote"}
+                ):
+                    current_lines.append(line)
+                    continue
+
+                if current_lines:
+                    grouped_lines.append("\n".join(current_lines))
+
+                current_lines = [line]
+                current_kind = line_kind
+
+            if current_lines:
+                grouped_lines.append("\n".join(current_lines))
+
+            return grouped_lines
 
         # Pattern to match code blocks (<pre>...</pre>) and blockquotes (<blockquote>...</blockquote>)
         # These should never be split
@@ -429,11 +554,12 @@ class MessageHandler:
                 _append_segment(part)
                 continue
 
-            # Regular text - split by paragraph and send each paragraph separately
-            paragraphs = [p for p in part.split("\n\n") if p.strip()]
+            # Regular text: single newlines still split, but consecutive list
+            # items and quote lines are preserved as one logical block.
+            text_blocks = _split_regular_text(part)
 
-            for para in paragraphs:
-                paragraph_pieces = _split_long_text(para, max_length)
+            for block in text_blocks:
+                paragraph_pieces = _split_long_text(block, max_length)
                 for piece in paragraph_pieces:
                     _append_segment(piece)
 

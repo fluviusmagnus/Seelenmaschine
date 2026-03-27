@@ -60,6 +60,12 @@ class TestFormatting(unittest.TestCase):
         expected = "Use <code>print()</code> for output."
         self.assertEqual(formatted, expected)
 
+    def test_format_inline_code_preserves_underscores(self):
+        text = "Use `snake_case_value` literally."
+        formatted = self.handler._format_response_for_telegram(text)
+        expected = "Use <code>snake_case_value</code> literally."
+        self.assertEqual(formatted, expected)
+
     def test_format_fenced_code_block(self):
         text = "Here is code:\n\n```python\nprint('hi')\n```\n\nDone."
         formatted = self.handler._format_response_for_telegram(text)
