@@ -25,7 +25,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
 - 🛠️ **Complete Session Management**:
   - `/new` - Archive current session and create new session
   - `/reset` - Delete current session
-- 📱 **Telegram Bot Interface**: Supports Markdown v2 format
+- 📱 **Telegram Bot Interface**: Currently sends messages primarily in HTML mode for more reliable rich-text rendering
 - 🌐 **Web Search**: Jina Deepsearch API integration
 - 🔌 **MCP (Model Context Protocol) Support**:
    - Dynamically connect external tools and data sources
@@ -182,8 +182,11 @@ start-telegram.bat hy
 
 ### Available Commands
 
+- `/start` - Show the welcome message
+- `/help` - Show help information
 - `/new` - Archive current session and start a new session
 - `/reset` - Delete current session and create a new session
+- `/approve` - Approve a pending dangerous action
 
 ### Advanced Search Features
 
@@ -245,15 +248,15 @@ Seelenmaschine/
 │   │   ├── send_telegram_file_tool.py # Telegram file sending tool
 │   │   ├── file_io.py            # File operation tools
 │   │   ├── file_search.py        # File search tools
-│   │   └── shell.py              # Shell command execution tool
+│   │   ├── shell.py              # Shell command execution tool
+│   │   └── tool_trace.py         # Tool invocation tracing
 │   ├── tg_bot/                   # Telegram Bot interface
 │   │   ├── bot.py                # Bot main logic
 │   │   └── handlers.py           # Message handlers
 │   ├── prompts/                  # Prompts
-│   │   ├── system.py             # System prompts
-│   │   ├── summary.py            # Summary prompts
-│   │   └── memory_update.py      # Memory update prompts
+│   │   └── system.py             # System prompts and related prompt builders
 │   └── utils/                    # Utility functions
+│       ├── text.py               # Text processing
 │       ├── time.py               # Time processing
 │       └── logger.py             # Logging utilities
 
@@ -317,9 +320,9 @@ In debug mode, the program will:
 ## Running Tests
 
 ```bash
-pytest tests/
-pytest tests/ -v                    # Verbose output
-pytest tests/ --cov=src            # Test coverage
+python -m pytest tests
+python -m pytest -v tests           # Verbose output
+python -m pytest tests --cov=src    # Test coverage
 ```
 
 ## Data Migration

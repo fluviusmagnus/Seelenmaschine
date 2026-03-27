@@ -42,19 +42,6 @@ class TestSummary:
         assert summary.summary == "Test summary text"
         assert summary.summary_id == 1
 
-    def test_summary_to_dict(self):
-        """Test converting summary to dict."""
-        summary = Summary(summary="Summary text", summary_id=5)
-        summary_dict = summary.to_dict()
-        assert summary_dict == {"summary": "Summary text", "summary_id": 5}
-
-    def test_summary_from_dict(self):
-        """Test creating summary from dict."""
-        summary_dict = {"summary": "Dict summary", "summary_id": 10}
-        summary = Summary.from_dict(summary_dict)
-        assert summary.summary == "Dict summary"
-        assert summary.summary_id == 10
-
 
 class TestContextWindow:
     """Test ContextWindow functionality."""

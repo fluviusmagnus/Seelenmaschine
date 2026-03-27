@@ -39,12 +39,12 @@ def test_add_assistant_message_strips_blockquote_when_debug_off(mock_deps, monke
     saved_text = insert_call[1]["text"]
     assert "<blockquote>" not in saved_text
     assert "thought" not in saved_text
-    assert saved_text == "Reply  here"
+    assert saved_text == "Reply\n\nhere"
 
     # Check what was passed to embedding (should always be stripped)
     embedding_call = embedding_client.get_embedding.call_args
     embedded_text = embedding_call[0][0]
-    assert embedded_text == "Reply  here"
+    assert embedded_text == "Reply\n\nhere"
 
 
 def test_add_assistant_message_keeps_blockquote_when_debug_on(mock_deps, monkeypatch):
@@ -66,7 +66,7 @@ def test_add_assistant_message_keeps_blockquote_when_debug_on(mock_deps, monkeyp
     embedding_call = embedding_client.get_embedding.call_args
     embedded_text = embedding_call[0][0]
     assert "<blockquote>" not in embedded_text
-    assert embedded_text == "Reply  here"
+    assert embedded_text == "Reply\n\nhere"
 
 
 def test_add_user_message_always_strips_for_embedding(mock_deps, monkeypatch):

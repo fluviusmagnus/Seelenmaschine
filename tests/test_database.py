@@ -32,7 +32,7 @@ class TestDatabaseManager:
             cursor.execute("SELECT value FROM meta WHERE key = 'schema_version'")
             result = cursor.fetchone()
             assert result is not None
-            assert result[0] == "2.0"
+            assert result[0] == "3.1"
 
     def test_create_session(self, db_manager):
         """Test creating a new session."""

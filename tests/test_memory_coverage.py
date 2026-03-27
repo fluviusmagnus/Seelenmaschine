@@ -110,10 +110,13 @@ class TestMemoryManagerMessageOperations:
                         )
                         
                         # Add user message
-                        conversation_id = mm.add_user_message("Hello, this is a test message")
+                        conversation_id, embedding = mm.add_user_message(
+                            "Hello, this is a test message"
+                        )
                         
                         # Verify conversation was inserted
                         assert conversation_id == 100
+                        assert embedding == [0.1] * 1536
                         mock_dependencies['db'].insert_conversation.assert_called_once()
     
     def test_add_assistant_message(self, mock_dependencies):
@@ -223,40 +226,46 @@ class TestMemoryManagerUtilityMethods:
 
 class TestMemoryManagerJsonUtils:
     """Test JSON utility methods"""
+
+    @pytest.fixture
+    def memory_manager(self):
+        """Create a minimal MemoryManager instance for utility-method tests."""
+        from core.memory import MemoryManager
+
+        db = Mock()
+        db.get_active_session.return_value = {"session_id": 1}
+        db.get_summaries_by_session.return_value = []
+        db.get_unsummarized_conversations.return_value = []
+
+        embedding_client = Mock()
+        reranker_client = Mock()
+
+        return MemoryManager(db, embedding_client, reranker_client)
     
-    def test_clean_json_response(self):
+    def test_clean_json_response(self, memory_manager):
         """Test _clean_json_response method"""
-        from core.memory import MemoryManager
-        
-        # Create a mock MemoryManager to test the static method
-        mm = Mock(spec=MemoryManager)
-        
-        # Test cases for JSON cleaning would go here
-        # This is a placeholder for the actual test
-        pass
+        raw_response = "```json\n{\"bot\": {\"name\": \"TestBot\"}}\n```"
+
+        cleaned = memory_manager._clean_json_response(raw_response)
+
+        assert cleaned == "{\"bot\": {\"name\": \"TestBot\"}}"
     
-    def test_validate_seele_structure_valid(self):
+    def test_validate_seele_structure_valid(self, memory_manager):
         """Test _validate_seele_structure with valid data"""
-        from core.memory import MemoryManager
-        
-        # Test with valid seele structure
         valid_data = {
             "bot": {"name": "TestBot"},
-            "user": {"name": "TestUser"}
+            "user": {"name": "TestUser"},
+            "memorable_events": [],
+            "commands_and_agreements": [],
         }
-        
-        # This would test the validation logic
-        pass
+
+        assert memory_manager._validate_seele_structure(valid_data) is True
     
-    def test_validate_seele_structure_invalid(self):
+    def test_validate_seele_structure_invalid(self, memory_manager):
         """Test _validate_seele_structure with invalid data"""
-        from core.memory import MemoryManager
-        
-        # Test with invalid seele structure
         invalid_data = {}
-        
-        # This would test the validation logic
-        pass
+
+        assert memory_manager._validate_seele_structure(invalid_data) is False
 
 
 # Run tests if executed directly

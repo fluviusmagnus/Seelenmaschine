@@ -155,11 +155,6 @@ AI: [调用 scheduled_task skill]
 ]
 ```
 
-配置文件路径在 `.env` 中设置：
-```ini
-SCHEDULED_TASKS_CONFIG_PATH=scheduled_tasks.json
-```
-
 ## 技术细节
 
 ### 消息格式

@@ -17,6 +17,8 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock, call, mock_open
 from typing import List, Dict, Any
 import json
 
+from core.context import Message
+
 
 class TestMemoryManagerAutomaticSummarization:
     """Test automatic summarization logic"""
@@ -176,10 +178,29 @@ class TestMemoryManagerLongTermMemory:
     
     def test_memory_update_applies_to_seele_json(self, mock_dependencies):
         """Test that memory update is applied to seele.json"""
-        # This test verifies the file writing logic
-        # In a real scenario, we would mock the file system
-        # For now, this is a placeholder for the test structure
-        pass
+        from core.memory import MemoryManager
+
+        with patch('core.memory.ContextWindow') as mock_ctx_class:
+            mock_ctx = Mock()
+            mock_ctx.get_recent_summary_ids = Mock(return_value=[])
+            mock_ctx.add_summary = Mock()
+            mock_ctx.add_message = Mock()
+            mock_ctx_class.return_value = mock_ctx
+
+            mm = MemoryManager(
+                db=mock_dependencies['db'],
+                embedding_client=mock_dependencies['embedding_client'],
+                reranker_client=mock_dependencies['reranker_client']
+            )
+
+        with patch('prompts.system.update_seele_json', return_value=True) as mock_update:
+            success = mm.update_long_term_memory(
+                summary_id=100,
+                json_patch='[{"op":"replace","path":"/user/name","value":"Test User"}]'
+            )
+
+        assert success is True
+        mock_update.assert_called_once()
 
 
 class TestMemoryManagerCompleteFlows:
@@ -187,13 +208,65 @@ class TestMemoryManagerCompleteFlows:
     
     def test_full_conversation_to_summary_flow(self):
         """Test complete flow from conversation to summary to retrieval"""
-        # TODO: Implement test
-        pass
+        from core.memory import MemoryManager
+
+        db = Mock()
+        db.get_active_session.return_value = {"session_id": 1}
+        db.get_summaries_by_session.return_value = []
+        db.get_unsummarized_conversations.return_value = []
+        db.insert_conversation.return_value = 200
+
+        embedding_client = Mock()
+        embedding_client.get_embedding.return_value = [0.1] * 1536
+
+        reranker_client = Mock()
+
+        with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+            with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+                mm = MemoryManager(db, embedding_client, reranker_client)
+
+        with patch.object(mm, "_check_and_create_summary", return_value=(123, [Message("user", "hello")])):
+            with patch.object(mm, "_update_long_term_memory", return_value=True) as mock_update_memory:
+                conversation_id, summary_id = mm.add_assistant_message("This is a response")
+
+        assert conversation_id == 200
+        assert summary_id == 123
+        mock_update_memory.assert_called_once_with(123, [Message("user", "hello")])
     
     def test_session_new_creates_summary(self):
         """Test that /new command creates summary of old session"""
-        # TODO: Implement test
-        pass
+        from core.memory import MemoryManager
+
+        db = Mock()
+        db.get_active_session.side_effect = [
+            {"session_id": 1},
+            {"session_id": 1},
+        ]
+        db.get_summaries_by_session.return_value = []
+        db.get_unsummarized_conversations.return_value = []
+        db.insert_summary.return_value = 321
+        db.create_session.return_value = 2
+
+        embedding_client = Mock()
+        embedding_client.get_embedding.return_value = [0.1] * 1536
+
+        reranker_client = Mock()
+
+        with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+            with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+                mm = MemoryManager(db, embedding_client, reranker_client)
+
+        remaining_messages = [Message("user", "msg1"), Message("assistant", "msg2")]
+        mm.context_window.context_window = remaining_messages
+
+        with patch.object(mm, "_generate_summary", return_value="Generated summary text"):
+            with patch.object(mm, "_update_long_term_memory", return_value=True) as mock_update_memory:
+                new_session_id = mm.new_session()
+
+        assert new_session_id == 2
+        db.insert_summary.assert_called_once()
+        db.close_session.assert_called_once()
+        mock_update_memory.assert_called_once_with(321, remaining_messages)
 
 
 # Run tests if executed directly

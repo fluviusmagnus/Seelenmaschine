@@ -1,8 +1,6 @@
 """Unit tests for task scheduler"""
 
 import pytest
-import json
-from unittest.mock import Mock
 
 from core.database import DatabaseManager
 from core.scheduler import TaskScheduler
@@ -205,56 +203,14 @@ def test_get_all_tasks(scheduler, temp_db):
 
 
 def test_message_callback(scheduler):
-    """Test that message callback is invoked"""
-    callback_mock = Mock()
-    scheduler.set_message_callback(callback_mock)
+    """Test that the scheduler stores the configured callback."""
 
-    # Manually trigger callback (simulating task execution)
-    test_message = "Test callback message"
-    if scheduler._message_callback:
-        scheduler._message_callback(test_message)
+    def callback(message, task_name="Scheduled Task"):
+        return None
 
-    callback_mock.assert_called_once_with(test_message)
+    scheduler.set_message_callback(callback)
 
-
-def test_load_tasks_from_file(scheduler, tmp_path):
-    """Test loading tasks from JSON file"""
-    # Create a test config file
-    config_file = tmp_path / "test_tasks.json"
-    tasks_data = [
-        {
-            "name": "Morning Reminder",
-            "trigger_type": "interval",
-            "trigger_config": {"interval": 86400},
-            "message": "Good morning!",
-        },
-        {
-            "name": "One-time Event",
-            "trigger_type": "once",
-            "trigger_config": {"timestamp": get_current_timestamp() + 3600},
-            "message": "Don't forget!",
-        },
-    ]
-
-    with open(config_file, "w") as f:
-        json.dump(tasks_data, f)
-
-    # Load tasks
-    scheduler.load_tasks_from_file(str(config_file))
-
-    # Verify tasks were loaded
-    all_tasks = scheduler.db.get_all_tasks()
-    assert len(all_tasks) == 2
-
-    task_names = {task["name"] for task in all_tasks}
-    assert "Morning Reminder" in task_names
-    assert "One-time Event" in task_names
-
-
-def test_load_nonexistent_file(scheduler):
-    """Test loading from nonexistent file doesn't crash"""
-    # Should not raise exception
-    scheduler.load_tasks_from_file("nonexistent_file.json")
+    assert scheduler._message_callback is callback
 
 
 @pytest.mark.asyncio
@@ -262,8 +218,8 @@ async def test_task_execution_flow(scheduler):
     """Test the full task execution flow"""
     messages_sent = []
 
-    def callback(message):
-        messages_sent.append(message)
+    def callback(message, task_name="Scheduled Task"):
+        messages_sent.append((message, task_name))
 
     scheduler.set_message_callback(callback)
 
@@ -281,7 +237,7 @@ async def test_task_execution_flow(scheduler):
 
     # Verify callback was called
     assert len(messages_sent) == 1
-    assert messages_sent[0] == "Execute now!"
+    assert messages_sent[0] == ("Execute now!", "Immediate Task")
 
     # Verify task was marked as completed
     task = scheduler.get_task(task_id)

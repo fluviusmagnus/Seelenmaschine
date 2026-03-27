@@ -155,11 +155,6 @@ Configure tasks to auto-load at startup in `data/{profile}/scheduled_tasks.json`
 ]
 ```
 
-Configuration file path is set in `.env`:
-```ini
-SCHEDULED_TASKS_CONFIG_PATH=scheduled_tasks.json
-```
-
 ## Technical Details
 
 ### Message Format

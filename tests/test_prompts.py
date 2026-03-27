@@ -315,11 +315,22 @@ class TestGetSummaryPrompt:
 class TestGetMemoryUpdatePrompt:
     """Test get_memory_update_prompt functionality."""
 
+    @staticmethod
+    def _current_seele_json() -> str:
+        return json.dumps(
+            {
+                "bot": {"name": "TestBot"},
+                "user": {"name": "TestUser"},
+                "memorable_events": [],
+                "commands_and_agreements": [],
+            }
+        )
+
     def test_get_memory_update_prompt_basic(self):
         """Test getting memory update prompt."""
         messages = "User: My name is John\nAssistant: Hello John"
 
-        prompt = get_memory_update_prompt(messages)
+        prompt = get_memory_update_prompt(messages, self._current_seele_json())
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
@@ -330,7 +341,9 @@ class TestGetMemoryUpdatePrompt:
         first_ts = 1234567890
         last_ts = 1234567990
 
-        prompt = get_memory_update_prompt(messages, first_ts, last_ts)
+        prompt = get_memory_update_prompt(
+            messages, self._current_seele_json(), first_ts, last_ts
+        )
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
@@ -338,7 +351,7 @@ class TestGetMemoryUpdatePrompt:
     def test_get_memory_update_prompt_without_timestamps(self):
         """Test getting memory update prompt without timestamps."""
         messages = "User: Test"
-        prompt = get_memory_update_prompt(messages)
+        prompt = get_memory_update_prompt(messages, self._current_seele_json())
         assert isinstance(prompt, str)
 
 
@@ -386,6 +399,16 @@ class TestPromptIntegration:
             "Assistant: Hello Bob! Paris is a beautiful city."
         )
 
-        memory_prompt = get_memory_update_prompt(messages, 1234567890, 1234567990)
+        current_seele_json = json.dumps(
+            {
+                "bot": {"name": "TestBot"},
+                "user": {"name": "TestUser"},
+                "memorable_events": [],
+                "commands_and_agreements": [],
+            }
+        )
+        memory_prompt = get_memory_update_prompt(
+            messages, current_seele_json, 1234567890, 1234567990
+        )
 
         assert isinstance(memory_prompt, str)

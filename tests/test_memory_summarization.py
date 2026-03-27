@@ -14,6 +14,8 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
 from typing import List, Dict, Any
 
+from core.context import Message
+
 
 class TestMemoryManagerAutomaticSummarization:
     """Test automatic summarization triggers and logic"""
@@ -122,17 +124,114 @@ class TestMemoryManagerAutomaticSummarization:
 
 class TestMemoryManagerLongTermMemory:
     """Test long-term memory (seele.json) updates"""
+
+    @pytest.fixture
+    def mock_dependencies(self):
+        """Create mock dependencies for long-term memory tests."""
+        db = Mock()
+        db.get_active_session.return_value = {"session_id": 1}
+        db.get_summaries_by_session.return_value = []
+        db.get_unsummarized_conversations.return_value = []
+        db.get_summary_by_id.return_value = {
+            "first_timestamp": 1000,
+            "last_timestamp": 2000,
+        }
+
+        embedding_client = Mock()
+        reranker_client = Mock()
+
+        return {
+            "db": db,
+            "embedding_client": embedding_client,
+            "reranker_client": reranker_client,
+        }
     
-    def test_memory_update_json_patch_generation(self):
+    def test_memory_update_json_patch_generation(self, mock_dependencies):
         """Test that memory update generates valid JSON Patch"""
-        # TODO: Implement test
-        pass
+        from core.memory import MemoryManager
+
+        messages = [
+            Message("user", "I like black coffee"),
+            Message("assistant", "Noted"),
+        ]
+
+        llm_client = Mock()
+        llm_client.generate_memory_update.return_value = (
+            '[{"op":"add","path":"/user/preferences/coffee","value":"black"}]'
+        )
+
+        with patch("core.memory.ContextWindow") as mock_ctx_class:
+            mock_ctx = Mock()
+            mock_ctx.get_recent_summary_ids.return_value = []
+            mock_ctx.add_summary = Mock()
+            mock_ctx.add_message = Mock()
+            mock_ctx_class.return_value = mock_ctx
+
+            mm = MemoryManager(
+                db=mock_dependencies["db"],
+                embedding_client=mock_dependencies["embedding_client"],
+                reranker_client=mock_dependencies["reranker_client"],
+            )
+
+        with patch.object(
+            mm,
+            "get_long_term_memory",
+            return_value={"user": {"preferences": {}}},
+        ):
+            with patch("llm.client.LLMClient", return_value=llm_client):
+                json_patch = mm._generate_memory_update(messages, summary_id=42)
+
+        assert json_patch == (
+            '[{"op":"add","path":"/user/preferences/coffee","value":"black"}]'
+        )
+        mock_dependencies["db"].get_summary_by_id.assert_called_once_with(42)
+        llm_client.generate_memory_update.assert_called_once_with(
+            [msg.to_dict() for msg in messages],
+            '{\n  "user": {\n    "preferences": {}\n  }\n}',
+            1000,
+            2000,
+        )
+        llm_client.close.assert_called_once()
     
-    def test_memory_update_applies_to_seele_json(self):
-        """Test that memory update is applied to seele.json"""
-        # This test verifies the file writing logic
-        # In a real scenario, we would mock the file system
-        pass
+    def test_memory_update_applies_to_seele_json(self, mock_dependencies):
+        """Test that generated memory updates are forwarded to seele.json updater."""
+        from core.memory import MemoryManager
+
+        messages = [
+            Message("user", "I prefer tea"),
+            Message("assistant", "Saved"),
+        ]
+
+        with patch("core.memory.ContextWindow") as mock_ctx_class:
+            mock_ctx = Mock()
+            mock_ctx.get_recent_summary_ids.return_value = []
+            mock_ctx.add_summary = Mock()
+            mock_ctx.add_message = Mock()
+            mock_ctx_class.return_value = mock_ctx
+
+            mm = MemoryManager(
+                db=mock_dependencies["db"],
+                embedding_client=mock_dependencies["embedding_client"],
+                reranker_client=mock_dependencies["reranker_client"],
+            )
+
+        with patch.object(
+            mm,
+            "_generate_memory_update",
+            return_value='[{"op":"replace","path":"/user/name","value":"Test"}]',
+        ) as mock_generate:
+            with patch.object(
+                mm, "update_long_term_memory", return_value=True
+            ) as mock_update:
+                success = mm._update_long_term_memory(summary_id=7, messages=messages)
+
+        assert success is True
+        mock_generate.assert_called_once_with(messages, 7)
+        mock_update.assert_called_once_with(
+            7,
+            '[{"op":"replace","path":"/user/name","value":"Test"}]',
+            messages,
+        )
 
 
 class TestMemoryManagerRetrievalFlow:
@@ -156,6 +255,7 @@ class TestMemoryManagerRetrievalFlow:
     def mock_reranker_client(self):
         """Create a mock RerankerClient"""
         client = Mock()
+        client.is_enabled.return_value = True
         client.rerank.return_value = [
             {"text": "Summary 1", "summary_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95},
             {"text": "Summary 2", "summary_id": 2, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.85}
@@ -207,8 +307,8 @@ class TestMemoryManagerRetrievalFlow:
         mock_db.search_summaries.return_value = [
             (1, "Summary 1", 1000, 2000, 0.8),
         ]
-        mock_db.search_conversations.return_value = [
-            (10, 1500, "user", "Hello", 0.9),
+        mock_db.get_conversations_by_time_range.return_value = [
+            (10, 1500, "user", "Hello"),
         ]
         
         # Mock reranker to return proper format with conversation_id
@@ -227,6 +327,8 @@ class TestMemoryManagerRetrievalFlow:
         
         # Verify reranking was called
         assert mock_reranker_client.rerank.call_count >= 1
+        assert len(summaries) == 1
+        assert len(conversations) == 1
     
     def test_retrieval_reranking_applied(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that reranking is applied to retrieved memories"""
@@ -243,9 +345,9 @@ class TestMemoryManagerRetrievalFlow:
             (1, "Summary 1", 1000, 2000, 0.8),
             (2, "Summary 2", 1100, 2100, 0.7)
         ]
-        mock_db.search_conversations.return_value = [
-            (10, 1500, "user", "Hello", 0.9),
-            (11, 1600, "assistant", "Hi there", 0.8)
+        mock_db.get_conversations_by_time_range.return_value = [
+            (10, 1500, "user", "Hello"),
+            (11, 1600, "assistant", "Hi there")
         ]
         
         # Mock reranker to return results in different order
@@ -269,6 +371,8 @@ class TestMemoryManagerRetrievalFlow:
         
         # Verify reranking was called
         mock_reranker_client.rerank.assert_called()
+        assert len(summaries) == 2
+        assert len(conversations) == 4
 
 
 # Run tests if executed directly

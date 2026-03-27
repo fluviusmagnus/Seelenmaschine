@@ -133,16 +133,52 @@ class TestToolExecution:
 class TestMessageProcessing:
     """Test message processing functionality"""
 
-    def test_process_message_structure(self):
-        """Test the structure of message processing"""
-        # This is a placeholder for actual message processing tests
-        # In a real scenario, we would test:
-        # - Message parsing
-        # - Command extraction
-        # - Context loading
-        # - Response generation
-        # - Tool execution
-        pass
+    @pytest.mark.asyncio
+    async def test_process_message_returns_final_text_without_assistant_history(self):
+        """Message processing should return the final LLM text and persist it once."""
+        from tg_bot.handlers import MessageHandler
+
+        handler = Mock(spec=MessageHandler)
+        handler.memory = Mock()
+        handler.memory.add_user_message_async = AsyncMock(return_value=(1, [0.1, 0.2]))
+        handler.memory.get_context_messages = Mock(return_value=[])
+        handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
+        handler.memory.get_recent_summaries = Mock(return_value=[])
+        handler.memory.add_assistant_message_async = AsyncMock(return_value=(2, None))
+
+        handler.memory_search_tool = Mock()
+        handler.memory_search_tool.enable = Mock()
+        handler.memory_search_tool.disable = Mock()
+
+        handler.mcp_client = None
+        handler._ensure_mcp_connected = AsyncMock()
+
+        handler.llm_client = Mock()
+        handler.llm_client.chat_async_detailed = AsyncMock(
+            return_value={
+                "final_text": "这是最后答复",
+                "assistant_messages": ["这是最后答复"],
+            }
+        )
+
+        handler._process_message = MessageHandler._process_message.__get__(
+            handler, Mock
+        )
+
+        response = await handler._process_message("帮我总结一下")
+
+        assert response == "这是最后答复"
+        handler.memory.add_user_message_async.assert_awaited_once_with("帮我总结一下")
+        handler.memory.process_user_input_async.assert_awaited_once_with(
+            user_input="帮我总结一下",
+            last_bot_message=None,
+            user_input_embedding=[0.1, 0.2],
+        )
+        handler.memory_search_tool.enable.assert_called_once()
+        handler.memory_search_tool.disable.assert_called_once()
+        handler.memory.add_assistant_message_async.assert_awaited_once_with(
+            "这是最后答复"
+        )
 
     def test_format_exception_for_user_truncates_long_messages(self):
         """User-facing error summaries should stay concise."""

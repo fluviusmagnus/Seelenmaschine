@@ -25,7 +25,7 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
 - 🛠️ **完整的会话管理**：
   - `/new` - 归档当前会话并创建新会话
   - `/reset` - 删除当前会话
-- 📱 **Telegram Bot 界面**：支持 Markdown v2 格式
+- 📱 **Telegram Bot 界面**：当前主要使用 HTML 格式发送消息，兼顾较稳定的富文本显示
 - 🌐 **网络搜索**：Jina Deepsearch API 集成
 - 🔌 **MCP (Model Context Protocol) 支持**：
   - 动态连接外部工具和数据源
@@ -182,8 +182,11 @@ start-telegram.bat hy
 
 ### 可用命令
 
+- `/start` - 显示欢迎信息
+- `/help` - 显示帮助信息
 - `/new` - 归档当前会话并开始新会话
 - `/reset` - 删除当前会话并创建新会话
+- `/approve` - 批准待执行的危险操作
 
 ### 高级搜索功能
 
@@ -245,15 +248,15 @@ Seelenmaschine/
 │   │   ├── send_telegram_file_tool.py # Telegram 文件发送工具
 │   │   ├── file_io.py            # 文件操作工具
 │   │   ├── file_search.py        # 文件搜索工具
-│   │   └── shell.py              # Shell 命令执行工具
+│   │   ├── shell.py              # Shell 命令执行工具
+│   │   └── tool_trace.py         # 工具调用追踪
 │   ├── tg_bot/                   # Telegram Bot 界面
 │   │   ├── bot.py                # Bot 主逻辑
 │   │   └── handlers.py           # 消息处理器
 │   ├── prompts/                  # 提示词
-│   │   ├── system.py             # 系统提示词
-│   │   ├── summary.py            # 总结提示词
-│   │   └── memory_update.py      # 记忆更新提示词
+│   │   └── system.py             # 系统提示词及相关提示词构造
 │   └── utils/                    # 工具函数
+│       ├── text.py               # 文本处理
 │       ├── time.py               # 时间处理
 │       └── logger.py             # 日志工具
 
@@ -317,9 +320,9 @@ Seelenmaschine/
 ## 运行测试
 
 ```bash
-pytest tests/
-pytest tests/ -v                    # 详细输出
-pytest tests/ --cov=src            # 测试覆盖率
+python -m pytest tests
+python -m pytest -v tests           # 详细输出
+python -m pytest tests --cov=src    # 测试覆盖率
 ```
 
 ## 数据迁移

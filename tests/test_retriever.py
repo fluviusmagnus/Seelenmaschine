@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from core.retriever import MemoryRetriever, RetrievedSummary, RetrievedConversation
@@ -138,6 +138,12 @@ class TestMemoryRetriever:
             )
         ]
 
-        formatted = retriever.format_conversations_for_prompt(conversations)
+        with patch("prompts.system.load_seele_json") as mock_load_seele_json:
+            mock_load_seele_json.return_value = {
+                "bot": {"name": "Assistant"},
+                "user": {"name": "User"},
+            }
+            formatted = retriever.format_conversations_for_prompt(conversations)
+
         assert len(formatted) == 1
         assert "User: Test message" in formatted[0]

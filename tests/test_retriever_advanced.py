@@ -25,8 +25,8 @@ class TestMemoryRetrieverDualQuery:
     def mock_db(self):
         """Create a mock DatabaseManager"""
         db = Mock()
-        db.search_conversations.return_value = []
         db.search_summaries.return_value = []
+        db.get_conversations_by_time_range.return_value = []
         return db
     
     @pytest.fixture
@@ -40,6 +40,7 @@ class TestMemoryRetrieverDualQuery:
     def mock_reranker_client(self):
         """Create a mock RerankerClient"""
         client = Mock()
+        client.is_enabled.return_value = True
         client.rerank.return_value = []
         return client
     
@@ -58,7 +59,7 @@ class TestMemoryRetrieverDualQuery:
         
         # Mock the database search to return empty results
         mock_db.search_summaries.return_value = []
-        mock_db.search_conversations.return_value = []
+        mock_db.get_conversations_by_time_range.return_value = []
         
         # Call retrieve
         summaries, conversations = retriever.retrieve_related_memories(
@@ -106,6 +107,7 @@ class TestMemoryRetrieverReranking:
     @pytest.fixture
     def mock_db(self):
         db = Mock()
+        db.get_conversations_by_time_range.return_value = []
         return db
     
     @pytest.fixture
@@ -117,6 +119,7 @@ class TestMemoryRetrieverReranking:
     @pytest.fixture
     def mock_reranker_client(self):
         client = Mock()
+        client.is_enabled.return_value = True
         return client
     
     def test_reranking_applied_to_results(self, mock_db, mock_embedding_client, mock_reranker_client):
@@ -134,9 +137,9 @@ class TestMemoryRetrieverReranking:
             (1, "Summary 1", 1000, 2000, 0.8),
             (2, "Summary 2", 1100, 2100, 0.7)
         ]
-        mock_db.search_conversations.return_value = [
-            (10, 1500, "user", "Hello", 0.9),
-            (11, 1600, "assistant", "Hi there", 0.8)
+        mock_db.get_conversations_by_time_range.return_value = [
+            (10, 1500, "user", "Hello"),
+            (11, 1600, "assistant", "Hi there")
         ]
         
         # Mock reranker to return results in different order
@@ -170,8 +173,8 @@ class TestMemoryRetrieverExclusion:
     @pytest.fixture
     def mock_db(self):
         db = Mock()
-        db.search_conversations.return_value = []
         db.search_summaries.return_value = []
+        db.get_conversations_by_time_range.return_value = []
         return db
     
     @pytest.fixture
@@ -183,6 +186,7 @@ class TestMemoryRetrieverExclusion:
     @pytest.fixture
     def mock_reranker_client(self):
         client = Mock()
+        client.is_enabled.return_value = True
         client.rerank.return_value = []
         return client
     
@@ -216,15 +220,62 @@ class TestMemoryRetrieverFormatting:
     def test_format_summaries_for_prompt(self):
         """Test that summaries are formatted correctly for prompts"""
         from core.retriever import MemoryRetriever
-        
-        # This would need mocking of dependencies
-        # TODO: Implement test
-        pass
+        from core.retriever import RetrievedSummary
+        from zoneinfo import ZoneInfo
+
+        retriever = MemoryRetriever(
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+        )
+        summaries = [
+            RetrievedSummary(
+                summary_id=1,
+                summary="Important summary",
+                first_timestamp=1000,
+                last_timestamp=1000,
+                score=0.9,
+            )
+        ]
+
+        with patch("config.Config.TIMEZONE", ZoneInfo("UTC")):
+            formatted = retriever.format_summaries_for_prompt(summaries)
+
+        assert len(formatted) == 1
+        assert "Important summary" in formatted[0]
+        assert formatted[0].startswith("[")
     
     def test_format_conversations_for_prompt(self):
         """Test that conversations are formatted correctly for prompts"""
-        # TODO: Implement test
-        pass
+        from core.retriever import MemoryRetriever, RetrievedConversation
+        from zoneinfo import ZoneInfo
+
+        retriever = MemoryRetriever(
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+        )
+        conversations = [
+            RetrievedConversation(
+                conversation_id=1,
+                timestamp=1000,
+                role="assistant",
+                text="Hello there",
+                score=0.9,
+            )
+        ]
+
+        with patch("config.Config.TIMEZONE", ZoneInfo("UTC")):
+            with patch("prompts.system.load_seele_json") as mock_load_seele_json:
+                mock_load_seele_json.return_value = {
+                    "bot": {"name": "Seele"},
+                    "user": {"name": "Anna"},
+                }
+                formatted = retriever.format_conversations_for_prompt(conversations)
+
+        assert len(formatted) == 1
+        assert "Seele: Hello there" in formatted[0]
+        assert formatted[0].startswith("[")
 
 
 # Run tests if executed directly
