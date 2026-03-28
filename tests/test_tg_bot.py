@@ -166,6 +166,22 @@ class TestTelegramAdapterApplication:
 
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
 
+    def test_run_uses_valid_allowed_updates(
+        self, mock_config, mock_message_handler, mock_application
+    ):
+        """run_polling should receive Telegram's serializable update types list."""
+        from adapter.telegram.adapter import TelegramAdapter
+
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
+            adapter._application = mock_application
+
+            adapter.run()
+
+            mock_application.run_polling.assert_called_once_with(
+                allowed_updates=Update.ALL_TYPES
+            )
+
     @pytest.mark.asyncio
     async def test_post_init_hook(
         self, mock_config, mock_message_handler, mock_application

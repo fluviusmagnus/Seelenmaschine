@@ -2,6 +2,7 @@ import asyncio
 import signal
 from typing import Any, Callable, List, Optional
 
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -72,7 +73,9 @@ class TelegramAdapter:
             )
 
         logger.info("Starting Telegram adapter with scheduler...")
-        self._application.run_polling(allowed_updates=Any)
+        self._application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+        )
         logger.info("Adapter stopped")
 
     def stop(self) -> None:
