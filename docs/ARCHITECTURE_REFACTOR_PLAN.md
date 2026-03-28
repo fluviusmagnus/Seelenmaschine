@@ -120,7 +120,7 @@ The first large refactor wave is complete, and the second wave is underway.
   - safety policy
   - memory search tool
   - scheduled task tool
-  - send Telegram file tool
+  - send file tool
   - MCP client
   - MCP connected flag
 
@@ -357,7 +357,7 @@ Examples:
 - memory search tool
 - scheduled task tool
 - MCP client
-- Telegram file send tool
+- file send tool
 
 Question answered by `tools`:
 
@@ -432,7 +432,7 @@ src/
     mcp_client.py
     memory_search.py
     scheduled_tasks.py
-    send_telegram_file.py
+    send_file.py
     shell.py
     tool_trace.py
 

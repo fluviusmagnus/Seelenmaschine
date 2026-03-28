@@ -68,9 +68,9 @@ class TestToolExecution:
         handler.scheduled_task_tool.name = "scheduled_task"
         handler.scheduled_task_tool.execute = AsyncMock(return_value="Task scheduled")
 
-        handler.send_telegram_file_tool = Mock()
-        handler.send_telegram_file_tool.name = "send_telegram_file"
-        handler.send_telegram_file_tool.execute = AsyncMock(return_value="File sent")
+        handler.send_file_tool = Mock()
+        handler.send_file_tool.name = "send_file"
+        handler.send_file_tool.execute = AsyncMock(return_value="File sent")
 
         handler.mcp_client = None
 
@@ -100,16 +100,14 @@ class TestToolExecution:
         mock_handler.scheduled_task_tool.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_execute_send_telegram_file_tool(self, mock_handler):
-        """Test executing send_telegram_file tool"""
+    async def test_execute_send_file_tool(self, mock_handler):
+        """Test executing send_file tool"""
         arguments = '{"file_path": "output/report.pdf", "caption": "导出结果"}'
 
-        result = await mock_handler.send_telegram_file_tool.execute(
-            **json.loads(arguments)
-        )
+        result = await mock_handler.send_file_tool.execute(**json.loads(arguments))
 
         assert result == "File sent"
-        mock_handler.send_telegram_file_tool.execute.assert_called_once()
+        mock_handler.send_file_tool.execute.assert_called_once()
 
 
 class TestMessageProcessing:

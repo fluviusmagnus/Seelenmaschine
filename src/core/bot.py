@@ -50,9 +50,9 @@ class CoreToolHost:
         """Register the scheduled task tool with the scheduler instance."""
         self.get_tool_runtime().register_scheduled_task_tool()
 
-    def register_send_telegram_file_tool(self) -> None:
-        """Register the Telegram file sending tool."""
-        self.get_tool_runtime().register_send_telegram_file_tool()
+    def register_send_file_tool(self) -> None:
+        """Register the file sending tool."""
+        self.get_tool_runtime().register_send_file_tool()
 
     def register_builtin_tools(self) -> None:
         """Register builtin file and shell tools."""

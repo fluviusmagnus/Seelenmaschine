@@ -16,9 +16,9 @@ from tools.file_search import GlobSearchTool, GrepSearchTool
 from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_tasks import ScheduledTaskTool
+from tools.send_file import SendFileTool
 from tools.shell import is_dangerous_command
 from tools.shell import ShellCommandTool
-from tools.send_telegram_file import SendTelegramFileTool
 from tools.tool_trace import ToolTraceQueryTool, ToolTraceStore
 from utils.logger import get_logger
 
@@ -212,7 +212,7 @@ class ToolRuntimeState:
         self.safety_policy = ToolSafetyPolicy(config)
         self.memory_search_tool: Any = None
         self.scheduled_task_tool: Any = None
-        self.send_telegram_file_tool: Any = None
+        self.send_file_tool: Any = None
         self.mcp_client: Any = None
         self.mcp_connected = False
 
@@ -343,9 +343,9 @@ class ToolRuntime:
             self._register_optional_tool_instance(state.scheduled_task_tool)
             logger.info("Added scheduled_task tool")
 
-        if state.send_telegram_file_tool:
-            self._register_optional_tool_instance(state.send_telegram_file_tool)
-            logger.info("Added send_telegram_file tool")
+        if state.send_file_tool:
+            self._register_optional_tool_instance(state.send_file_tool)
+            logger.info("Added send_file tool")
 
     def register_scheduled_task_tool(self) -> None:
         """Register the scheduled task tool on the handler."""
@@ -356,17 +356,17 @@ class ToolRuntime:
             label="scheduled_task",
         )
 
-    def register_send_telegram_file_tool(self) -> None:
-        """Register the Telegram file sending tool on the handler."""
+    def register_send_file_tool(self) -> None:
+        """Register the file sending tool on the handler."""
         self._register_stateful_tool(
-            state_attr="send_telegram_file_tool",
-            factory=lambda: SendTelegramFileTool(
+            state_attr="send_file_tool",
+            factory=lambda: SendFileTool(
                 lambda **kwargs: self.handler._files.send_file_to_user(
                     telegram_bot=getattr(self.handler, "telegram_bot", None),
                     **kwargs,
                 )
             ),
-            label="send_telegram_file",
+            label="send_file",
         )
 
     def register_builtin_tools(self) -> None:

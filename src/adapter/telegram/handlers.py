@@ -160,7 +160,7 @@ class MessageHandler:
         self._initialize_telegram_helpers()
 
         self._tool_host.register_scheduled_task_tool()
-        self._tool_host.register_send_telegram_file_tool()
+        self._tool_host.register_send_file_tool()
         self._tool_host.register_builtin_tools()
         self._initialize_application_services()
 

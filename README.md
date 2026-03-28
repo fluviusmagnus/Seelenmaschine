@@ -35,7 +35,7 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
   - 文件操作工具（读取、写入、编辑、追加）
   - 文件搜索工具（Grep内容搜索、Glob模式匹配）
   - Shell命令执行（带危险命令检测和人工批准）
-- 📤 **文件发送**：支持直接通过 Telegram 发送生成的文件
+- 📤 **文件发送**：支持将生成的文件直接发送给当前用户
 - 🤝 **人机协作(HITL)**：危险操作需要用户批准，避免意外修改
 
 ## 技术架构
@@ -216,7 +216,7 @@ start-telegram.bat hy
 3. **Memory Search** - 自我查询记忆
 4. **Web Search** - 网络搜索（需启用）
 5. **Scheduled Tasks** - 定时任务管理
-6. **File Send** - Telegram 文件发送
+6. **File Send** - 向当前用户发送文件
 
 通过配置文件控制各工具的启用状态。危险命令需要用户批准才能执行。
 
@@ -266,7 +266,7 @@ Seelenmaschine/
 │   │   ├── mcp_client.py         # MCP 客户端
 │   │   ├── memory_search.py      # 自我查询工具
 │   │   ├── scheduled_tasks.py    # 定时任务工具
-│   │   ├── send_telegram_file.py # Telegram 文件发送工具
+│   │   ├── send_file.py          # 文件发送工具
 │   │   ├── file_io.py            # 文件操作工具
 │   │   ├── file_search.py        # 文件搜索工具
 │   │   ├── shell.py              # Shell 命令执行工具

@@ -35,7 +35,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
   - File operations (read, write, edit, append)
   - File search (Grep content search, Glob pattern matching)
   - Shell command execution (with dangerous command detection and human approval)
-- 📤 **File Sending**: Support sending generated files directly via Telegram
+- 📤 **File Sending**: Support sending generated files directly to the current user
 - 🤝 **Human-in-the-Loop**: Dangerous operations require user approval to prevent accidental modifications
 
 ## Technical Architecture
@@ -216,7 +216,7 @@ The system integrates the following tool capabilities:
 3. **Memory Search** - Self-query memory
 4. **Web Search** - Web search (requires enabling)
 5. **Scheduled Tasks** - Task management
-6. **File Send** - Telegram file sending
+6. **File Send** - Send files to the current user
 
 Control the enabling status of each tool through configuration files. Dangerous commands require user approval before execution.
 
@@ -266,7 +266,7 @@ Seelenmaschine/
 │   │   ├── mcp_client.py         # MCP client
 │   │   ├── memory_search.py      # Self-query tool
 │   │   ├── scheduled_tasks.py    # Scheduled task tool
-│   │   ├── send_telegram_file.py # Telegram file sending tool
+│   │   ├── send_file.py          # File sending tool
 │   │   ├── file_io.py            # File operation tools
 │   │   ├── file_search.py        # File search tools
 │   │   ├── shell.py              # Shell command execution tool

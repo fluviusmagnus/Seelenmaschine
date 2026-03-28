@@ -6,26 +6,26 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
-class SendTelegramFileTool:
-    """Tool for sending local files to the Telegram user."""
+class SendFileTool:
+    """Tool for sending a local file to the current user."""
 
     def __init__(
         self,
         send_callback: Callable[..., Awaitable[Dict[str, Any]] | Dict[str, Any]],
     ):
-        """Initialize with a callback that performs the Telegram send."""
+        """Initialize with a callback that performs the concrete file delivery."""
         self._send_callback = send_callback
 
     @property
     def name(self) -> str:
-        return "send_telegram_file"
+        return "send_file"
 
     @property
     def description(self) -> str:
-        return """Send a local file to the Telegram user.
+        return """Send a local file to the current user.
 
 WHEN TO USE:
-- User asks you to send/export/deliver a generated file to Telegram
+- User asks you to send/export/deliver a generated file
 - You created or found a file in the workspace and should proactively send it
 - The result is best delivered as an attachment instead of pasted text
 
@@ -45,7 +45,7 @@ IMPORTANT:
                 },
                 "caption": {
                     "type": "string",
-                    "description": "Optional Telegram caption to attach to the file.",
+                    "description": "Optional caption to attach to the file.",
                 },
                 "file_type": {
                     "type": "string",
@@ -57,7 +57,7 @@ IMPORTANT:
         }
 
     async def execute(self, **kwargs) -> str:
-        """Send a file through Telegram via the injected callback."""
+        """Send a file through the injected callback."""
         file_path = kwargs.get("file_path")
         caption = kwargs.get("caption")
         file_type = kwargs.get("file_type", "auto")
@@ -81,7 +81,7 @@ IMPORTANT:
                 result = await result
 
             if isinstance(result, dict):
-                lines = ["✓ File sent to user via Telegram"]
+                lines = ["✓ File sent to user"]
                 delivery_method = result.get("delivery_method")
                 resolved_path = result.get("resolved_path")
                 sent_caption = result.get("caption")
@@ -97,5 +97,5 @@ IMPORTANT:
 
             return str(result)
         except Exception as e:
-            logger.error(f"Failed to send Telegram file: {e}")
-            return f"Error sending Telegram file: {e}"
+            logger.error(f"Failed to send file: {e}")
+            return f"Error sending file: {e}"
