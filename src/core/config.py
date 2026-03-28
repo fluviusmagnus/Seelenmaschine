@@ -64,6 +64,11 @@ class Config:
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_USER_ID: int = 0
     TELEGRAM_USE_MARKDOWN: bool = True
+    TELEGRAM_CONNECT_TIMEOUT: float = 15.0
+    TELEGRAM_READ_TIMEOUT: float = 30.0
+    TELEGRAM_WRITE_TIMEOUT: float = 30.0
+    TELEGRAM_POOL_TIMEOUT: float = 15.0
+    TELEGRAM_BOOTSTRAP_RETRIES: int = 3
     NEW_SESSION_COMMAND: str = "/new"
     RESET_SESSION_COMMAND: str = "/reset"
 
@@ -181,6 +186,17 @@ class Config:
         cls.TELEGRAM_BOT_TOKEN = cls._get_str("TELEGRAM_BOT_TOKEN", "")
         cls.TELEGRAM_USER_ID = cls._get_int("TELEGRAM_USER_ID", 0)
         cls.TELEGRAM_USE_MARKDOWN = cls._get_bool("TELEGRAM_USE_MARKDOWN", True)
+        cls.TELEGRAM_CONNECT_TIMEOUT = cls._get_float(
+            "TELEGRAM_CONNECT_TIMEOUT", 15.0
+        )
+        cls.TELEGRAM_READ_TIMEOUT = cls._get_float("TELEGRAM_READ_TIMEOUT", 30.0)
+        cls.TELEGRAM_WRITE_TIMEOUT = cls._get_float(
+            "TELEGRAM_WRITE_TIMEOUT", 30.0
+        )
+        cls.TELEGRAM_POOL_TIMEOUT = cls._get_float("TELEGRAM_POOL_TIMEOUT", 15.0)
+        cls.TELEGRAM_BOOTSTRAP_RETRIES = cls._get_int(
+            "TELEGRAM_BOOTSTRAP_RETRIES", 3
+        )
         cls.NEW_SESSION_COMMAND = cls._get_str("NEW_SESSION_COMMAND", "/new")
         cls.RESET_SESSION_COMMAND = cls._get_str("RESET_SESSION_COMMAND", "/reset")
 
@@ -216,6 +232,18 @@ class Config:
         """Get integer value from environment"""
         value = os.getenv(key)
         return int(value) if value and value.isdigit() else default
+
+    @staticmethod
+    def _get_float(key: str, default: float = 0.0) -> float:
+        """Get float value from environment."""
+        value = os.getenv(key)
+        if value is None or value == "":
+            return default
+
+        try:
+            return float(value)
+        except ValueError:
+            return default
 
     @staticmethod
     def _get_bool(key: str, default: bool = False) -> bool:

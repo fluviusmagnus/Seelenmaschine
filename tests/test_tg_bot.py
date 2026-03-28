@@ -4,6 +4,7 @@ This module contains tests for the Telegram adapter implementation.
 Uses pytest-asyncio for async testing and unittest.mock for mocking.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -27,6 +28,11 @@ class TestTelegramAdapterInitialization:
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
         config.TELEGRAM_USE_MARKDOWN = True
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
@@ -84,6 +90,11 @@ class TestTelegramAdapterApplication:
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
         config.TELEGRAM_USE_MARKDOWN = True
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
@@ -133,6 +144,14 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
                 mock_builder_instance.build.return_value = mock_application
 
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
@@ -144,6 +163,10 @@ class TestTelegramAdapterApplication:
                 )
                 mock_builder_instance.token.assert_called_once_with("test_token")
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
+                mock_builder_instance.connect_timeout.assert_called_once_with(15.0)
+                mock_builder_instance.read_timeout.assert_called_once_with(30.0)
+                mock_builder_instance.write_timeout.assert_called_once_with(30.0)
+                mock_builder_instance.pool_timeout.assert_called_once_with(15.0)
                 assert mock_application.add_handler.call_count == 7
 
     def test_create_application_enables_concurrent_updates(
@@ -159,6 +182,14 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
                 mock_builder_instance.build.return_value = mock_application
 
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
@@ -176,11 +207,41 @@ class TestTelegramAdapterApplication:
             adapter = TelegramAdapter(message_handler=mock_message_handler)
             adapter._application = mock_application
 
-            adapter.run()
+            with patch.object(adapter, "_ensure_event_loop") as mock_ensure_event_loop:
+                adapter.run()
 
+            mock_ensure_event_loop.assert_called_once_with()
             mock_application.run_polling.assert_called_once_with(
-                allowed_updates=Update.ALL_TYPES
+                allowed_updates=Update.ALL_TYPES,
+                bootstrap_retries=3,
             )
+
+    def test_ensure_event_loop_creates_new_loop_when_missing(
+        self, mock_config, mock_message_handler
+    ):
+        """Adapter should create and register a loop on Python 3.12+ sync startup."""
+        from adapter.telegram.adapter import TelegramAdapter
+
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
+            fake_loop = Mock(spec=asyncio.AbstractEventLoop)
+
+            with patch(
+                "adapter.telegram.adapter.asyncio.get_event_loop",
+                side_effect=RuntimeError,
+            ):
+                with patch(
+                    "adapter.telegram.adapter.asyncio.new_event_loop",
+                    return_value=fake_loop,
+                ) as mock_new_event_loop:
+                    with patch(
+                        "adapter.telegram.adapter.asyncio.set_event_loop"
+                    ) as mock_set_event_loop:
+                        loop = adapter._ensure_event_loop()
+
+            assert loop is fake_loop
+            mock_new_event_loop.assert_called_once_with()
+            mock_set_event_loop.assert_called_once_with(fake_loop)
 
     def test_create_application_accepts_runtime_hooks(
         self, mock_config, mock_message_handler, mock_application
@@ -195,6 +256,14 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
                 mock_builder_instance.build.return_value = mock_application
 
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
@@ -245,6 +314,11 @@ class TestTelegramAdapterScheduledMessages:
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
         config.TELEGRAM_USE_MARKDOWN = True
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
@@ -366,6 +440,11 @@ class TestTelegramAdapterMessageSegmentation:
         config = Mock()
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Callable, List, Optional
 
 from telegram import Update
@@ -60,8 +61,10 @@ class TelegramAdapter:
             )
 
         logger.info("Starting Telegram adapter with scheduler...")
+        self._ensure_event_loop()
         self._application.run_polling(
             allowed_updates=Update.ALL_TYPES,
+            bootstrap_retries=self.config.TELEGRAM_BOOTSTRAP_RETRIES,
         )
         logger.info("Adapter stopped")
 
@@ -70,6 +73,16 @@ class TelegramAdapter:
         if self._application and self._application.running:
             logger.info("Stopping Telegram adapter...")
             self._application.stop()
+
+    @staticmethod
+    def _ensure_event_loop() -> asyncio.AbstractEventLoop:
+        """Ensure a current event loop exists for sync Telegram startup paths."""
+        try:
+            return asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop
 
 
 class TelegramApplicationSetup:
@@ -92,6 +105,10 @@ class TelegramApplicationSetup:
             self.telegram_adapter.config.TELEGRAM_BOT_TOKEN
         )
         builder = builder.concurrent_updates(True)
+        builder = builder.connect_timeout(self.telegram_adapter.config.TELEGRAM_CONNECT_TIMEOUT)
+        builder = builder.read_timeout(self.telegram_adapter.config.TELEGRAM_READ_TIMEOUT)
+        builder = builder.write_timeout(self.telegram_adapter.config.TELEGRAM_WRITE_TIMEOUT)
+        builder = builder.pool_timeout(self.telegram_adapter.config.TELEGRAM_POOL_TIMEOUT)
         application = builder.build()
         self.telegram_adapter.message_handler.set_telegram_bot(application.bot)
 
