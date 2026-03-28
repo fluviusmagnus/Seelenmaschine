@@ -5,8 +5,7 @@ from pathlib import Path
 # Add project root to path for absolute imports
 sys.path.insert(0, str(Path(__file__).parent.parent))  # project root
 
-from adapter.telegram.app import build_telegram_bot, register_signal_handlers
-from adapter.telegram.bot import TelegramBot
+from adapter.telegram.app import TelegramBot, build_telegram_bot, register_signal_handlers
 from adapter.telegram.handlers import MessageHandler
 
 

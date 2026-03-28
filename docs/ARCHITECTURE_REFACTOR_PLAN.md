@@ -68,7 +68,7 @@ Current file sizes after this wave:
 - `src/adapter/telegram/handlers.py`: 631 lines
 - `src/memory/manager.py`: 528 lines
 - `src/llm/chat_client.py`: 503 lines
-- `src/adapter/telegram/bot.py`: 113 lines
+- `src/adapter/telegram/app.py`: Telegram adapter entrypoint and runtime module
 - `src/prompts/__init__.py`: package entrypoint for prompt helpers
 
 Interpretation:
@@ -256,7 +256,6 @@ src/
   adapter/
     telegram/
       app.py
-      application_setup.py
       bot.py
       commands.py
       files.py
@@ -360,7 +359,7 @@ This is acceptable for now, but should gradually be reduced in newly extracted s
 - prompt entrypoints now live in `src/prompts/__init__.py`, with implementation split across:
   - `src/prompts/system_prompt.py`
   - `src/prompts/memory_prompts.py`
-- `src/adapter/telegram/bot.py` is now the Telegram bot entry module
+- `src/adapter/telegram/app.py` is now the Telegram bot entry module
 - `src/adapter/telegram/handlers.py` -> split across:
   - `src/adapter/telegram/formatter.py`
   - `src/core/conversation.py`
