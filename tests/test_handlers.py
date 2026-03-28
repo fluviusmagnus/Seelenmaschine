@@ -42,11 +42,11 @@ class TestMessageHandlerInitialization:
 
     def test_handler_initializes_components(self, mock_dependencies):
         """Test that handler initializes all required components"""
-        from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.controller import TelegramController
         from core.bot import CoreBot
 
         core_bot = CoreBot(**mock_dependencies)
-        handler = MessageHandler(core_bot=core_bot)
+        handler = TelegramController(core_bot=core_bot)
 
         assert handler is not None
 
@@ -116,6 +116,7 @@ class TestMessageProcessing:
     @staticmethod
     def _build_core_bot_for_conversation(handler, *, scheduled: bool = False):
         from core.bot import CoreBot
+        from core.conversation import ConversationService
 
         config = Mock()
         config.ENABLE_MCP = False
@@ -132,7 +133,11 @@ class TestMessageProcessing:
             scheduler=Mock(),
             llm_client=handler.llm_client,
         )
-        core_bot.create_conversation_service(
+        core_bot.conversation_service = ConversationService(
+            config=core_bot.config,
+            memory=core_bot.memory,
+            embedding_client=core_bot.embedding_client,
+            llm_client=core_bot.llm_client,
             memory_search_tool=handler.memory_search_tool,
             mcp_client=handler.mcp_client,
             ensure_mcp_connected=handler._ensure_mcp_connected,
@@ -143,9 +148,9 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_message_returns_final_text_without_assistant_history(self):
         """Message processing should return the final LLM text and persist it once."""
-        from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.controller import TelegramController
 
-        handler = Mock(spec=MessageHandler)
+        handler = Mock(spec=TelegramController)
         handler.memory = Mock()
         handler.memory.add_user_message_async = AsyncMock(return_value=(1, [0.1, 0.2]))
         handler.memory.get_context_messages = Mock(return_value=[])
@@ -186,11 +191,11 @@ class TestMessageProcessing:
 
     def test_format_exception_for_user_truncates_long_messages(self):
         """User-facing error summaries should stay concise."""
-        from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.controller import TelegramController
 
         error = RuntimeError("x" * 500)
 
-        formatted = MessageHandler._format_exception_for_user(error)
+        formatted = TelegramController._format_exception_for_user(error)
 
         assert len(formatted) == 300
         assert formatted.endswith("...")
@@ -198,9 +203,9 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_message_saves_intermediate_assistant_messages(self):
         """Assistant text emitted during tool calling should also be saved to memory."""
-        from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.controller import TelegramController
 
-        handler = Mock(spec=MessageHandler)
+        handler = Mock(spec=TelegramController)
         handler.memory = Mock()
         handler.memory.add_user_message_async = AsyncMock(return_value=(1, [0.1, 0.2]))
         handler.memory.get_context_messages = Mock(
@@ -238,9 +243,9 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_scheduled_task_saves_intermediate_assistant_messages(self):
         """Scheduled task assistant text emitted during tool calling should be saved."""
-        from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.controller import TelegramController
 
-        handler = Mock(spec=MessageHandler)
+        handler = Mock(spec=TelegramController)
         handler.memory = Mock()
         handler.memory.get_context_messages = Mock(return_value=[])
         handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
@@ -280,20 +285,36 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_handle_message_returns_error_details_on_failure(self):
         """Top-level message errors should include readable details for debugging."""
-        from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
 
-        handler = Mock(spec=MessageHandler)
+        handler = Mock(spec=TelegramController)
         handler.config = Mock()
         handler.config.TELEGRAM_USER_ID = 123456789
-        handler._pending_approval = None
         handler.core_bot = Mock()
         handler.core_bot.config = handler.config
         handler.core_bot.process_message = AsyncMock(
             side_effect=RuntimeError("maximum context length exceeded")
         )
         handler._send_intermediate_response = AsyncMock()
-        handler._format_exception_for_user = MessageHandler._format_exception_for_user
-        handler.handle_message = MessageHandler.handle_message.__get__(handler, Mock)
+        handler._format_exception_for_user = (
+            TelegramController._format_exception_for_user
+        )
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(
+                reject_unauthorized=AsyncMock(return_value=False),
+            ),
+            approval_service=None,
+            files=Mock(),
+            response_sender=Mock(),
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(
+            handler, Mock
+        )
 
         update = Mock()
         update.effective_user = Mock()
@@ -317,57 +338,74 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
         """Dangerous shell actions should continue executing after /approve."""
-        from adapter.telegram.handlers import MessageHandler
-        from adapter.telegram.tool_bridge import TelegramToolBridge
-        from core.bot import CoreToolHost
+        from adapter.telegram.commands import TelegramCommands
         from core.approval import ApprovalService
+        from core.bot import CoreBot
+        from core.tools import ToolSafetyPolicy
 
-        handler = Mock(spec=MessageHandler)
-        handler.config = Mock()
-        handler.config.TELEGRAM_USER_ID = 123456789
-        handler.telegram_bot = Mock()
-        handler.telegram_bot.send_message = AsyncMock()
-        handler._approval_lock = asyncio.Lock()
-        handler._pending_approval = None
-        handler.mcp_client = None
-        handler._mcp_connected = False
-        handler._tool_registry = {}
+        config = Mock()
+        config.TELEGRAM_USER_ID = 123456789
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=Mock(),
+        )
+
+        owner = Mock()
+        owner.core_bot = core_bot
+        owner.telegram_bot = Mock()
+        owner.telegram_bot.send_message = AsyncMock()
+        owner.file_service = Mock()
+        owner._preview_text = lambda text, max_length=120: str(text)[:max_length]
 
         shell_tool = Mock()
         shell_tool.execute = AsyncMock(return_value="dangerous command completed")
-        handler._tool_registry["execute_shell_command"] = shell_tool
-
-        from core.tools import ToolSafetyPolicy
-
-        handler._preview_text = MessageHandler._preview_text
-        handler._format_exception_for_user = MessageHandler._format_exception_for_user
-        handler._tool_safety_policy = ToolSafetyPolicy(handler.config)
-        handler._approval_service = ApprovalService()
-        handler._approval_service.set_state_listener(
-            lambda request: setattr(handler, "_pending_approval", request)
+        approval_service = ApprovalService()
+        pending_holder = {"request": None}
+        approval_service.set_state_listener(
+            lambda request: pending_holder.__setitem__("request", request)
         )
-        handler._tool_bridge = TelegramToolBridge(handler)
-        handler._tool_host = CoreToolHost(
-            handler,
-            get_tool_bridge=lambda: handler._tool_bridge,
+
+        commands = TelegramCommands(
+            core_bot=core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=approval_service,
+            get_telegram_bot=lambda: owner.telegram_bot,
+            preview_text=owner._preview_text,
+            format_exception_for_user=str,
         )
-        handler.core_bot = Mock()
-        handler.core_bot.config = handler.config
-        handler.core_bot.tool_runtime_state = None
-        handler.core_bot.execute_tool = handler._tool_host.execute_tool
-        handler.handle_approve = MessageHandler.handle_approve.__get__(handler, Mock)
-        handler._execute_tool = MessageHandler._execute_tool.__get__(handler, Mock)
+        core_bot.initialize_telegram_runtime(
+            owner,
+            approval_delegate=commands,
+            preview_text=owner._preview_text,
+        )
+        core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
+        core_bot.tool_runtime_state.registry_service.register_named(
+            "execute_shell_command", shell_tool
+        )
 
         execution_task = asyncio.create_task(
-            handler._execute_tool(
+            core_bot.execute_tool(
                 "execute_shell_command", json.dumps({"command": "rm /etc/passwd"})
             )
         )
 
         await asyncio.sleep(0)
 
-        assert handler._pending_approval is not None
-        assert handler._pending_approval.tool_name == "execute_shell_command"
+        assert pending_holder["request"] is not None
+        assert pending_holder["request"].tool_name == "execute_shell_command"
         shell_tool.execute.assert_not_awaited()
 
         update = Mock()
@@ -377,18 +415,18 @@ class TestMessageProcessing:
         update.message.reply_text = AsyncMock()
         context = Mock()
 
-        await handler.handle_approve(update, context)
+        await commands.handle_approve(update, context)
         result = await execution_task
         await asyncio.sleep(0)
 
         assert result == "dangerous command completed"
         shell_tool.execute.assert_awaited_once_with(command="rm /etc/passwd")
         update.message.reply_text.assert_not_awaited()
-        assert handler._pending_approval is None
+        assert pending_holder["request"] is None
 
         sent_texts = [
             call.kwargs["text"]
-            for call in handler.telegram_bot.send_message.await_args_list
+            for call in owner.telegram_bot.send_message.await_args_list
         ]
         assert any("DANGEROUS ACTION DETECTED" in text for text in sent_texts)
         assert any("Approved action finished" in text for text in sent_texts)
@@ -399,24 +437,42 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_handle_message_aborts_pending_approval_on_regular_message(self):
         """A non-/approve message should abort the pending dangerous action."""
-        from adapter.telegram.handlers import MessageHandler, PendingApprovalRequest
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+        from core.approval import ApprovalService, PendingApprovalRequest
 
-        handler = Mock(spec=MessageHandler)
+        handler = Mock(spec=TelegramController)
         handler.config = Mock()
         handler.config.TELEGRAM_USER_ID = 123456789
         handler.core_bot = Mock()
         handler.core_bot.config = handler.config
         handler.core_bot.process_message = AsyncMock()
-        handler.handle_message = MessageHandler.handle_message.__get__(handler, Mock)
+        approval_service = ApprovalService()
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(
+                reject_unauthorized=AsyncMock(return_value=False),
+            ),
+            approval_service=approval_service,
+            files=Mock(),
+            response_sender=Mock(),
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=AsyncMock(),
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(
+            handler, Mock
+        )
 
         loop = asyncio.get_running_loop()
-        handler._pending_approval = PendingApprovalRequest(
+        pending_request = PendingApprovalRequest(
             tool_name="execute_shell_command",
             arguments={"command": "rm /etc/passwd"},
             reason="shell_threat:data_loss",
             future=loop.create_future(),
             created_at=loop.time(),
         )
+        approval_service._update_pending_request(pending_request)
 
         update = Mock()
         update.effective_user = Mock()
@@ -433,8 +489,8 @@ class TestMessageProcessing:
 
         await handler.handle_message(update, context)
 
-        assert handler._pending_approval.future.done() is True
-        assert handler._pending_approval.future.result() is False
+        assert pending_request.future.done() is True
+        assert pending_request.future.result() is False
         handler.core_bot.process_message.assert_not_called()
         update.message.reply_text.assert_awaited_once_with("❌ Pending action aborted.")
 
@@ -528,62 +584,54 @@ class TestPathSafetyApproval:
 
 
 class TestSplitMessageIntoSegments:
-    """Test the _split_message_into_segments method"""
+    """Test Telegram formatter message segmentation."""
 
     @pytest.fixture
-    def mock_handler(self):
-        """Create a mock MessageHandler with the split method"""
-        from adapter.telegram.handlers import MessageHandler
+    def formatter(self):
+        """Create a formatter for Telegram message splitting tests."""
+        from adapter.telegram.formatter import TelegramResponseFormatter
 
-        # Create a minimal mock handler
-        handler = Mock(spec=MessageHandler)
+        return TelegramResponseFormatter()
 
-        # Bind the actual method to the mock
-        handler._split_message_into_segments = (
-            MessageHandler._split_message_into_segments.__get__(handler, Mock)
-        )
-
-        return handler
-
-    def test_short_message_no_split(self, mock_handler):
+    def test_short_message_no_split(self, formatter):
         """Test that short messages are not split"""
         text = "This is a short message"
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         assert len(segments) == 1
         assert segments[0] == text
 
-    def test_multiple_paragraphs_split_even_when_short(self, mock_handler):
+    def test_multiple_paragraphs_split_even_when_short(self, formatter):
         """Test that multi-paragraph messages are split even if short"""
         text = "Paragraph 1.\n\nParagraph 2.\n\nParagraph 3."
 
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         assert segments == ["Paragraph 1.", "Paragraph 2.", "Paragraph 3."]
 
-    def test_single_newlines_split_even_when_short(self, mock_handler):
+    def test_single_newlines_split_even_when_short(self, formatter):
         """Single line breaks should also create separate Telegram segments."""
         text = "Line 1\nLine 2\nLine 3"
 
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         assert segments == ["Line 1", "Line 2", "Line 3"]
 
-    def test_consecutive_list_items_stay_grouped(self, mock_handler):
+    def test_consecutive_list_items_stay_grouped(self, formatter):
         """List items should stay together instead of being split per line."""
         text = "Intro\n- first item\n- second item\nAfter"
 
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         assert segments == ["Intro", "- first item\n- second item", "After"]
 
-    def test_message_split_at_paragraphs(self, mock_handler):
+    def test_message_split_at_paragraphs(self, formatter):
         """Test that messages are split at paragraph boundaries"""
         # Create a message with multiple paragraphs
         paragraphs = [f"Paragraph {i} with some content." for i in range(5)]
         text = "\n\n".join(paragraphs)
 
-        segments = mock_handler._split_message_into_segments(text, max_length=100)
+        segments = formatter.split_message_into_segments(text, max_length=100)
 
         # Should be split into multiple segments
         assert len(segments) > 1
@@ -591,11 +639,11 @@ class TestSplitMessageIntoSegments:
         for segment in segments:
             assert len(segment) <= 100
 
-    def test_code_blocks_not_split(self, mock_handler):
+    def test_code_blocks_not_split(self, formatter):
         """Test that code blocks (<pre>) are never split"""
         text = "Some text\n\n<pre>\ncode line 1\ncode line 2\ncode line 3\n</pre>\n\nMore text"
 
-        segments = mock_handler._split_message_into_segments(text, max_length=50)
+        segments = formatter.split_message_into_segments(text, max_length=50)
 
         # Code block should remain intact in one segment
         for segment in segments:
@@ -606,11 +654,11 @@ class TestSplitMessageIntoSegments:
                 assert "code line 2" in segment
                 assert "code line 3" in segment
 
-    def test_text_around_code_blocks_still_splits_normally(self, mock_handler):
+    def test_text_around_code_blocks_still_splits_normally(self, formatter):
         """Text around code blocks should still be segmented, while code stays intact."""
         text = "Intro paragraph.\n\n<pre>print('hi')</pre>\n\nOutro paragraph."
 
-        segments = mock_handler._split_message_into_segments(text, max_length=100)
+        segments = formatter.split_message_into_segments(text, max_length=100)
 
         assert segments == [
             "Intro paragraph.",
@@ -619,7 +667,7 @@ class TestSplitMessageIntoSegments:
         ]
 
     def test_multiple_code_blocks_with_text_between_keep_original_batching(
-        self, mock_handler
+        self, formatter
     ):
         """Each code block should remain atomic while surrounding text stays independently segmented."""
         text = (
@@ -630,7 +678,7 @@ class TestSplitMessageIntoSegments:
             "Last paragraph."
         )
 
-        segments = mock_handler._split_message_into_segments(text, max_length=100)
+        segments = formatter.split_message_into_segments(text, max_length=100)
 
         assert segments == [
             "First paragraph.",
@@ -640,11 +688,11 @@ class TestSplitMessageIntoSegments:
             "Last paragraph.",
         ]
 
-    def test_blockquote_not_split(self, mock_handler):
+    def test_blockquote_not_split(self, formatter):
         """Test that blockquotes are never split"""
         text = "Introduction\n\n<blockquote>Citation content here</blockquote>\n\nConclusion"
 
-        segments = mock_handler._split_message_into_segments(text, max_length=30)
+        segments = formatter.split_message_into_segments(text, max_length=30)
 
         # Blockquote should remain intact
         for segment in segments:
@@ -652,7 +700,7 @@ class TestSplitMessageIntoSegments:
                 assert "</blockquote>" in segment
                 assert "Citation content here" in segment
 
-    def test_multiple_code_blocks(self, mock_handler):
+    def test_multiple_code_blocks(self, formatter):
         """Test handling multiple code blocks - verify both blocks remain intact"""
         text = (
             "Text before\n\n"
@@ -663,7 +711,7 @@ class TestSplitMessageIntoSegments:
         )
 
         # Use a larger max_length to ensure everything fits in fewer segments
-        segments = mock_handler._split_message_into_segments(text, max_length=500)
+        segments = formatter.split_message_into_segments(text, max_length=500)
 
         # Combine all segments to check overall content
         all_content = "\n".join(segments)
@@ -680,21 +728,21 @@ class TestSplitMessageIntoSegments:
                     "</pre>" in seg
                 ), f"Code block split incorrectly in segment: {seg}"
 
-    def test_empty_segments_filtered(self, mock_handler):
+    def test_empty_segments_filtered(self, formatter):
         """Test that empty segments are filtered out"""
         text = "Paragraph 1\n\n\n\nParagraph 2"  # Multiple newlines
 
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         # No empty segments
         for segment in segments:
             assert segment.strip()
 
-    def test_no_empty_lines_in_segments(self, mock_handler):
+    def test_no_empty_lines_in_segments(self, formatter):
         """Test that segments don't contain empty lines at start/end"""
         text = "Paragraph 1\n\n\n\nParagraph 2"
 
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         # All segments should be non-empty
         assert len(segments) > 0
@@ -705,11 +753,11 @@ class TestSplitMessageIntoSegments:
             assert not segment.startswith("\n\n")
             assert not segment.endswith("\n\n")
 
-    def test_only_whitespace_filtered(self, mock_handler):
+    def test_only_whitespace_filtered(self, formatter):
         """Test that whitespace-only content is filtered"""
         text = "   \n\n   \n\nActual content\n\n   "
 
-        segments = mock_handler._split_message_into_segments(text)
+        segments = formatter.split_message_into_segments(text)
 
         # Should only contain the actual content
         assert len(segments) >= 1
@@ -720,11 +768,11 @@ class TestSplitMessageIntoSegments:
             if len(segment) > 0:
                 assert segment.strip()
 
-    def test_long_html_segment_keeps_tags_balanced(self, mock_handler):
+    def test_long_html_segment_keeps_tags_balanced(self, formatter):
         """Long formatted text should be split without breaking HTML tags."""
         text = "<b>" + ("word " * 30).strip() + "</b>"
 
-        segments = mock_handler._split_message_into_segments(text, max_length=40)
+        segments = formatter.split_message_into_segments(text, max_length=40)
 
         assert len(segments) > 1
         for segment in segments:

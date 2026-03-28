@@ -1,5 +1,3 @@
-import asyncio
-import signal
 from typing import Any, Callable, List, Optional
 
 from telegram import Update
@@ -11,7 +9,6 @@ from telegram.ext import (
 )
 
 from adapter.telegram.commands import TelegramCommands
-from adapter.telegram.scheduled_sender import ScheduledMessageSender
 from core.config import Config
 from utils.logger import get_logger
 
@@ -25,12 +22,7 @@ class TelegramAdapter:
         self.config = Config()
         self.message_handler = message_handler
         self._application: Optional[Application] = None
-        self._initialized = False
         self.scheduler = message_handler.core_bot.scheduler
-        self._scheduled_sender = ScheduledMessageSender(
-            config=self.config,
-            message_handler=message_handler,
-        )
         self._application_setup = TelegramApplicationSetup(self)
         self.scheduler.set_message_callback(self._send_scheduled_message)
 
@@ -38,28 +30,27 @@ class TelegramAdapter:
         self, message: str, task_name: str = "Scheduled Task"
     ) -> None:
         """Send a scheduled message to the user via the LLM flow."""
-        await self._scheduled_sender.send_scheduled_message(
+        await self.message_handler.messages.send_scheduled_message(
             application=self._application,
             message=message,
             task_name=task_name,
         )
 
-    def create_application(self) -> None:
+    def create_application(
+        self,
+        *,
+        post_init: Optional[Callable[[Application], Any]] = None,
+        post_shutdown: Optional[Callable[[Application], Any]] = None,
+    ) -> None:
         """Create and configure the Telegram application."""
         self._application = self._application_setup.create_application(
             application_builder_factory=Application.builder,
             command_handler_cls=CommandHandler,
             message_handler_cls=MessageHandler,
             filters_module=filters,
+            post_init=post_init,
+            post_shutdown=post_shutdown,
         )
-
-    async def _cmd_start(self, update: Any, context: Any) -> None:
-        """Delegate /start command handling to the command adapter."""
-        await self.message_handler._commands.handle_start(update, context)
-
-    async def _cmd_help(self, update: Any, context: Any) -> None:
-        """Delegate /help command handling to the command adapter."""
-        await self.message_handler._commands.handle_help(update, context)
 
     def run(self) -> None:
         """Start the adapter runtime."""
@@ -81,20 +72,6 @@ class TelegramAdapter:
             self._application.stop()
 
 
-def register_signal_handlers(
-    adapter: Any,
-    signal_fn: Callable[[int, Callable[..., Optional[None]]], Any] = signal.signal,
-) -> None:
-    """Register SIGINT/SIGTERM handlers that stop the adapter gracefully."""
-
-    def _stop_adapter(_sig: int, _frame: Any) -> None:
-        if hasattr(adapter, "stop"):
-            adapter.stop()
-
-    signal_fn(signal.SIGINT, _stop_adapter)
-    signal_fn(signal.SIGTERM, _stop_adapter)
-
-
 class TelegramApplicationSetup:
     """Create Telegram applications, register handlers, and wire lifecycle hooks."""
 
@@ -107,6 +84,8 @@ class TelegramApplicationSetup:
         command_handler_cls: type[CommandHandler],
         message_handler_cls: type[MessageHandler],
         filters_module: Any,
+        post_init: Optional[Callable[[Application], Any]] = None,
+        post_shutdown: Optional[Callable[[Application], Any]] = None,
     ) -> Application:
         """Build and configure the Telegram application."""
         builder = application_builder_factory().token(
@@ -127,8 +106,9 @@ class TelegramApplicationSetup:
         ):
             application.add_handler(handler)
 
-        application.post_init = self._build_post_init_hook()
-        application.post_shutdown = self._build_post_shutdown_hook()
+        application.post_init = self._build_post_init_hook(post_init)
+        if post_shutdown is not None:
+            application.post_shutdown = post_shutdown
 
         logger.info("Telegram application created and handlers registered")
         return application
@@ -140,15 +120,13 @@ class TelegramApplicationSetup:
         filters_module: Any,
     ) -> List[Any]:
         """Build command and message handlers for the Telegram app."""
-        commands = self.telegram_adapter.message_handler._commands
+        commands = self.telegram_adapter.message_handler.commands
         return [
             command_handler_cls("start", commands.handle_start),
             command_handler_cls("help", commands.handle_help),
             command_handler_cls("new", commands.handle_new_session),
             command_handler_cls("reset", commands.handle_reset_session),
-            command_handler_cls(
-                "approve", self.telegram_adapter.message_handler.handle_approve
-            ),
+            command_handler_cls("approve", commands.handle_approve),
             message_handler_cls(
                 filters_module.TEXT & ~filters_module.COMMAND,
                 self.telegram_adapter.message_handler.handle_message,
@@ -163,43 +141,18 @@ class TelegramApplicationSetup:
             ),
         ]
 
-    def _build_post_init_hook(self) -> Callable[[Application], Any]:
-        """Build the post_init hook for command registration and scheduler startup."""
+    def _build_post_init_hook(
+        self,
+        external_post_init: Optional[Callable[[Application], Any]],
+    ) -> Callable[[Application], Any]:
+        """Build the post_init hook for Telegram command registration."""
 
         async def post_init(application: Application) -> None:
-            if self.telegram_adapter._initialized:
-                logger.warning("Adapter already initialized, skipping post_init")
-                return
-
             commands = TelegramCommands.build_menu_commands()
             await application.bot.set_my_commands(commands)
             logger.info("Bot commands registered in Telegram menu")
 
-            self.telegram_adapter.scheduler._task = asyncio.create_task(
-                self.telegram_adapter.scheduler.run_forever()
-            )
-            logger.info("Scheduler started as background task")
-            self.telegram_adapter._initialized = True
+            if external_post_init is not None:
+                await external_post_init(application)
 
         return post_init
-
-    def _build_post_shutdown_hook(self) -> Callable[[Application], Any]:
-        """Build the post_shutdown hook for graceful scheduler shutdown."""
-
-        async def post_shutdown(_application: Application) -> None:
-            self.telegram_adapter.scheduler.stop()
-            if (
-                self.telegram_adapter.scheduler._task
-                and not self.telegram_adapter.scheduler._task.done()
-            ):
-                try:
-                    await asyncio.wait_for(
-                        self.telegram_adapter.scheduler._task, timeout=2.0
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("Scheduler did not stop in time")
-                except asyncio.CancelledError:
-                    pass
-            logger.info("Scheduler stopped")
-
-        return post_shutdown

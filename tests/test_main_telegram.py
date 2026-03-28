@@ -17,23 +17,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 class TestMainTelegramArgumentParsing:
     """Test command line argument parsing"""
-    
+
     def test_main_exits_without_profile(self):
         """Test that main exits when no profile is provided"""
         from io import StringIO
-        
-        test_args = ['main_telegram.py']
-        
-        with patch.object(sys, 'argv', test_args):
-            with patch('sys.stdout', new=StringIO()) as fake_stdout:
+
+        test_args = ["main_telegram.py"]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("sys.stdout", new=StringIO()) as fake_stdout:
                 with pytest.raises(SystemExit) as exc_info:
                     import importlib
+
                     # We need to reimport to test the exit
-                    if 'main_telegram' in sys.modules:
-                        del sys.modules['main_telegram']
-                    main_module = importlib.import_module('main_telegram')
+                    if "main_telegram" in sys.modules:
+                        del sys.modules["main_telegram"]
+                    main_module = importlib.import_module("main_telegram")
                     main_module.main()
-                
+
                 assert exc_info.value.code == 1
                 output = fake_stdout.getvalue()
                 assert "Usage:" in output or "profile" in output.lower()
@@ -41,36 +42,37 @@ class TestMainTelegramArgumentParsing:
 
 class TestMainTelegramInitialization:
     """Test initialization and setup"""
-    
+
     @pytest.fixture
     def mock_dependencies(self):
         """Create mock dependencies for main_telegram"""
         mocks = {
-            'init_config': Mock(),
-            'CoreBot': Mock(),
-            'MessageHandler': Mock(),
-            'TelegramAdapter': Mock(),
-            'get_logger': Mock(),
+            "init_config": Mock(),
+            "CoreBot": Mock(),
+            "MessageHandler": Mock(),
+            "TelegramAdapter": Mock(),
+            "get_logger": Mock(),
         }
         return mocks
-    
+
+
 class TestMainTelegramBotLifecycle:
     """Test TelegramAdapter lifecycle management"""
-    
+
     def test_bot_created_with_message_handler(self):
         """Test that TelegramAdapter is created with the message handler"""
         mock_message_handler = Mock()
-        
-        with patch('main_telegram.MessageHandler') as mock_handler_class:
-            with patch('main_telegram.TelegramAdapter') as mock_bot_class:
+
+        with patch("main_telegram.TelegramController") as mock_handler_class:
+            with patch("main_telegram.TelegramAdapter") as mock_bot_class:
                 mock_handler_class.return_value = mock_message_handler
                 mock_bot_instance = Mock()
                 mock_bot_class.return_value = mock_bot_instance
-                
+
                 # Import and test
-                if 'main_telegram' in sys.modules:
-                    del sys.modules['main_telegram']
-                
+                if "main_telegram" in sys.modules:
+                    del sys.modules["main_telegram"]
+
                 # Bot should be created with message_handler
                 mock_bot_class.assert_not_called()  # Not called at import time
 
@@ -78,4 +80,3 @@ class TestMainTelegramBotLifecycle:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

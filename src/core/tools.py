@@ -94,46 +94,27 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: Dict[str, Any] = {}
 
-    def register(self, tool: Any) -> None:
-        """Register a tool instance by its declared name."""
-        self._tools[tool.name] = tool
-
     def register_named(self, tool_name: str, tool: Any) -> None:
         """Register a tool instance under an explicit name."""
         self._tools[tool_name] = tool
-
-    def register_many(self, tools: List[Any]) -> None:
-        """Register multiple tools."""
-        for tool in tools:
-            self.register(tool)
 
     def get(self, tool_name: str) -> Optional[Any]:
         """Get a registered tool by name."""
         return self._tools.get(tool_name)
 
-    def as_dict(self) -> Dict[str, Any]:
-        """Return a shallow dict copy of the registered tools."""
-        return dict(self._tools)
-
-    def items(self):
-        """Iterate over registered tool name/tool pairs."""
-        return self._tools.items()
-
-    @staticmethod
-    def make_tool_def(tool: Any) -> Dict[str, Any]:
-        """Build an OpenAI-format tool definition from a tool instance."""
-        return {
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.parameters,
-            },
-        }
-
     def collect_tool_defs(self) -> List[Dict[str, Any]]:
         """Collect OpenAI-format definitions for all registered tools."""
-        return [self.make_tool_def(tool) for tool in self._tools.values()]
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in self._tools.values()
+        ]
 
 
 class ToolTraceService:
@@ -198,16 +179,14 @@ class ToolRuntimeState:
         config: Any,
         get_current_session_id: Callable[[], Any],
     ) -> None:
-        self.tool_trace_store = ToolRuntime.create_tool_trace_store(config.DATA_DIR)
-        self.tool_trace_query_tool = ToolRuntime.create_tool_trace_query_tool(
-            self.tool_trace_store,
-            get_current_session_id,
+        self.tool_trace_store = ToolTraceStore(config.DATA_DIR)
+        self.tool_trace_query_tool = ToolTraceQueryTool(
+            self.tool_trace_store, get_current_session_id
         )
         self.tool_trace_service = ToolTraceService(
             store=self.tool_trace_store,
             get_current_session_id=get_current_session_id,
         )
-        self.legacy_registry: Dict[str, Any] = {}
         self.registry_service = ToolRegistry()
         self.safety_policy = ToolSafetyPolicy(config)
         self.memory_search_tool: Any = None
@@ -235,65 +214,10 @@ class ToolRuntime:
 
     def _get_runtime_state(self) -> ToolRuntimeState:
         """Return the core-owned mutable tool runtime state."""
-        state = getattr(
-            getattr(self.handler, "core_bot", None), "tool_runtime_state", None
-        )
+        state = self._get_core_bot().tool_runtime_state
         if not isinstance(state, ToolRuntimeState):
             raise RuntimeError("Tool runtime state has not been initialized on CoreBot")
         return state
-
-    @staticmethod
-    def create_tool_trace_store(data_dir: Any) -> ToolTraceStore:
-        """Create the persistent tool trace store."""
-        return ToolTraceStore(data_dir)
-
-    @staticmethod
-    def create_tool_trace_query_tool(
-        store: ToolTraceStore,
-        get_current_session_id: Callable[[], Any],
-    ) -> ToolTraceQueryTool:
-        """Create the tool-history query helper."""
-        return ToolTraceQueryTool(store, get_current_session_id)
-
-    @staticmethod
-    def get_registry(handler: Any) -> ToolRegistry:
-        """Return the canonical tool registry and backfill legacy registrations."""
-        state = getattr(getattr(handler, "core_bot", None), "tool_runtime_state", None)
-        registry_service = getattr(state, "registry_service", None)
-        if registry_service is None:
-            registry_service = getattr(handler, "_tool_registry_service", None)
-        if not isinstance(registry_service, ToolRegistry):
-            registry_service = ToolRegistry()
-            if isinstance(state, ToolRuntimeState):
-                state.registry_service = registry_service
-            else:
-                try:
-                    setattr(handler, "_tool_registry_service", registry_service)
-                except Exception:
-                    pass
-
-        legacy_registry = (
-            getattr(state, "legacy_registry", None)
-            if isinstance(state, ToolRuntimeState)
-            else getattr(handler, "_tool_registry", {})
-        )
-        for registered_name, tool in (legacy_registry or {}).items():
-            registry_service.register_named(registered_name, tool)
-
-        return registry_service
-
-    @staticmethod
-    def register_tool_instance(
-        handler: Any, tool: Any, tool_name: Optional[str] = None
-    ) -> None:
-        """Register a tool in the canonical registry and mirror it for compatibility."""
-        registry_name = tool_name or tool.name
-        state = getattr(getattr(handler, "core_bot", None), "tool_runtime_state", None)
-        if isinstance(state, ToolRuntimeState):
-            state.legacy_registry[registry_name] = tool
-        elif hasattr(handler, "_tool_registry"):
-            handler._tool_registry[registry_name] = tool
-        ToolRuntime.get_registry(handler).register_named(registry_name, tool)
 
     def _register_stateful_tool(
         self, *, state_attr: str, factory: Callable[[], Any], label: str
@@ -303,16 +227,11 @@ class ToolRuntime:
         try:
             tool = factory()
             setattr(state, state_attr, tool)
-            self.register_tool_instance(self.handler, tool)
+            state.registry_service.register_named(tool.name, tool)
             logger.info(f"Registered {label} tool")
         except Exception as error:
             logger.error(f"Failed to register {label} tool: {error}")
             setattr(state, state_attr, None)
-
-    def _register_optional_tool_instance(self, tool: Any) -> None:
-        """Register a tool instance when present."""
-        if tool:
-            self.register_tool_instance(self.handler, tool)
 
     def _ensure_memory_search_tool(self) -> Any:
         """Create the memory search tool lazily when the handler has not built it yet."""
@@ -331,37 +250,40 @@ class ToolRuntime:
     def _register_local_runtime_tools(self) -> None:
         """Ensure every local runtime tool is present in the registry."""
         state = self._get_runtime_state()
+        registry = state.registry_service
         if state.tool_trace_query_tool:
-            self.register_tool_instance(self.handler, state.tool_trace_query_tool)
+            registry.register_named(
+                state.tool_trace_query_tool.name, state.tool_trace_query_tool
+            )
             logger.info("Added query_tool_history tool")
 
         memory_search_tool = self._ensure_memory_search_tool()
-        self._register_optional_tool_instance(memory_search_tool)
-        logger.info("Added memory_search tool")
+        if memory_search_tool:
+            registry.register_named(memory_search_tool.name, memory_search_tool)
+            logger.info("Added memory_search tool")
 
         if state.scheduled_task_tool:
-            self._register_optional_tool_instance(state.scheduled_task_tool)
+            registry.register_named(
+                state.scheduled_task_tool.name, state.scheduled_task_tool
+            )
             logger.info("Added scheduled_task tool")
 
         if state.send_file_tool:
-            self._register_optional_tool_instance(state.send_file_tool)
+            registry.register_named(state.send_file_tool.name, state.send_file_tool)
             logger.info("Added send_file tool")
 
-    def register_scheduled_task_tool(self) -> None:
-        """Register the scheduled task tool on the handler."""
+    def register_core_tools(self) -> None:
+        """Register stateful core-owned tools needed by the runtime."""
         core_bot = self._get_core_bot()
         self._register_stateful_tool(
             state_attr="scheduled_task_tool",
             factory=lambda: ScheduledTaskTool(core_bot.scheduler),
             label="scheduled_task",
         )
-
-    def register_send_file_tool(self) -> None:
-        """Register the file sending tool on the handler."""
         self._register_stateful_tool(
             state_attr="send_file_tool",
             factory=lambda: SendFileTool(
-                lambda **kwargs: self.handler._files.send_file_to_user(
+                lambda **kwargs: self.handler.core_bot.file_delivery_service.send_file_to_user(
                     telegram_bot=getattr(self.handler, "telegram_bot", None),
                     **kwargs,
                 )
@@ -381,8 +303,9 @@ class ToolRuntime:
                 GlobSearchTool(),
                 ShellCommandTool(),
             ]
+            registry = self._get_runtime_state().registry_service
             for tool in builtin_tools:
-                self.register_tool_instance(self.handler, tool)
+                registry.register_named(tool.name, tool)
             logger.info("Registered builtin file and shell tools")
         except Exception as error:
             logger.error(f"Failed to register builtin tools: {error}")
@@ -398,18 +321,20 @@ class ToolRuntime:
             state.mcp_client = None
             state.mcp_connected = False
 
-        self.setup_basic_tools()
+        self._publish_tools()
 
-    def setup_basic_tools(self) -> None:
-        """Register local tools and the executor in the LLM client."""
+    def _publish_tools(self, extra_tools: Optional[List[Dict[str, Any]]] = None) -> None:
+        """Publish local tools plus optional remote tools to the LLM client."""
         core_bot = self._get_core_bot()
         self._register_local_runtime_tools()
-        tools = self.get_registry(self.handler).collect_tool_defs()
+        tools = self._get_runtime_state().registry_service.collect_tool_defs()
+        if extra_tools:
+            tools.extend(extra_tools)
 
         core_bot.llm_client.set_tools(tools)
-        core_bot.llm_client.set_tool_executor(self.handler._execute_tool)
+        core_bot.llm_client.set_tool_executor(core_bot.execute_tool)
 
-        logger.info(f"Basic tools registered: {len(tools)}")
+        logger.info(f"Tools registered: {len(tools)}")
 
     async def ensure_mcp_connected(self) -> None:
         """Connect MCP lazily and merge remote tools into the LLM tool list."""
@@ -428,18 +353,14 @@ class ToolRuntime:
                     desc = tool_func.get("description", "No description")
                     logger.debug(f"  - [MCP Tool] {name}: {desc}")
 
-                self._register_local_runtime_tools()
-                all_tools = self.get_registry(self.handler).collect_tool_defs()
-                all_tools.extend(mcp_tools)
-
-                core_bot.llm_client.set_tools(all_tools)
+                self._publish_tools(mcp_tools)
                 logger.info(
-                    f"Updated tools: {len(all_tools)} total including {len(mcp_tools)} MCP tools"
+                    f"Updated tools: local + {len(mcp_tools)} MCP tools"
                 )
             except Exception as error:
                 logger.error(f"Failed to connect MCP client: {error}")
                 state.mcp_connected = False
-                self.setup_basic_tools()
+                self._publish_tools()
 
 
 class ToolExecutor:

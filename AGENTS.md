@@ -173,6 +173,44 @@ message = f"Processing {item_type} with ID {item_id}"
 - Use `@staticmethod` only for methods that do not need instance state
 - Keep methods focused and single-purpose
 
+## Architecture Ownership and Refactor Style
+
+### Ownership Boundary
+- `adapter` is the transport / I/O boundary and should only own platform-specific ingress, egress, formatting, and delivery behavior
+- `core` owns system behavior, runtime wiring, approval flow, session flow, tool execution, and file-delivery policy
+- Practical rule: if code would still matter after removing Telegram, it belongs in `core`
+- If code depends on Telegram update/message/output semantics, it belongs in `adapter`
+
+### Where New Code Should Go
+- Move ownership to `core` before adding new adapter helpers
+- Do not let adapter-side code accumulate stateful workflow logic that is not inherently Telegram-specific
+- Keep Telegram controllers and adapter services thin: they should assemble boundary services and delegate to `core`
+- Prefer adding new behavior to existing core owners before introducing a new layer
+
+### Refactor Direction
+- Prefer deleting thin pass-through wrappers when they do not protect a real boundary
+- Prefer collapsing short-lived transitional seams after ownership has stabilized
+- Reduce duplicated `create_*`, `get_*`, and `attach_*` scaffolding when it adds ceremony more than clarity
+- Do not reintroduce adapter-side runtime/manager/host/bridge layers for core behavior
+- Do not introduce new façade/host/helper layers unless they clearly own distinct state, lifecycle, or policy
+
+### Runtime Shape
+- Keep `CoreBot` as the direct core runtime entry surface
+- Keep adapter controllers focused on boundary orchestration, not business ownership
+- Keep tool/runtime ownership inside `core`, especially in `core.tools` and `core.bot`
+
+### Refactor Style
+- Prefer small, low-risk simplification steps over speculative rewrites
+- Optimize for reducing redundant abstraction layers
+- Keep registrations and state access direct when extra indirection adds no ownership clarity
+- Avoid splitting modules only for cosmetic reasons; split only when ownership becomes clearer
+- Prefer deleting obsolete compatibility layers instead of preserving them indefinitely
+
+### Tests During Refactors
+- Update tests to target the real owner of behavior, not historical shells
+- For architecture cleanup, prefer focused regression coverage before broad rewrites
+- Keep the existing Telegram/Core regression set healthy when changing ownership boundaries
+
 ### File Structure
 - `src/` - All Python source code
 - `src/core/` - Application coordination (`approval.py`, `config.py`, `conversation.py`, `database.py`, `scheduler.py`, `tools.py`)

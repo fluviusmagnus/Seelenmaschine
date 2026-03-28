@@ -1,10 +1,13 @@
 from typing import Any
 
-from adapter.telegram.delivery import send_segmented_text, typing_indicator
+from adapter.telegram.delivery import (
+    TelegramAccessGuard,
+    TelegramResponseSender,
+    typing_indicator,
+)
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from adapter.telegram.files import TelegramFiles
 from core.approval import ApprovalService
 from utils.logger import get_logger
 
@@ -14,15 +17,73 @@ logger = get_logger()
 class TelegramMessages:
     """Handle Telegram messages, files, and scheduled callbacks."""
 
-    def __init__(self, handler: Any):
-        self.handler = handler
+    def __init__(
+        self,
+        *,
+        core_bot: Any,
+        access_guard: TelegramAccessGuard,
+        approval_service: Any,
+        files: Any,
+        response_sender: TelegramResponseSender,
+        preview_text: Any,
+        format_exception_for_user: Any,
+        intermediate_callback: Any,
+    ):
+        self.core_bot = core_bot
+        self.access_guard = access_guard
+        self.approval_service = approval_service
+        self.files = files
+        self.response_sender = response_sender
+        self.preview_text = preview_text
+        self.format_exception_for_user = format_exception_for_user
+        self.intermediate_callback = intermediate_callback
 
-    async def handle_scheduled_message(
-        self, message: str, task_name: str = "Scheduled Task"
-    ) -> str:
-        """Handle a scheduled task callback through the conversation pipeline."""
-        logger.info(f"Processing scheduled task '{task_name}': {message[:50]}...")
-        return await self.process_scheduled_task(message, task_name)
+    async def send_scheduled_message(
+        self,
+        application: Any,
+        message: str,
+        task_name: str = "Scheduled Task",
+    ) -> None:
+        """Process a scheduled task and send the result through the bot."""
+        if not application:
+            logger.error("Cannot send scheduled message: application not initialized")
+            return
+
+        try:
+            async with typing_indicator(
+                lambda: application.bot.send_chat_action(
+                    chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                    action="typing",
+                ),
+                "Scheduled typing indicator failed",
+            ):
+                logger.info(
+                    f"Processing scheduled task '{task_name}': {message[:50]}..."
+                )
+                response = await self.process_scheduled_task(message, task_name)
+                await self.response_sender.send_bot_text(
+                    telegram_bot=application.bot,
+                    chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                    text=response,
+                    html_warning_template=(
+                        "HTML parsing failed for scheduled segment {index}, "
+                        "sending plain text: {error}"
+                    ),
+                    fatal_error_template=(
+                        "Failed to send scheduled segment {index}: {error}"
+                    ),
+                    preview_text=self.preview_text,
+                    debug_prefix="Sent scheduled segment",
+                )
+                logger.info(
+                    "Scheduled task response sent: " f"{self.preview_text(response)}"
+                )
+        except Exception as error:
+            logger.error(
+                f"Failed to process/send scheduled message: {error}",
+                exc_info=True,
+            )
+            raise
 
     async def handle_message(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -31,26 +92,20 @@ class TelegramMessages:
         if not update.effective_user or not update.message or not update.message.text:
             return
 
-        user_id = update.effective_user.id
-        if user_id != self.handler.core_bot.config.TELEGRAM_USER_ID:
-            await update.message.reply_text("Unauthorized access.")
-            logger.warning(f"Unauthorized message from user {user_id}")
+        if await self.access_guard.reject_unauthorized(
+            update,
+            log_message="Unauthorized message",
+        ):
             return
 
         user_message = update.message.text
         logger.info(f"Received message: {user_message[:50]}...")
 
-        approval_service = getattr(self.handler, "_approval_service", None)
+        approval_service = self.approval_service
         if isinstance(approval_service, ApprovalService):
             pending_request = approval_service.abort_pending()
         else:
-            pending_request = self.handler._pending_approval
-            if pending_request and not pending_request.future.done():
-                pending_request.future.set_result(False)
-                logger.info(
-                    "Pending approval aborted by non-/approve user message: "
-                    f"tool={pending_request.tool_name}, reason={pending_request.reason}"
-                )
+            pending_request = None
 
         if pending_request is not None:
             await update.message.reply_text("❌ Pending action aborted.")
@@ -66,65 +121,49 @@ class TelegramMessages:
                 response = await self.process_message(user_message)
                 logger.info(
                     "Prepared final text for Telegram reply: "
-                    f"{self.handler._preview_text(response)}"
+                    f"{self.preview_text(response)}"
                 )
-                formatted_response = self.handler._format_response_for_telegram(
-                    response
-                )
-                segments = self.handler._split_message_into_segments(formatted_response)
-                logger.info(
-                    f"Sending {len(segments)} Telegram segment(s) for text message"
-                )
-
-                await send_segmented_text(
-                    segments=segments,
-                    send_html=lambda segment: update.message.reply_text(
-                        segment, parse_mode="HTML"
-                    ),
-                    send_plain=update.message.reply_text,
+                await self.response_sender.send_reply_text(
+                    reply_text=update.message.reply_text,
+                    text=response,
                     html_warning_template=(
                         "HTML parsing failed for segment {index}, "
                         "sending as plain text: {error}"
                     ),
                     fatal_error_template="Failed to send segment {index}: {error}",
+                    preview_text=self.preview_text,
+                    debug_prefix="Sending Telegram text segment",
                 )
         except Exception as error:
             logger.error(f"Error handling message: {error}", exc_info=True)
             await update.message.reply_text(
                 "Sorry, an error occurred while processing your message.\n\n"
-                f"Details: {self.handler._format_exception_for_user(error)}"
+                f"Details: {self.format_exception_for_user(error)}"
             )
 
     async def handle_file(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        files = getattr(self.handler, "_files", None)
-        if not isinstance(files, TelegramFiles):
-            files = TelegramFiles(
-                config=self.handler.core_bot.config,
-                memory=self.handler.core_bot.memory,
-            )
-        await files.handle_file(
+        await self.files.handle_file(
             update=update,
             context=context,
             process_message=self.process_message,
-            format_response_for_telegram=self.handler._format_response_for_telegram,
-            split_message_into_segments=self.handler._split_message_into_segments,
-            preview_text=self.handler._preview_text,
-            format_exception_for_user=self.handler._format_exception_for_user,
+            response_sender=self.response_sender,
+            preview_text=self.preview_text,
+            format_exception_for_user=self.format_exception_for_user,
         )
 
     async def process_message(self, user_message: str) -> str:
-        return await self.handler.core_bot.process_message(
+        return await self.core_bot.process_message(
             user_message,
-            intermediate_callback=self.handler._send_intermediate_response,
+            intermediate_callback=self.intermediate_callback,
         )
 
     async def process_scheduled_task(
         self, task_message: str, task_name: str = "Scheduled Task"
     ) -> str:
-        return await self.handler.core_bot.process_scheduled_task(
+        return await self.core_bot.process_scheduled_task(
             task_message,
             task_name,
-            intermediate_callback=self.handler._send_intermediate_response,
+            intermediate_callback=self.intermediate_callback,
         )

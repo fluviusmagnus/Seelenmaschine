@@ -1,4 +1,4 @@
-"""Test for MessageHandler with message processing"""
+"""Test for TelegramController with message processing."""
 
 import sys
 import json
@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
 
-from adapter.telegram.handlers import MessageHandler
+from adapter.telegram.controller import TelegramController
+from adapter.telegram.formatter import TelegramResponseFormatter
 from core.bot import CoreBot
 
 
@@ -116,8 +117,8 @@ def core_bot(
 def test_message_handler_initialization(
     core_bot,
 ):
-    """Test MessageHandler initializes correctly"""
-    handler = MessageHandler(core_bot=core_bot)
+    """Test TelegramController initializes correctly"""
+    handler = TelegramController(core_bot=core_bot)
 
     assert handler.core_bot.config is not None
     assert handler.core_bot.db is not None
@@ -130,11 +131,10 @@ def test_message_handler_initialization(
 async def test_process_message(
     core_bot,
 ):
-    """Test _process_message flow"""
-    handler = MessageHandler(core_bot=core_bot)
+    """Test message processing flow via the Telegram message service."""
+    handler = TelegramController(core_bot=core_bot)
 
-    # Test processing a message
-    response = await handler._process_message("Hello, how are you?")
+    response = await handler.messages.process_message("Hello, how are you?")
 
     # Verify the response
     assert response == "This is a test response"
@@ -156,7 +156,7 @@ async def test_handle_message(
     core_bot,
 ):
     """Test handle_message with Telegram update"""
-    handler = MessageHandler(core_bot=core_bot)
+    handler = TelegramController(core_bot=core_bot)
 
     # Mock Telegram update with AsyncMock for async methods
     update = Mock()
@@ -181,7 +181,7 @@ async def test_handle_new_session(
     core_bot,
 ):
     """Test /new command handler"""
-    handler = MessageHandler(core_bot=core_bot)
+    handler = TelegramController(core_bot=core_bot)
 
     # Mock Telegram update with AsyncMock
     update = Mock()
@@ -190,13 +190,8 @@ async def test_handle_new_session(
 
     context = Mock()
 
-    # Mock the async version of new_session
-    handler.core_bot.memory.new_session_async = AsyncMock(return_value=2)
+    await handler.commands.handle_new_session(update, context)
 
-    # Handle new session command
-    await handler.handle_new_session(update, context)
-
-    # Verify new session was created (should call async version)
     handler.core_bot.memory.new_session_async.assert_called_once()
     update.message.reply_text.assert_called_once()
 
@@ -206,7 +201,7 @@ async def test_handle_reset_session(
     core_bot,
 ):
     """Test /reset command handler"""
-    handler = MessageHandler(core_bot=core_bot)
+    handler = TelegramController(core_bot=core_bot)
 
     # Mock Telegram update with AsyncMock
     update = Mock()
@@ -215,8 +210,7 @@ async def test_handle_reset_session(
 
     context = Mock()
 
-    # Handle reset session command
-    await handler.handle_reset_session(update, context)
+    await handler.commands.handle_reset_session(update, context)
 
     # Verify session was reset
     handler.core_bot.memory.reset_session.assert_called_once()
@@ -227,19 +221,18 @@ def test_execute_tool_memory_search(
     core_bot,
 ):
     """Test tool execution for memory search"""
-    handler = MessageHandler(core_bot=core_bot)
+    handler = TelegramController(core_bot=core_bot)
 
-    # Mock memory search tool and update the registry
     memory_search_tool = Mock()
     memory_search_tool.name = "search_memories"
     memory_search_tool.execute = AsyncMock(return_value="Found memories")
-    handler.tool_runtime_state.memory_search_tool = memory_search_tool
-    handler._tool_registry["search_memories"] = memory_search_tool
+    handler.core_bot.tool_runtime_state.registry_service.register_named(
+        "search_memories", memory_search_tool
+    )
 
-    # Execute tool (should await the result)
     import asyncio
 
-    result = asyncio.run(handler._execute_tool("search_memories", '{"query": "test"}'))
+    result = asyncio.run(core_bot.execute_tool("search_memories", '{"query": "test"}'))
 
     assert result == "Found memories"
     memory_search_tool.execute.assert_called_once_with(query="test")
@@ -258,11 +251,11 @@ def test_query_tool_history_is_not_self_logged(
     core_bot,
 ):
     """query_tool_history should not create recursive log entries."""
-    handler = MessageHandler(core_bot=core_bot)
+    handler = TelegramController(core_bot=core_bot)
 
     import asyncio
 
-    result = asyncio.run(handler._execute_tool("query_tool_history", "{}"))
+    result = asyncio.run(core_bot.execute_tool("query_tool_history", "{}"))
 
     assert "No tool history records found." in result
     trace_path = handler.core_bot.config.DATA_DIR / "tool_traces.jsonl"
@@ -273,16 +266,18 @@ def test_query_tool_history_is_not_self_logged(
 @pytest.mark.asyncio
 async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
     """Non-dangerous tool calls should proactively notify the Telegram user."""
-    handler = MessageHandler(core_bot=core_bot)
+    handler = TelegramController(core_bot=core_bot)
     handler.telegram_bot = Mock()
     handler.telegram_bot.send_message = AsyncMock()
 
     read_tool = Mock()
     read_tool.name = "read_file"
     read_tool.execute = AsyncMock(return_value="file content")
-    handler._tool_registry["read_file"] = read_tool
+    handler.core_bot.tool_runtime_state.registry_service.register_named(
+        "read_file", read_tool
+    )
 
-    result = await handler._execute_tool("read_file", '{"file_path": "notes.txt"}')
+    result = await core_bot.execute_tool("read_file", '{"file_path": "notes.txt"}')
     await __import__("asyncio").sleep(0)
 
     assert result == "file content"
@@ -295,6 +290,13 @@ async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
     ]
     assert any("Tool execution:" in text for text in sent_texts)
     assert any("read_file" in text for text in sent_texts)
+
+
+def test_formatter_module_replaces_handler_format_wrapper():
+    """Formatting should now be tested through the formatter directly."""
+    formatter = TelegramResponseFormatter()
+
+    assert formatter.format_response("**hi**", debug_mode=True) == "<b>hi</b>"
 
 
 if __name__ == "__main__":

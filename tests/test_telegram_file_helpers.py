@@ -9,7 +9,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from adapter.telegram.files import TelegramFiles
+from adapter.telegram.formatter import TelegramResponseFormatter
+from adapter.telegram.delivery import TelegramAccessGuard, TelegramResponseSender
 from adapter.telegram.messages import TelegramMessages
+from core.file_delivery_service import FileDeliveryService
 
 
 @pytest.fixture
@@ -18,6 +21,7 @@ def config(tmp_path):
         TELEGRAM_USER_ID=123456789,
         WORKSPACE_DIR=tmp_path,
         MEDIA_DIR=tmp_path / "media",
+        DEBUG_MODE=False,
     )
 
 
@@ -30,31 +34,42 @@ def memory():
 
 @pytest.fixture
 def files_helper(config, memory):
-    return TelegramFiles(config=config, memory=memory)
+    return TelegramFiles(config=config)
 
 
 @pytest.fixture
 def message_handler(config, memory):
     handler = Mock()
-    handler.config = config
-    handler.memory = memory
     handler.core_bot = Mock()
+    handler.core_bot.config = config
+    handler.core_bot.memory = memory
     handler.core_bot.process_message = AsyncMock(return_value="LLM file response")
     handler.core_bot.process_scheduled_task = AsyncMock(return_value="LLM scheduled")
     handler._send_intermediate_response = AsyncMock()
-    handler._format_response_for_telegram = Mock(return_value="Formatted response")
-    handler._split_message_into_segments = Mock(return_value=["Segment 1"])
     handler._preview_text = Mock(
         side_effect=lambda text, max_length=120: text[:max_length]
     )
     handler._format_exception_for_user = Mock(side_effect=str)
-    handler._files = TelegramFiles(config=config, memory=memory)
     return handler
 
 
 @pytest.fixture
 def messages_helper(message_handler):
-    return TelegramMessages(message_handler)
+    return TelegramMessages(
+        core_bot=message_handler.core_bot,
+        access_guard=TelegramAccessGuard(message_handler.core_bot.config),
+        approval_service=None,
+        files=TelegramFiles(
+            config=message_handler.core_bot.config,
+        ),
+        response_sender=TelegramResponseSender(
+            config=message_handler.core_bot.config,
+            formatter=TelegramResponseFormatter(),
+        ),
+        preview_text=message_handler._preview_text,
+        format_exception_for_user=message_handler._format_exception_for_user,
+        intermediate_callback=message_handler._send_intermediate_response,
+    )
 
 
 @pytest.fixture
@@ -135,7 +150,7 @@ class TestTelegramMessages:
         assert "Original filename: report.pdf" in processed_message
         assert "Saved to:" in processed_message
         mock_update_with_document.message.reply_text.assert_called_once_with(
-            "Segment 1", parse_mode="HTML"
+            "LLM file response", parse_mode="HTML"
         )
 
     @pytest.mark.asyncio
@@ -150,7 +165,7 @@ class TestTelegramMessages:
         assert response == "reply"
         message_handler.core_bot.process_message.assert_awaited_once_with(
             "hello",
-            intermediate_callback=message_handler._send_intermediate_response,
+            intermediate_callback=messages_helper.intermediate_callback,
         )
 
     @pytest.mark.asyncio
@@ -215,7 +230,13 @@ class TestTelegramFiles:
         telegram_bot.send_audio = AsyncMock()
         telegram_bot.send_voice = AsyncMock()
 
-        result = await files_helper.send_file_to_user(
+        service = FileDeliveryService(
+            config=config,
+            memory=memory,
+            telegram_files=files_helper,
+        )
+
+        result = await service.send_file_to_user(
             telegram_bot=telegram_bot,
             file_path=str(image_path),
             caption="最新图表",
@@ -233,6 +254,11 @@ class TestTelegramFiles:
 
     @pytest.mark.asyncio
     async def test_send_file_to_user_routes_by_media_type(self, files_helper, config):
+        service = FileDeliveryService(
+            config=config,
+            memory=Mock(add_assistant_message_async=AsyncMock()),
+            telegram_files=files_helper,
+        )
         telegram_bot = Mock()
         telegram_bot.send_photo = AsyncMock()
         telegram_bot.send_document = AsyncMock()
@@ -249,16 +275,16 @@ class TestTelegramFiles:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"binary")
 
-        await files_helper.send_file_to_user(
+        await service.send_file_to_user(
             telegram_bot=telegram_bot, file_path=str(video_path)
         )
-        await files_helper.send_file_to_user(
+        await service.send_file_to_user(
             telegram_bot=telegram_bot, file_path=str(audio_path)
         )
-        await files_helper.send_file_to_user(
+        await service.send_file_to_user(
             telegram_bot=telegram_bot, file_path=str(voice_path)
         )
-        await files_helper.send_file_to_user(
+        await service.send_file_to_user(
             telegram_bot=telegram_bot, file_path=str(document_path)
         )
 
@@ -271,12 +297,17 @@ class TestTelegramFiles:
     async def test_send_file_to_user_rejects_outside_workspace(
         self, files_helper, config
     ):
+        service = FileDeliveryService(
+            config=config,
+            memory=Mock(add_assistant_message_async=AsyncMock()),
+            telegram_files=files_helper,
+        )
         telegram_bot = Mock()
         outside_file = config.WORKSPACE_DIR.parent / "outside.txt"
         outside_file.write_text("x", encoding="utf-8")
 
         with pytest.raises(ValueError, match="outside allowed directories"):
-            await files_helper.send_file_to_user(
+            await service.send_file_to_user(
                 telegram_bot=telegram_bot,
                 file_path=str(outside_file),
             )
