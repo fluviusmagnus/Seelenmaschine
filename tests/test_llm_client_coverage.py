@@ -5,9 +5,8 @@ This module tests methods not covered by existing tests to increase coverage.
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 import pytest
-import json
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -101,20 +100,6 @@ class TestLLMClientToolsManagement:
                         assert tools == mock_tools
 
 
-class TestLLMClientBuildMessages:
-    """Test message building methods"""
-    
-    @pytest.mark.skip(reason="Requires complex message structure mocking")
-    def test_build_chat_messages_basic(self):
-        """Test _build_chat_messages with basic input"""
-        pass
-    
-    @pytest.mark.skip(reason="Requires complex message structure mocking")
-    def test_build_chat_messages_with_retrieved(self):
-        """Test _build_chat_messages with retrieved memories"""
-        pass
-
-
 class TestLLMClientClose:
     """Test close methods"""
     
@@ -153,30 +138,6 @@ class TestLLMClientClose:
                         
                         # Should complete without error
                         assert True
-
-
-class TestLLMClientGenerationMethods:
-    """Test generation methods (generate_summary, generate_memory_update)"""
-    
-    @pytest.mark.skip(reason="Requires async OpenAI mocking")
-    def test_generate_summary(self):
-        """Test generate_summary method"""
-        from llm.chat_client import LLMClient
-        
-        # This would test the generate_summary method
-        # Requires mocking the async OpenAI client
-        pass
-    
-    @pytest.mark.skip(reason="Requires async OpenAI mocking")
-    def test_generate_memory_update(self):
-        """Test generate_memory_update method"""
-        from llm.chat_client import LLMClient
-        
-        # This would test the generate_memory_update method
-        # Requires mocking the async OpenAI client
-        pass
-
-
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

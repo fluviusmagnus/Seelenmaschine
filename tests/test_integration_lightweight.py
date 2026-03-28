@@ -5,11 +5,10 @@ These tests verify complete workflows without external dependencies.
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch
 import pytest
 import json
 import tempfile
-import os
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,13 +30,6 @@ def test_environment():
 
 class TestMemoryIntegrationLightweight:
     """Lightweight memory integration tests"""
-    
-    @pytest.mark.skip(reason="Requires full database initialization")
-    def test_message_storage_and_retrieval(self, test_environment):
-        """Test storing messages and retrieving them"""
-        # This test requires proper database initialization
-        # Skipped due to complex initialization requirements
-        pass
 
 
 class TestContextWindowIntegration:
@@ -45,7 +37,7 @@ class TestContextWindowIntegration:
     
     def test_message_addition_and_retrieval(self):
         """Test adding messages and retrieving context"""
-        from memory.context import ContextWindow, Message
+        from memory.context import ContextWindow
         
         ctx = ContextWindow()
         
@@ -69,7 +61,7 @@ class TestPromptBuildingIntegration:
     
     def test_system_prompt_with_seele_data(self, tmp_path):
         """Test building system prompt with actual seele.json"""
-        from prompts import get_cacheable_system_prompt, _seele_json_cache
+        from prompts import get_cacheable_system_prompt
         import prompts
         
         # Create test seele.json
@@ -134,13 +126,6 @@ class TestTimeFormattingIntegration:
 
 class TestConfigIntegration:
     """Test configuration loading and validation"""
-    
-    @pytest.mark.skip(reason="Requires proper config initialization")
-    def test_config_with_env_file(self, tmp_path):
-        """Test loading config from .env file"""
-        # This test requires proper config initialization
-        # Skipped due to complex initialization requirements
-        pass
 
 
 class TestJsonPatchIntegration:

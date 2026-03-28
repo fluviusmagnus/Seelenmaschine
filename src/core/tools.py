@@ -3,11 +3,89 @@
 import html
 import json
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from tools.file_io import (
+    AppendFileTool,
+    ReadFileTool,
+    ReplaceFileContentTool,
+    WriteFileTool,
+)
+from tools.file_search import GlobSearchTool, GrepSearchTool
+from tools.memory_search import MemorySearchTool
+from tools.mcp_client import MCPClient
+from tools.scheduled_tasks import ScheduledTaskTool
+from tools.shell import is_dangerous_command
+from tools.shell import ShellCommandTool
+from tools.send_telegram_file import SendTelegramFileTool
+from tools.tool_trace import ToolTraceQueryTool, ToolTraceStore
 from utils.logger import get_logger
 
 logger = get_logger()
+
+
+class ToolSafetyPolicy:
+    """Evaluate whether a tool action requires explicit user approval."""
+
+    _PATH_GUARDED_TOOLS = {
+        "write_file": "file_path",
+        "replace_file_content": "file_path",
+        "append_file": "file_path",
+        "read_file": "file_path",
+        "grep_search": "path",
+        "glob_search": "path",
+    }
+
+    def __init__(self, config: Any):
+        self.config = config
+
+    def is_path_outside_allowed_dirs(self, target_path: str) -> bool:
+        """Check whether a path resolves outside workspace/media allowed dirs."""
+        if not target_path:
+            return False
+        try:
+            candidate = Path(target_path).expanduser()
+            if not candidate.is_absolute():
+                candidate = Path(self.config.WORKSPACE_DIR) / candidate
+            resolved = candidate.resolve(strict=False)
+            allowed_dirs = [
+                Path(self.config.WORKSPACE_DIR).resolve(),
+                Path(self.config.MEDIA_DIR).resolve(),
+            ]
+
+            for allowed_dir in allowed_dirs:
+                try:
+                    resolved.relative_to(allowed_dir)
+                    return False
+                except ValueError:
+                    continue
+
+            return True
+        except Exception as error:
+            logger.error(f"Error checking path bounds: {error}")
+            return True
+
+    def is_dangerous_action(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> tuple[bool, str]:
+        """Determine whether a tool call requires user approval."""
+        if tool_name == "execute_shell_command":
+            cmd = arguments.get("command", "")
+            dangerous, category = is_dangerous_command(cmd)
+            if dangerous:
+                return True, f"shell_threat:{category}"
+
+            cwd = arguments.get("cwd", "")
+            if cwd and self.is_path_outside_allowed_dirs(cwd):
+                return True, "file_outside_workspace"
+
+        path_argument = self._PATH_GUARDED_TOOLS.get(tool_name)
+        if path_argument:
+            if self.is_path_outside_allowed_dirs(arguments.get(path_argument, "")):
+                return True, "file_outside_workspace"
+
+        return False, ""
 
 
 class ToolRegistry:
@@ -37,6 +115,10 @@ class ToolRegistry:
         """Return a shallow dict copy of the registered tools."""
         return dict(self._tools)
 
+    def items(self):
+        """Iterate over registered tool name/tool pairs."""
+        return self._tools.items()
+
     @staticmethod
     def make_tool_def(tool: Any) -> Dict[str, Any]:
         """Build an OpenAI-format tool definition from a tool instance."""
@@ -54,167 +136,291 @@ class ToolRegistry:
         return [self.make_tool_def(tool) for tool in self._tools.values()]
 
 
+class ToolTraceService:
+    """Persist tool execution traces and classify their outcome."""
+
+    def __init__(
+        self,
+        *,
+        store: Any,
+        get_current_session_id: Callable[[], Any],
+    ) -> None:
+        self.store = store
+        self.get_current_session_id = get_current_session_id
+
+    @staticmethod
+    def infer_status(result: Any) -> str:
+        """Classify a tool result into success/error for logging."""
+        result_text = str(result)
+        if result_text.startswith("Error:") or result_text.startswith("Command failed"):
+            return "error"
+        return "success"
+
+    async def record_trace(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result: Any,
+        status: str,
+        duration_ms: int,
+        approval_required: bool,
+        approved_by_user: bool,
+    ) -> None:
+        """Persist a tool execution trace unless the trace-query tool triggered it."""
+        if tool_name == "query_tool_history":
+            return
+        if self.store is None:
+            return
+
+        try:
+            session_id = self.get_current_session_id()
+            self.store.append_trace(
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                status=status,
+                duration_ms=duration_ms,
+                approval_required=approval_required,
+                approved_by_user=approved_by_user,
+            )
+        except Exception as error:
+            logger.warning(f"Failed to persist tool trace for {tool_name}: {error}")
+
+
+class ToolRuntimeState:
+    """Own the mutable bookkeeping state used by the tool runtime."""
+
+    def __init__(
+        self,
+        *,
+        config: Any,
+        get_current_session_id: Callable[[], Any],
+    ) -> None:
+        self.tool_trace_store = ToolRuntime.create_tool_trace_store(config.DATA_DIR)
+        self.tool_trace_query_tool = ToolRuntime.create_tool_trace_query_tool(
+            self.tool_trace_store,
+            get_current_session_id,
+        )
+        self.tool_trace_service = ToolTraceService(
+            store=self.tool_trace_store,
+            get_current_session_id=get_current_session_id,
+        )
+        self.legacy_registry: Dict[str, Any] = {}
+        self.registry_service = ToolRegistry()
+        self.safety_policy = ToolSafetyPolicy(config)
+        self.memory_search_tool: Any = None
+        self.scheduled_task_tool: Any = None
+        self.send_telegram_file_tool: Any = None
+        self.mcp_client: Any = None
+        self.mcp_connected = False
+
+
 class ToolRuntime:
     """Configure the LLM tool runtime and optional MCP integration."""
 
     def __init__(
         self,
         handler: Any,
-        memory_search_tool_cls: Any,
-        mcp_client_cls: Any,
     ):
         self.handler = handler
-        self.memory_search_tool_cls = memory_search_tool_cls
-        self.mcp_client_cls = mcp_client_cls
+
+    def _get_core_bot(self) -> Any:
+        """Return the core bot dependency owner attached to the adapter."""
+        core_bot = getattr(self.handler, "core_bot", None)
+        if core_bot is None:
+            raise RuntimeError("CoreBot has not been attached to the handler")
+        return core_bot
+
+    def _get_runtime_state(self) -> ToolRuntimeState:
+        """Return the core-owned mutable tool runtime state."""
+        state = getattr(
+            getattr(self.handler, "core_bot", None), "tool_runtime_state", None
+        )
+        if not isinstance(state, ToolRuntimeState):
+            raise RuntimeError("Tool runtime state has not been initialized on CoreBot")
+        return state
+
+    @staticmethod
+    def create_tool_trace_store(data_dir: Any) -> ToolTraceStore:
+        """Create the persistent tool trace store."""
+        return ToolTraceStore(data_dir)
+
+    @staticmethod
+    def create_tool_trace_query_tool(
+        store: ToolTraceStore,
+        get_current_session_id: Callable[[], Any],
+    ) -> ToolTraceQueryTool:
+        """Create the tool-history query helper."""
+        return ToolTraceQueryTool(store, get_current_session_id)
+
+    @staticmethod
+    def get_registry(handler: Any) -> ToolRegistry:
+        """Return the canonical tool registry and backfill legacy registrations."""
+        state = getattr(getattr(handler, "core_bot", None), "tool_runtime_state", None)
+        registry_service = getattr(state, "registry_service", None)
+        if registry_service is None:
+            registry_service = getattr(handler, "_tool_registry_service", None)
+        if not isinstance(registry_service, ToolRegistry):
+            registry_service = ToolRegistry()
+            if isinstance(state, ToolRuntimeState):
+                state.registry_service = registry_service
+            else:
+                try:
+                    setattr(handler, "_tool_registry_service", registry_service)
+                except Exception:
+                    pass
+
+        legacy_registry = (
+            getattr(state, "legacy_registry", None)
+            if isinstance(state, ToolRuntimeState)
+            else getattr(handler, "_tool_registry", {})
+        )
+        for registered_name, tool in (legacy_registry or {}).items():
+            registry_service.register_named(registered_name, tool)
+
+        return registry_service
+
+    @staticmethod
+    def register_tool_instance(
+        handler: Any, tool: Any, tool_name: Optional[str] = None
+    ) -> None:
+        """Register a tool in the canonical registry and mirror it for compatibility."""
+        registry_name = tool_name or tool.name
+        state = getattr(getattr(handler, "core_bot", None), "tool_runtime_state", None)
+        if isinstance(state, ToolRuntimeState):
+            state.legacy_registry[registry_name] = tool
+        elif hasattr(handler, "_tool_registry"):
+            handler._tool_registry[registry_name] = tool
+        ToolRuntime.get_registry(handler).register_named(registry_name, tool)
+
+    def _register_stateful_tool(
+        self, *, state_attr: str, factory: Callable[[], Any], label: str
+    ) -> None:
+        """Create and register a core-owned tool instance."""
+        state = self._get_runtime_state()
+        try:
+            tool = factory()
+            setattr(state, state_attr, tool)
+            self.register_tool_instance(self.handler, tool)
+            logger.info(f"Registered {label} tool")
+        except Exception as error:
+            logger.error(f"Failed to register {label} tool: {error}")
+            setattr(state, state_attr, None)
+
+    def _register_optional_tool_instance(self, tool: Any) -> None:
+        """Register a tool instance when present."""
+        if tool:
+            self.register_tool_instance(self.handler, tool)
+
+    def _ensure_memory_search_tool(self) -> Any:
+        """Create the memory search tool lazily when the handler has not built it yet."""
+        state = self._get_runtime_state()
+        core_bot = self._get_core_bot()
+        if state.memory_search_tool is None:
+            session_id = core_bot.memory.get_current_session_id()
+            state.memory_search_tool = MemorySearchTool(
+                session_id=str(session_id),
+                db=core_bot.db,
+                embedding_client=core_bot.embedding_client,
+                reranker_client=core_bot.reranker_client,
+            )
+        return state.memory_search_tool
+
+    def _register_local_runtime_tools(self) -> None:
+        """Ensure every local runtime tool is present in the registry."""
+        state = self._get_runtime_state()
+        if state.tool_trace_query_tool:
+            self.register_tool_instance(self.handler, state.tool_trace_query_tool)
+            logger.info("Added query_tool_history tool")
+
+        memory_search_tool = self._ensure_memory_search_tool()
+        self._register_optional_tool_instance(memory_search_tool)
+        logger.info("Added memory_search tool")
+
+        if state.scheduled_task_tool:
+            self._register_optional_tool_instance(state.scheduled_task_tool)
+            logger.info("Added scheduled_task tool")
+
+        if state.send_telegram_file_tool:
+            self._register_optional_tool_instance(state.send_telegram_file_tool)
+            logger.info("Added send_telegram_file tool")
 
     def register_scheduled_task_tool(self) -> None:
         """Register the scheduled task tool on the handler."""
-        try:
-            self.handler.scheduled_task_tool = self.handler.scheduled_task_tool_cls(
-                self.handler.scheduler
-            )
-            self.handler.scheduled_task_tool_def = self.handler._make_tool_def(
-                self.handler.scheduled_task_tool
-            )
-            logger.info("Registered scheduled_task tool with scheduler")
-        except Exception as error:
-            logger.error(f"Failed to register scheduled_task tool: {error}")
-            self.handler.scheduled_task_tool = None
-            self.handler.scheduled_task_tool_def = None
+        core_bot = self._get_core_bot()
+        self._register_stateful_tool(
+            state_attr="scheduled_task_tool",
+            factory=lambda: ScheduledTaskTool(core_bot.scheduler),
+            label="scheduled_task",
+        )
 
     def register_send_telegram_file_tool(self) -> None:
         """Register the Telegram file sending tool on the handler."""
-        try:
-            self.handler.send_telegram_file_tool = (
-                self.handler.send_telegram_file_tool_cls(
-                    self.handler._send_telegram_file_to_user
+        self._register_stateful_tool(
+            state_attr="send_telegram_file_tool",
+            factory=lambda: SendTelegramFileTool(
+                lambda **kwargs: self.handler._files.send_file_to_user(
+                    telegram_bot=getattr(self.handler, "telegram_bot", None),
+                    **kwargs,
                 )
-            )
-            self.handler.send_telegram_file_tool_def = self.handler._make_tool_def(
-                self.handler.send_telegram_file_tool
-            )
-            logger.info("Registered send_telegram_file tool")
-        except Exception as error:
-            logger.error(f"Failed to register send_telegram_file tool: {error}")
-            self.handler.send_telegram_file_tool = None
-            self.handler.send_telegram_file_tool_def = None
+            ),
+            label="send_telegram_file",
+        )
 
     def register_builtin_tools(self) -> None:
         """Register builtin file and shell tools on the handler."""
         try:
-            self.handler.read_file_tool = self.handler.read_file_tool_cls()
-            self.handler.write_file_tool = self.handler.write_file_tool_cls()
-            self.handler.replace_file_content_tool = (
-                self.handler.replace_file_content_tool_cls()
-            )
-            self.handler.append_file_tool = self.handler.append_file_tool_cls()
-            self.handler.grep_search_tool = self.handler.grep_search_tool_cls()
-            self.handler.glob_search_tool = self.handler.glob_search_tool_cls()
-            self.handler.shell_command_tool = self.handler.shell_command_tool_cls()
-
             builtin_tools = [
-                self.handler.read_file_tool,
-                self.handler.write_file_tool,
-                self.handler.replace_file_content_tool,
-                self.handler.append_file_tool,
-                self.handler.grep_search_tool,
-                self.handler.glob_search_tool,
-                self.handler.shell_command_tool,
+                ReadFileTool(),
+                WriteFileTool(),
+                ReplaceFileContentTool(),
+                AppendFileTool(),
+                GrepSearchTool(),
+                GlobSearchTool(),
+                ShellCommandTool(),
             ]
             for tool in builtin_tools:
-                self.handler._tool_registry[tool.name] = tool
-            self.handler._tool_registry_service.register_many(builtin_tools)
+                self.register_tool_instance(self.handler, tool)
             logger.info("Registered builtin file and shell tools")
         except Exception as error:
             logger.error(f"Failed to register builtin tools: {error}")
 
-    def collect_builtin_tool_defs(self) -> List[Dict[str, Any]]:
-        """Collect OpenAI-format tool definitions for builtin tools."""
-        return self.handler._tool_registry_service.collect_tool_defs()
-
     def setup_tools(self) -> None:
         """Initialize MCP state and register basic tools with the LLM client."""
-        if self.handler.config.ENABLE_MCP:
-            self.handler.mcp_client = self.mcp_client_cls()
-            self.handler._mcp_connected = False
+        state = self._get_runtime_state()
+        core_bot = self._get_core_bot()
+        if core_bot.config.ENABLE_MCP:
+            state.mcp_client = MCPClient()
+            state.mcp_connected = False
         else:
-            self.handler.mcp_client = None
-            self.handler._mcp_connected = False
+            state.mcp_client = None
+            state.mcp_connected = False
 
         self.setup_basic_tools()
 
     def setup_basic_tools(self) -> None:
         """Register local tools and the executor in the LLM client."""
-        tools: List[Dict[str, Any]] = []
+        core_bot = self._get_core_bot()
+        self._register_local_runtime_tools()
+        tools = self.get_registry(self.handler).collect_tool_defs()
 
-        if self.handler.scheduled_task_tool_def:
-            tools.append(self.handler.scheduled_task_tool_def)
-            logger.info("Added scheduled_task tool")
-
-        if self.handler.send_telegram_file_tool_def:
-            tools.append(self.handler.send_telegram_file_tool_def)
-            logger.info("Added send_telegram_file tool")
-
-        if self.handler.tool_trace_query_tool:
-            self.handler._tool_registry[self.handler.tool_trace_query_tool.name] = (
-                self.handler.tool_trace_query_tool
-            )
-            self.handler._tool_registry_service.register(
-                self.handler.tool_trace_query_tool
-            )
-            logger.info("Added query_tool_history tool")
-
-        tools.extend(self.collect_builtin_tool_defs())
-
-        session_id = self.handler.memory.get_current_session_id()
-        if (
-            not hasattr(self.handler, "memory_search_tool")
-            or self.handler.memory_search_tool is None
-        ):
-            self.handler.memory_search_tool = self.memory_search_tool_cls(
-                session_id=str(session_id),
-                db=self.handler.db,
-                embedding_client=self.handler.embedding_client,
-                reranker_client=self.handler.reranker_client,
-            )
-
-        self.handler._tool_registry[self.handler.memory_search_tool.name] = (
-            self.handler.memory_search_tool
-        )
-        self.handler._tool_registry_service.register(self.handler.memory_search_tool)
-
-        if self.handler.scheduled_task_tool:
-            self.handler._tool_registry[self.handler.scheduled_task_tool.name] = (
-                self.handler.scheduled_task_tool
-            )
-            self.handler._tool_registry_service.register(
-                self.handler.scheduled_task_tool
-            )
-
-        if self.handler.send_telegram_file_tool:
-            self.handler._tool_registry[self.handler.send_telegram_file_tool.name] = (
-                self.handler.send_telegram_file_tool
-            )
-            self.handler._tool_registry_service.register(
-                self.handler.send_telegram_file_tool
-            )
-
-        tools.append(self.handler._make_tool_def(self.handler.memory_search_tool))
-        logger.info("Added memory_search tool")
-
-        self.handler.llm_client.set_tools(tools)
-        self.handler.llm_client.set_tool_executor(self.handler._execute_tool)
+        core_bot.llm_client.set_tools(tools)
+        core_bot.llm_client.set_tool_executor(self.handler._execute_tool)
 
         logger.info(f"Basic tools registered: {len(tools)}")
 
     async def ensure_mcp_connected(self) -> None:
         """Connect MCP lazily and merge remote tools into the LLM tool list."""
-        if self.handler.mcp_client and not self.handler._mcp_connected:
+        state = self._get_runtime_state()
+        core_bot = self._get_core_bot()
+        if state.mcp_client and not state.mcp_connected:
             try:
-                await self.handler.mcp_client.__aenter__()
-                self.handler._mcp_connected = True
+                await state.mcp_client.__aenter__()
+                state.mcp_connected = True
 
-                mcp_tools = await self.handler.mcp_client.list_tools()
+                mcp_tools = await state.mcp_client.list_tools()
                 logger.info(f"Connected MCP client with {len(mcp_tools)} tools")
                 for tool in mcp_tools:
                     tool_func = tool.get("function", {})
@@ -222,17 +428,17 @@ class ToolRuntime:
                     desc = tool_func.get("description", "No description")
                     logger.debug(f"  - [MCP Tool] {name}: {desc}")
 
-                all_tools: List[Dict[str, Any]] = []
-                all_tools.extend(self.collect_builtin_tool_defs())
+                self._register_local_runtime_tools()
+                all_tools = self.get_registry(self.handler).collect_tool_defs()
                 all_tools.extend(mcp_tools)
 
-                self.handler.llm_client.set_tools(all_tools)
+                core_bot.llm_client.set_tools(all_tools)
                 logger.info(
                     f"Updated tools: {len(all_tools)} total including {len(mcp_tools)} MCP tools"
                 )
             except Exception as error:
                 logger.error(f"Failed to connect MCP client: {error}")
-                self.handler._mcp_connected = False
+                state.mcp_connected = False
                 self.setup_basic_tools()
 
 
@@ -274,6 +480,114 @@ class ToolExecutor:
     def _elapsed_ms(start_time: float) -> int:
         """Convert a perf_counter start time into milliseconds."""
         return int((time.perf_counter() - start_time) * 1000)
+
+    async def _record_tool_result(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result: str,
+        start_time: float,
+        dangerous: bool,
+        approval_granted: bool,
+    ) -> None:
+        """Persist a successful or handled tool result to the trace log."""
+        await self.record_tool_trace(
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            status=self.infer_tool_trace_status(result),
+            duration_ms=self._elapsed_ms(start_time),
+            approval_required=dangerous,
+            approved_by_user=approval_granted,
+        )
+
+    async def _finalize_success(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result: str,
+        start_time: float,
+        dangerous: bool,
+        approval_granted: bool,
+        source_label: str,
+    ) -> str:
+        """Log, trace, and notify for a successful tool execution path."""
+        logger.info(
+            f"{source_label} tool execution finished: {tool_name}, "
+            f"preview={self.preview_text(result)}"
+        )
+        await self._record_tool_result(
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            start_time=start_time,
+            dangerous=dangerous,
+            approval_granted=approval_granted,
+        )
+        if approval_granted:
+            await self.notify_approved_action_finished(tool_name, result)
+        return result
+
+    async def _try_execute_registered_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        start_time: float,
+        dangerous: bool,
+        approval_granted: bool,
+    ) -> Optional[str]:
+        """Execute a locally registered tool when available."""
+        tool_instance = self.tool_registry.get(tool_name)
+        if tool_instance is None:
+            return None
+
+        result = await tool_instance.execute(**arguments)
+        return await self._finalize_success(
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            start_time=start_time,
+            dangerous=dangerous,
+            approval_granted=approval_granted,
+            source_label="Local",
+        )
+
+    async def _try_execute_mcp_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        start_time: float,
+        dangerous: bool,
+        approval_granted: bool,
+    ) -> Optional[str]:
+        """Execute an MCP tool when the remote registry contains it."""
+        if not self.mcp_client:
+            return None
+
+        if self.ensure_mcp_connected is not None:
+            await self.ensure_mcp_connected()
+
+        if not self.is_mcp_connected():
+            return None
+
+        mcp_tools = self.mcp_client.get_tools_sync()
+        if not any(t["function"]["name"] == tool_name for t in mcp_tools):
+            return None
+
+        result = await self.mcp_client.call_tool(tool_name, arguments)
+        return await self._finalize_success(
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            start_time=start_time,
+            dangerous=dangerous,
+            approval_granted=approval_granted,
+            source_label="MCP",
+        )
 
     async def execute_tool(self, tool_name: str, arguments_json: str) -> str:
         """Execute a tool call from the LLM."""
@@ -321,50 +635,25 @@ class ToolExecutor:
             approval_granted = True
 
         try:
-            tool_instance = self.tool_registry.get(tool_name)
-            if tool_instance is not None:
-                result = await tool_instance.execute(**arguments)
-                logger.info(
-                    f"Tool execution finished: {tool_name}, "
-                    f"preview={self.preview_text(result)}"
-                )
-                await self.record_tool_trace(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    result=result,
-                    status=self.infer_tool_trace_status(result),
-                    duration_ms=self._elapsed_ms(start_time),
-                    approval_required=dangerous,
-                    approved_by_user=approval_granted,
-                )
-                if approval_granted:
-                    await self.notify_approved_action_finished(tool_name, result)
+            result = await self._try_execute_registered_tool(
+                tool_name=tool_name,
+                arguments=arguments,
+                start_time=start_time,
+                dangerous=dangerous,
+                approval_granted=approval_granted,
+            )
+            if result is not None:
                 return result
 
-            if self.mcp_client:
-                if self.ensure_mcp_connected is not None:
-                    await self.ensure_mcp_connected()
-
-                if self.is_mcp_connected():
-                    mcp_tools = self.mcp_client.get_tools_sync()
-                    if any(t["function"]["name"] == tool_name for t in mcp_tools):
-                        result = await self.mcp_client.call_tool(tool_name, arguments)
-                        logger.info(
-                            f"MCP tool execution finished: {tool_name}, "
-                            f"preview={self.preview_text(result)}"
-                        )
-                        await self.record_tool_trace(
-                            tool_name=tool_name,
-                            arguments=arguments,
-                            result=result,
-                            status=self.infer_tool_trace_status(result),
-                            duration_ms=self._elapsed_ms(start_time),
-                            approval_required=dangerous,
-                            approved_by_user=approval_granted,
-                        )
-                        if approval_granted:
-                            await self.notify_approved_action_finished(tool_name, result)
-                        return result
+            result = await self._try_execute_mcp_tool(
+                tool_name=tool_name,
+                arguments=arguments,
+                start_time=start_time,
+                dangerous=dangerous,
+                approval_granted=approval_granted,
+            )
+            if result is not None:
+                return result
 
             result = f"Error: Tool not found: {tool_name}"
             await self.record_tool_trace(

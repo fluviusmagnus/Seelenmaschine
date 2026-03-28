@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
-import json
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -117,14 +116,6 @@ class TestMemoryManagerSessionOperations:
             'reranker_client': reranker_client,
         }
     
-    @pytest.mark.skip(reason="Complex mocking required for session operations")
-    def test_new_session(self, mock_dependencies):
-        """Test creating new session"""
-        # This test requires complex mocking of session operations
-        # which involves summarization logic
-        pass
-
-
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -11,8 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
-from typing import List, Dict, Any
+from unittest.mock import AsyncMock, Mock, patch
 
 from memory.context import Message
 
@@ -57,71 +56,6 @@ class TestMemoryManagerAutomaticSummarization:
         client.generate_memory_update_async = AsyncMock(return_value='{"user": {"name": "Test"}}')
         return client
     
-    @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
-    def test_summary_trigger_at_threshold_24_messages(self, mock_db, mock_embedding_client, mock_reranker_client):
-        """Test summarization is triggered when reaching 24 messages threshold"""
-        from memory.manager import MemoryManager
-        
-        # Create exactly 24 unsummarized conversations (at threshold)
-        unsummarized = [
-            {"timestamp": 1000 + i, "role": "user" if i % 2 == 0 else "assistant", "text": f"Message {i}"}
-            for i in range(24)
-        ]
-        mock_db.get_unsummarized_conversations.return_value = unsummarized
-        mock_db.get_summaries_by_session.return_value = []
-        
-        with patch('memory.manager.ContextWindow') as mock_ctx_class:
-            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                    with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
-                        mock_ctx = Mock()
-                        mock_ctx.add_summary = Mock()
-                        mock_ctx.add_message = Mock()
-                        mock_ctx.get_recent_summary_ids = Mock(return_value=[])
-                        mock_ctx_class.return_value = mock_ctx
-                        
-                        mm = MemoryManager(
-                            db=mock_db,
-                            embedding_client=mock_embedding_client,
-                            reranker_client=mock_reranker_client
-                        )
-                        
-                        # Verify the conditions for triggering summarization are met
-                        assert len(unsummarized) >= 24
-    
-    @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
-    def test_summary_creates_12_messages_summary(self, mock_db, mock_embedding_client, mock_reranker_client, mock_llm_client):
-        """Test that summarization creates summary of 12 oldest messages, keeps 12 recent"""
-        from memory.manager import MemoryManager
-        
-        # Create 24 messages
-        unsummarized = [
-            {"timestamp": 1000 + i, "role": "user" if i % 2 == 0 else "assistant", "text": f"Message {i}"}
-            for i in range(24)
-        ]
-        mock_db.get_unsummarized_conversations.return_value = unsummarized
-        
-        with patch('memory.manager.ContextWindow') as mock_ctx_class:
-            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                    with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
-                        mock_ctx = Mock()
-                        mock_ctx.add_summary = Mock()
-                        mock_ctx.add_message = Mock()
-                        mock_ctx.get_recent_summary_ids = Mock(return_value=[])
-                        mock_ctx_class.return_value = mock_ctx
-                        
-                        mm = MemoryManager(
-                            db=mock_db,
-                            embedding_client=mock_embedding_client,
-                            reranker_client=mock_reranker_client
-                        )
-                        
-                        # Verify the split logic: 24 - 12 = 12 messages should be summarized
-                        messages_to_summarize = len(unsummarized) - 12
-                        assert messages_to_summarize == 12
-
-
 class TestMemoryManagerLongTermMemory:
     """Test long-term memory (seele.json) updates"""
 
@@ -174,7 +108,7 @@ class TestMemoryManagerLongTermMemory:
             )
 
         with patch.object(
-            mm,
+            mm.seele,
             "get_long_term_memory",
             return_value={"user": {"preferences": {}}},
         ):

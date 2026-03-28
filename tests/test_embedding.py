@@ -165,8 +165,9 @@ class TestEmbeddingClient:
 
             assert len(embedding) == 512
 
-    def test_get_embeddings_batch_sync(self, embedding_client):
-        """Test synchronous get_embeddings_batch."""
+    @pytest.mark.asyncio
+    async def test_get_embeddings_batch_async_multiple(self, embedding_client):
+        """Test get_embeddings_batch_async with multiple inputs."""
         mock_response = Mock()
         mock_response.data = [
             Mock(embedding=[0.1] * 768),
@@ -180,20 +181,24 @@ class TestEmbeddingClient:
                 return_value=mock_response
             )
 
-            embeddings = embedding_client.get_embeddings_batch(
+            embeddings = await embedding_client.get_embeddings_batch_async(
                 ["text1", "text2", "text3"]
             )
 
             assert len(embeddings) == 3
             assert all(len(emb) == 768 for emb in embeddings)
 
-    def test_get_embeddings_batch_empty(self, embedding_client):
-        """Test get_embeddings_batch with empty list."""
-        embeddings = embedding_client.get_embeddings_batch([])
+    @pytest.mark.asyncio
+    async def test_get_embeddings_batch_async_empty(self, embedding_client):
+        """Test get_embeddings_batch_async with empty list."""
+        embeddings = await embedding_client.get_embeddings_batch_async([])
         assert embeddings == []
 
-    def test_get_embeddings_batch_dimension_mismatch(self, embedding_client):
-        """Test get_embeddings_batch handles dimension mismatch."""
+    @pytest.mark.asyncio
+    async def test_get_embeddings_batch_async_dimension_mismatch(
+        self, embedding_client
+    ):
+        """Test get_embeddings_batch_async handles dimension mismatch."""
         mock_response = Mock()
         mock_response.data = [
             Mock(embedding=[0.1] * 768),
@@ -207,7 +212,7 @@ class TestEmbeddingClient:
                 return_value=mock_response
             )
 
-            embeddings = embedding_client.get_embeddings_batch(
+            embeddings = await embedding_client.get_embeddings_batch_async(
                 ["text1", "text2", "text3"]
             )
 
@@ -234,12 +239,6 @@ class TestEmbeddingClient:
             embedding_client._client.embeddings.create.assert_awaited_once_with(
                 model="test-embedding-model", input=["text1", "text2"]
             )
-
-    @pytest.mark.asyncio
-    async def test_get_embeddings_batch_async_empty(self, embedding_client):
-        """Test get_embeddings_batch_async with empty list."""
-        embeddings = await embedding_client.get_embeddings_batch_async([])
-        assert embeddings == []
 
     def test_close(self, embedding_client):
         """Test closing client."""
@@ -271,20 +270,6 @@ class TestEmbeddingClient:
                 RuntimeError, match="get_embedding\\(\\) called from async context"
             ):
                 embedding_client.get_embedding("test")
-
-        import asyncio
-
-        asyncio.run(async_func())
-
-    def test_get_embeddings_batch_in_async_context_raises(self, embedding_client):
-        """Test get_embeddings_batch raises RuntimeError in async context."""
-
-        async def async_func():
-            with pytest.raises(
-                RuntimeError,
-                match="get_embeddings_batch\\(\\) called from async context",
-            ):
-                embedding_client.get_embeddings_batch(["test"])
 
         import asyncio
 

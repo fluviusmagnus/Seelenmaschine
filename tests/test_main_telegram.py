@@ -6,7 +6,8 @@ including argument parsing, initialization, and signal handling.
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
 import pytest
 
 # Add paths for imports
@@ -46,44 +47,22 @@ class TestMainTelegramInitialization:
         """Create mock dependencies for main_telegram"""
         mocks = {
             'init_config': Mock(),
+            'CoreBot': Mock(),
             'MessageHandler': Mock(),
-            'TelegramBot': Mock(),
+            'TelegramAdapter': Mock(),
             'get_logger': Mock(),
         }
         return mocks
     
-    @pytest.mark.skip(reason="Complex mocking required - integration test better suited")
-    def test_init_config_called_with_profile(self, mock_dependencies):
-        """Test that init_config is called with the correct profile"""
-        # This test is skipped because properly mocking the entire initialization
-        # chain is complex. The functionality is better tested via integration tests.
-        pass
-
-
-class TestMainTelegramSignalHandling:
-    """Test signal handling"""
-    
-    def test_signal_handlers_registered(self):
-        """Test that signal handlers are registered for SIGINT and SIGTERM"""
-        with patch('signal.signal') as mock_signal:
-            # Import main_telegram to trigger signal registration
-            # We need to do this in a way that doesn't actually run main()
-            pass  # Signal handlers are set up in main(), not at import
-        
-        # The actual signal registration happens in main()
-        # This test would need to mock main() execution
-        assert True  # Placeholder - signal handling tested via integration
-
-
 class TestMainTelegramBotLifecycle:
-    """Test TelegramBot lifecycle management"""
+    """Test TelegramAdapter lifecycle management"""
     
     def test_bot_created_with_message_handler(self):
-        """Test that TelegramBot is created with the message handler"""
+        """Test that TelegramAdapter is created with the message handler"""
         mock_message_handler = Mock()
         
         with patch('main_telegram.MessageHandler') as mock_handler_class:
-            with patch('main_telegram.TelegramBot') as mock_bot_class:
+            with patch('main_telegram.TelegramAdapter') as mock_bot_class:
                 mock_handler_class.return_value = mock_message_handler
                 mock_bot_instance = Mock()
                 mock_bot_class.return_value = mock_bot_instance

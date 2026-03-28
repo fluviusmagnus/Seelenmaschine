@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
-import json
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -89,14 +88,6 @@ class TestMessageHandlerIntegration:
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
         return mock_client
     
-    @pytest.mark.skip(reason="Requires async setup with test profile")
-    def test_message_handler_initialization(self, test_config):
-        """Test MessageHandler initializes with test config"""
-        # This would test that MessageHandler can be initialized
-        # with the test configuration
-        pass
-
-
 class TestMemoryManagerIntegration:
     """Test MemoryManager with test configuration"""
     
@@ -150,7 +141,6 @@ class TestContextWindowIntegration:
     def test_context_window_respects_config_limits(self, test_config):
         """Test ContextWindow respects CONTEXT_WINDOW_TRIGGER_SUMMARY"""
         from memory.context import ContextWindow
-        from memory.manager import MemoryManager
         
         # Create context window
         ctx = ContextWindow()
@@ -221,46 +211,6 @@ class TestPromptsIntegration:
         # Verify prompt generated
         assert isinstance(prompt, str)
         assert len(prompt) > 0
-
-
-class TestEndToEndFlow:
-    """End-to-end integration tests using test.env"""
-    
-    @pytest.mark.skip(reason="Requires full system with mocked LLM")
-    def test_complete_conversation_flow(self, test_config):
-        """Test complete conversation flow:
-        
-        1. User sends message
-        2. Message stored in database
-        3. Context retrieved
-        4. LLM called (mocked)
-        5. Response stored
-        6. Response returned
-        """
-        pass
-    
-    @pytest.mark.skip(reason="Requires full system with time control")
-    def test_scheduled_task_execution_flow(self, test_config):
-        """Test scheduled task execution:
-        
-        1. Task created
-        2. Task stored in database
-        3. Time passes (mocked)
-        4. Task triggered
-        5. Message sent
-        """
-        pass
-    
-    @pytest.mark.skip(reason="Requires memory summarization with mocked LLM")
-    def test_memory_summarization_flow(self, test_config):
-        """Test automatic memory summarization:
-        
-        1. Add messages up to trigger count
-        2. Summary automatically created
-        3. Long-term memory updated
-        4. Old messages marked as summarized
-        """
-        pass
 
 
 # Run tests if executed directly

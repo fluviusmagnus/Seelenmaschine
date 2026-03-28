@@ -1,5 +1,4 @@
-import json
-from typing import List, Dict, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from memory.context import ContextWindow, Message
 from core.database import DatabaseManager
@@ -209,96 +208,34 @@ class MemoryManager:
         return await self.summary_generator.generate_summary_async(messages)
 
     def _generate_memory_update(self, messages: List[Message], summary_id: int) -> str:
-        """Generate memory update JSON patch from messages. Use _generate_memory_update_async in async contexts."""
-        from llm.chat_client import LLMClient
-
-        client = LLMClient()
-        messages_dict = [msg.to_dict() for msg in messages]
-
-        summary_row = self.db.get_summary_by_id(summary_id)
-        first_timestamp = summary_row["first_timestamp"] if summary_row else None
-        last_timestamp = summary_row["last_timestamp"] if summary_row else None
-
-        current_seele = self.get_long_term_memory()
-        current_seele_json = json.dumps(current_seele, ensure_ascii=False, indent=2)
-
-        json_patch = client.generate_memory_update(
-            messages_dict, current_seele_json, first_timestamp, last_timestamp
-        )
-        client.close()
-        return json_patch
+        """Generate a memory update JSON patch from summarized messages."""
+        return self.seele.generate_memory_update(messages, summary_id)
 
     def _generate_complete_memory_json(
         self, messages: List[Message], error_message: str, summary_id: int
     ) -> str:
-        """Generate complete seele.json when JSON Patch fails. Use _generate_complete_memory_json_async in async contexts."""
-        from llm.chat_client import LLMClient
-
-        client = LLMClient()
-        messages_dict = [msg.to_dict() for msg in messages]
-        current_seele = self.get_long_term_memory()
-        current_seele_json = json.dumps(current_seele, ensure_ascii=False, indent=2)
-
-        summary_row = self.db.get_summary_by_id(summary_id)
-        first_timestamp = summary_row["first_timestamp"] if summary_row else None
-        last_timestamp = summary_row["last_timestamp"] if summary_row else None
-
-        complete_json = client.generate_complete_memory_json(
-            messages_dict,
-            current_seele_json,
+        """Generate a complete seele.json document when patching fails."""
+        return self.seele.generate_complete_memory_json(
+            messages,
             error_message,
-            first_timestamp,
-            last_timestamp,
+            summary_id,
         )
-        client.close()
-        return complete_json
 
     async def _generate_memory_update_async(
         self, messages: List[Message], summary_id: int
     ) -> str:
-        """Async version of _generate_memory_update. Use this in async contexts."""
-        from llm.chat_client import LLMClient
-
-        client = LLMClient()
-        messages_dict = [msg.to_dict() for msg in messages]
-
-        summary_row = self.db.get_summary_by_id(summary_id)
-        first_timestamp = summary_row["first_timestamp"] if summary_row else None
-        last_timestamp = summary_row["last_timestamp"] if summary_row else None
-
-        current_seele = self.get_long_term_memory()
-        current_seele_json = json.dumps(current_seele, ensure_ascii=False, indent=2)
-
-        json_patch = await client.generate_memory_update_async(
-            messages_dict, current_seele_json, first_timestamp, last_timestamp
-        )
-        await client.close_async()
-        return json_patch
+        """Async version of _generate_memory_update."""
+        return await self.seele.generate_memory_update_async(messages, summary_id)
 
     async def _generate_complete_memory_json_async(
         self, messages: List[Message], error_message: str, summary_id: int
     ) -> str:
-        """Async version of _generate_complete_memory_json. Use this in async contexts."""
-        from llm.chat_client import LLMClient
-
-        client = LLMClient()
-        messages_dict = [msg.to_dict() for msg in messages]
-        current_seele = self.get_long_term_memory()
-        current_seele_json = json.dumps(current_seele, ensure_ascii=False, indent=2)
-
-        summary_row = self.db.get_summary_by_id(summary_id)
-        first_timestamp = summary_row["first_timestamp"] if summary_row else None
-        last_timestamp = summary_row["last_timestamp"] if summary_row else None
-
-        complete_json = await client.generate_complete_memory_json_async(
-            messages_dict,
-            current_seele_json,
+        """Async version of _generate_complete_memory_json."""
+        return await self.seele.generate_complete_memory_json_async(
+            messages,
             error_message,
-            first_timestamp,
-            last_timestamp,
+            summary_id,
         )
-        await client.close_async()
-        return complete_json
 
     def _update_long_term_memory(
         self, summary_id: int, messages: List[Message]
@@ -368,116 +305,7 @@ class MemoryManager:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            patch_data = json.loads(json_patch.strip())
-
-            from prompts import update_seele_json
-
-            success = update_seele_json(patch_data)
-            if success:
-                patch_type = "array" if isinstance(patch_data, list) else "dict"
-                logger.info(
-                    f"Updated seele.json with {patch_type} patch from summary {summary_id}"
-                )
-                return True
-
-            if messages:
-                logger.warning(
-                    f"JSON Patch failed for summary {summary_id}, attempting fallback to complete JSON generation"
-                )
-                return self._fallback_to_complete_json(
-                    summary_id, messages, "JSON Patch application failed"
-                )
-
-            logger.warning(
-                f"Failed to apply patch from summary {summary_id}, no fallback available"
-            )
-            return False
-        except json.JSONDecodeError as e:
-            error_msg = f"Invalid JSON in patch from summary {summary_id}: {e}"
-            logger.error(error_msg)
-            if messages:
-                logger.warning("Attempting fallback to complete JSON generation")
-                return self._fallback_to_complete_json(summary_id, messages, error_msg)
-            return False
-        except Exception as e:
-            error_msg = f"Failed to update long-term memory: {e}"
-            logger.error(error_msg)
-            if messages:
-                logger.warning("Attempting fallback to complete JSON generation")
-                return self._fallback_to_complete_json(summary_id, messages, error_msg)
-            return False
-
-    def _fallback_to_complete_json(
-        self, summary_id: int, messages: List[Message], error_message: str
-    ) -> bool:
-        """Fallback method: generate and apply complete seele.json when patch fails.
-
-        Args:
-            summary_id: ID of the summary triggering the update
-            messages: Messages to analyze
-            error_message: The error message from the failed patch attempt
-
-        Returns:
-            True if successful, False otherwise
-        """
-        max_retries = 2
-
-        for attempt in range(max_retries):
-            try:
-                logger.info(
-                    f"Generating complete seele.json as fallback for summary {summary_id} (attempt {attempt + 1}/{max_retries})"
-                )
-                complete_json_str = self._generate_complete_memory_json(
-                    messages, error_message, summary_id
-                )
-                if not complete_json_str:
-                    logger.error("Failed to generate complete JSON - empty response")
-                    continue
-
-                complete_json_str = self._clean_json_response(complete_json_str)
-                logger.debug(f"Generated JSON length: {len(complete_json_str)} chars")
-                logger.debug(f"First 200 chars: {complete_json_str[:200]}")
-                logger.debug(f"Last 200 chars: {complete_json_str[-200:]}")
-
-                complete_data = json.loads(complete_json_str)
-                if not self._validate_seele_structure(complete_data):
-                    logger.warning("Generated JSON has invalid structure, retrying...")
-                    error_message = (
-                        "Previous attempt produced invalid structure. Ensure all required "
-                        "fields are present: bot, user, memorable_events, commands_and_agreements"
-                    )
-                    continue
-
-                self.seele._write_complete_seele_json(complete_data)
-                logger.info(
-                    f"Successfully updated seele.json with complete JSON (fallback) for summary {summary_id}"
-                )
-                return True
-            except json.JSONDecodeError as e:
-                logger.error(
-                    f"JSON parsing failed (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                logger.error(
-                    f"Error at line {e.lineno}, column {e.colno}, position {e.pos}"
-                )
-                if attempt < max_retries - 1:
-                    error_message = (
-                        f"Previous JSON generation failed with parse error at line {e.lineno}: {str(e)}. "
-                        "Please ensure proper JSON syntax: all strings must be properly quoted and escaped, "
-                        "no trailing commas, proper brace/bracket matching."
-                    )
-                else:
-                    logger.error("Max retries reached for complete JSON generation")
-                    return False
-            except Exception as e:
-                logger.error(
-                    f"Fallback to complete JSON failed (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                if attempt >= max_retries - 1:
-                    return False
-
-        return False
+        return self.seele.update_long_term_memory(summary_id, json_patch, messages)
 
     def _clean_json_response(self, response: str) -> str:
         """Clean LLM response to extract valid JSON.
@@ -508,111 +336,9 @@ class MemoryManager:
 
         If JSON Patch fails, falls back to generating complete seele.json.
         """
-        try:
-            patch_data = json.loads(json_patch.strip())
-
-            from prompts import update_seele_json
-
-            success = update_seele_json(patch_data)
-            if success:
-                patch_type = "array" if isinstance(patch_data, list) else "dict"
-                logger.info(
-                    f"Updated seele.json with {patch_type} patch from summary {summary_id}"
-                )
-                return True
-
-            if messages:
-                logger.warning(
-                    f"JSON Patch failed for summary {summary_id}, attempting fallback to complete JSON generation"
-                )
-                return await self._fallback_to_complete_json_async(
-                    summary_id, messages, "JSON Patch application failed"
-                )
-
-            logger.warning(
-                f"Failed to apply patch from summary {summary_id}, no fallback available"
-            )
-            return False
-        except json.JSONDecodeError as e:
-            error_msg = f"Invalid JSON in patch from summary {summary_id}: {e}"
-            logger.error(error_msg)
-            if messages:
-                logger.warning("Attempting fallback to complete JSON generation")
-                return await self._fallback_to_complete_json_async(
-                    summary_id, messages, error_msg
-                )
-            return False
-        except Exception as e:
-            error_msg = f"Failed to update long-term memory: {e}"
-            logger.error(error_msg)
-            if messages:
-                logger.warning("Attempting fallback to complete JSON generation")
-                return await self._fallback_to_complete_json_async(
-                    summary_id, messages, error_msg
-                )
-            return False
-
-    async def _fallback_to_complete_json_async(
-        self, summary_id: int, messages: List[Message], error_message: str
-    ) -> bool:
-        """Async version of _fallback_to_complete_json. Use this in async contexts."""
-        max_retries = 2
-
-        for attempt in range(max_retries):
-            try:
-                logger.info(
-                    f"Generating complete seele.json as fallback for summary {summary_id} (attempt {attempt + 1}/{max_retries})"
-                )
-                complete_json_str = await self._generate_complete_memory_json_async(
-                    messages, error_message, summary_id
-                )
-                if not complete_json_str:
-                    logger.error("Failed to generate complete JSON - empty response")
-                    continue
-
-                complete_json_str = self._clean_json_response(complete_json_str)
-                logger.debug(f"Generated JSON length: {len(complete_json_str)} chars")
-                logger.debug(f"First 200 chars: {complete_json_str[:200]}")
-                logger.debug(f"Last 200 chars: {complete_json_str[-200:]}")
-
-                complete_data = json.loads(complete_json_str)
-                if not self._validate_seele_structure(complete_data):
-                    logger.warning("Generated JSON has invalid structure, retrying...")
-                    error_message = (
-                        "Previous attempt produced invalid structure. Ensure all required "
-                        "fields are present: bot, user, memorable_events, commands_and_agreements"
-                    )
-                    continue
-
-                self.seele._write_complete_seele_json(complete_data)
-                logger.info(
-                    f"Successfully updated seele.json with complete JSON (fallback) for summary {summary_id}"
-                )
-                return True
-            except json.JSONDecodeError as e:
-                logger.error(
-                    f"JSON parsing failed (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                logger.error(
-                    f"Error at line {e.lineno}, column {e.colno}, position {e.pos}"
-                )
-                if attempt < max_retries - 1:
-                    error_message = (
-                        f"Previous JSON generation failed with parse error at line {e.lineno}: {str(e)}. "
-                        "Please ensure proper JSON syntax: all strings must be properly quoted and escaped, "
-                        "no trailing commas, proper brace/bracket matching."
-                    )
-                else:
-                    logger.error("Max retries reached for complete JSON generation")
-                    return False
-            except Exception as e:
-                logger.error(
-                    f"Fallback to complete JSON failed (attempt {attempt + 1}/{max_retries}): {e}"
-                )
-                if attempt >= max_retries - 1:
-                    return False
-
-        return False
+        return await self.seele.update_long_term_memory_async(
+            summary_id, json_patch, messages
+        )
 
     def get_long_term_memory(self) -> Dict[str, Any]:
         return self.seele.get_long_term_memory()

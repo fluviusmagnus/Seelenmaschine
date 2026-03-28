@@ -11,9 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call, AsyncMock
-from typing import List, Dict, Any
 
 
 class TestMemoryManagerSessionManagement:
@@ -63,7 +63,7 @@ class TestMemoryManagerSessionManagement:
         with patch('memory.manager.ContextWindow') as mock_ctx_class:
             mock_ctx_class.return_value = Mock()
             
-            mm = MemoryManager(
+            MemoryManager(
                 db=mock_db,
                 embedding_client=mock_embedding_client,
                 reranker_client=mock_reranker_client
@@ -93,7 +93,7 @@ class TestMemoryManagerSessionManagement:
             mock_ctx.get_recent_summary_ids = Mock(return_value=[])
             mock_ctx_class.return_value = mock_ctx
             
-            mm = MemoryManager(
+            MemoryManager(
                 db=mock_db,
                 embedding_client=mock_embedding_client,
                 reranker_client=mock_reranker_client
@@ -143,42 +143,6 @@ class TestMemoryManagerSummarization:
         client.generate_memory_update_async = AsyncMock(return_value='{"user": {"name": "Test"}}')
         return client
     
-    @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
-    def test_summary_trigger_at_threshold(self, mock_db, mock_embedding_client, mock_reranker_client):
-        """Test summarization is triggered at threshold"""
-        from memory.manager import MemoryManager
-        
-        # Create 24 conversations (at trigger threshold)
-        conversations = [
-            {"timestamp": 1000 + i, "role": "user" if i % 2 == 0 else "assistant", "text": f"Message {i}"}
-            for i in range(24)
-        ]
-        mock_db.get_unsummarized_conversations.return_value = conversations
-        
-        with patch('memory.manager.ContextWindow') as mock_ctx_class:
-            with patch('core.config.Config') as mock_config_class:
-                mock_config = Mock()
-                mock_config.CONTEXT_WINDOW_TRIGGER_SUMMARY = 24
-                mock_config.CONTEXT_WINDOW_KEEP_MIN = 12
-                mock_config.RECENT_SUMMARIES_MAX = 3
-                mock_config_class.return_value = mock_config
-                
-                mock_ctx = Mock()
-                mock_ctx.add_message = Mock()
-                mock_ctx.get_recent_summary_ids = Mock(return_value=[])
-                mock_ctx_class.return_value = mock_ctx
-                
-                mm = MemoryManager(
-                    db=mock_db,
-                    embedding_client=mock_embedding_client,
-                    reranker_client=mock_reranker_client
-                )
-                
-                # TODO: This test needs the _generate_summary method to be properly mocked
-                # The test verifies the condition is met for triggering summarization
-                assert len(conversations) >= 24
-
-
 class TestMemoryManagerRetrieval:
     """Test memory retrieval logic"""
     

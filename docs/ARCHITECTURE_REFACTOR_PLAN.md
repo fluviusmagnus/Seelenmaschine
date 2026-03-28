@@ -2,214 +2,370 @@
 
 ## Goal
 
-This document proposes an incremental refactor plan for the Seelenmaschine codebase.
+This document is the current working refactor plan for the Seelenmaschine codebase.
 
-The goal is not to rewrite the project from scratch, but to gradually improve:
+It is not a historical note. It should reflect:
 
-- module boundaries
-- maintainability
-- testability
-- dependency direction
-- readability of the main execution flow
+- the architecture we are aiming for
+- the refactor work already completed
+- the remaining structural problems
+- the exact order of the next cleanup steps
 
-This plan follows the currently preferred top-level structure:
+Primary goals:
 
-- `core`
-- `memory`
-- `prompts`
-- `llm`
-- `adapter`
-- `tools`
-- `utils`
+- make `core` the real system owner
+- make `adapter` a thin I/O boundary
+- reduce overloaded files and fake facades
+- improve testability by making ownership explicit
+- keep behavior stable while structure changes
 
 
-## Short Execution Checklist
+## Current Architectural Rule
 
-If we need a compact version of this plan during implementation, use this list:
+The most important rule is:
 
-1. Extract Telegram formatter from `adapter/telegram/handlers.py`
-2. Extract approval workflow into `core`
-3. Extract conversation orchestration from `adapter/telegram/handlers.py`
-4. Extract tool registry and tool executor responsibilities
-5. Split the prompt entrypoints and memory profile storage concerns
-6. Split the memory manager into focused memory modules
-7. Split the LLM chat layer into focused chat and memory-generation modules
-8. Reduce new direct `Config` usage in extracted modules
+- `adapter` talks to the outside world
+- `core` owns system behavior
 
-Implementation rule:
+This is the rule every future refactor step should follow.
 
-- preserve behavior
-- keep old wrappers temporarily when useful
-- run focused tests after each step
+
+## Adapter/Core Boundary
+
+### `core` owns
+
+- the real runtime root object
+- conversation orchestration
+- session lifecycle orchestration
+- tool runtime, tool registry, tool tracing, tool safety policy, and tool executor wiring
+- memory, scheduler, approval, and database coordination
+- any state or workflow that should still exist if Telegram disappears
+
+Practical test:
+
+- if the code would still make sense in CLI, web, or another chat adapter, it belongs in `core`
+
+### `adapter` owns
+
+- Telegram `Application` setup and handler registration
+- Telegram command, message, and file ingress
+- Telegram formatting and segmented delivery
+- typing indicators
+- Telegram-specific proactive sending
+- Telegram approval/status display wiring
+- conversion between Telegram `Update` objects and core calls
+
+Practical test:
+
+- if the code depends on Telegram update/message semantics or Telegram output formatting, it belongs in `adapter`
+
+### Boundary questions
+
+When deciding where code should live, ask:
+
+1. Would this still exist if Telegram were removed tomorrow?
+2. Is this describing system behavior, or just platform I/O?
+
+If the answer is "yes" to the first question, or "system behavior" to the second, move it toward `core`.
 
 
 ## Current Status
 
-The first refactor wave is largely complete.
+The first large refactor wave is complete, and the second wave is underway.
 
-Completed structural work:
+### Completed structural work
 
-- extracted Telegram formatting from the Telegram handler layer
-- extracted approval workflow into `core/approval.py`
-- extracted conversation orchestration into `core/conversation.py`
-- moved shared configuration into `core/config.py` and consolidated tool orchestration into `core/tools.py`
-- consolidated prompt entrypoints in `prompts/__init__.py`
-- split the memory manager into focused memory services
-- moved `ContextWindow`, `MemoryRetriever`, and `MemoryManager` fully under `memory/`
-- split the LLM chat layer into message building, request execution, tool-loop, and memory-generation helpers
-- extracted bootstrap and Telegram application setup from the entrypoint/bot layer
-- extracted scheduled message sending, file upload handling, session command handling, proactive file delivery, and tool setup from Telegram adapter code
-- split Telegram command and message flows into `adapter/telegram/commands.py` and `adapter/telegram/messages.py`
-- moved Telegram adapter modules under `adapter/telegram/`
-- removed the old `tg_bot/` package after updating runtime imports and tests
+- introduced [src/core/bot.py](../src/core/bot.py) as the primary core dependency owner and emerging runtime root
+- moved approval lifecycle into `core/approval.py`
+- moved conversation orchestration into `core/conversation.py`
+- moved session lifecycle into `core/session_service.py`
+- consolidated tool safety, trace, registry, and runtime bookkeeping into `core/tools.py`
+- moved tool-host ownership under `CoreBot`
+- renamed the Telegram runtime shell from `bot.py` to [src/adapter/telegram/adapter.py](../src/adapter/telegram/adapter.py)
+- removed [src/adapter/telegram/app.py](../src/adapter/telegram/app.py)
+- split Telegram responsibilities across:
+  - [src/adapter/telegram/commands.py](../src/adapter/telegram/commands.py)
+  - [src/adapter/telegram/messages.py](../src/adapter/telegram/messages.py)
+  - [src/adapter/telegram/files.py](../src/adapter/telegram/files.py)
+  - [src/adapter/telegram/formatter.py](../src/adapter/telegram/formatter.py)
+  - [src/adapter/telegram/delivery.py](../src/adapter/telegram/delivery.py)
+  - [src/adapter/telegram/tool_bridge.py](../src/adapter/telegram/tool_bridge.py)
+- moved file-upload extraction and file-event message construction from `messages.py` into `files.py`
+- removed a large amount of duplicated sync/async memory and chat wrapper logic
+- removed many placeholder tests and empty skipped tests
 
-Current file sizes after this wave:
+### Meaningful current ownership
 
-- `src/adapter/telegram/handlers.py`: 631 lines
-- `src/memory/manager.py`: 528 lines
-- `src/llm/chat_client.py`: 503 lines
-- `src/adapter/telegram/app.py`: Telegram adapter entrypoint and runtime module
-- `src/prompts/__init__.py`: package entrypoint for prompt helpers
+- `CoreBot` owns:
+  - config
+  - db
+  - embedding client
+  - reranker client
+  - memory
+  - scheduler
+  - llm client
+  - conversation service
+  - session service
+  - tool host
+  - tool runtime state
+
+- `ToolRuntimeState` now owns the mutable tool-side bookkeeping:
+  - tool trace store
+  - tool trace query tool
+  - tool trace service
+  - registry service
+  - legacy registry mirror
+  - safety policy
+  - memory search tool
+  - scheduled task tool
+  - send Telegram file tool
+  - MCP client
+  - MCP connected flag
+
+- `MessageHandler` is no longer the true owner of that tool state
+- however, it still acts as the main adapter-facing compatibility shell and runtime access surface during the transition
+
+### Current file sizes
+
+Current line counts:
+
+- `src/adapter/telegram/handlers.py`: 511
+- `src/core/bot.py`: 254
+- `src/adapter/telegram/messages.py`: 193
+- `src/core/tools.py`: 689
+- `src/llm/chat_client.py`: 563
+- `src/memory/manager.py`: 352
 
 Interpretation:
 
-- `bot.py` is now comfortably thin, and prompt entrypoints no longer live in a stray `system.py`
-- `memory/manager.py` and `llm/chat_client.py` are much healthier and mostly act as facades plus a few shared helpers
-- `handlers.py` is still one of the larger files, but command handling, message/file flows, and tool runtime setup have already been moved out
-- `adapter/telegram/` is now the canonical home for Telegram-specific modules
-- the old Telegram package split has been removed, so runtime structure now matches the intended directory shape much more closely
-- `core/` now owns runtime configuration and tool orchestration, so `tools/` is reserved for concrete LLM-callable capabilities
-
-Recommended stop point for this wave:
-
-- avoid splitting `handlers.py` further unless new Telegram features force clearer boundaries
-- prefer continuing future cleanup by renaming or relocating whole responsibilities, not by creating many tiny one-off modules
+- `handlers.py` is smaller than before, but still too large for a pure Telegram boundary object
+- `core/tools.py` has become the real center of tool runtime ownership, which is directionally correct, but it is now one of the next major complexity hotspots
+- `memory/manager.py` is much healthier than before
+- `messages.py` is now much closer to a valid adapter module: it handles message ingress, not file storage mechanics
 
 
-## Design Principles
+## Current Pain Points
 
-### 1. Keep `utils` small and low-level
+### 1. `adapter/telegram/handlers.py` still has too much skeleton
 
-`utils` should only contain generic helpers with very weak business meaning, such as:
+Even after moving real ownership out, it still carries:
 
-- logging helpers
-- time formatting/parsing helpers
-- text cleanup helpers
-- small path helpers
+- many compatibility getters
+- a large initialization sequence
+- repeated helper resolution patterns
+- several methods that only forward to another object
 
-Modules with state, workflow logic, approval rules, external protocol handling, or user-facing product semantics should not go into `utils`.
+This means the file is no longer the old owner, but it still acts like a large composition shell.
 
-### 2. Keep external integrations out of `core`
+### 2. `core/tools.py` is now broad
 
-`core` should coordinate application flow, but should not directly own Telegram formatting details, prompt file persistence, or MCP protocol details.
+This is partly healthy, because tool ownership belongs in `core`.
+But the file now combines:
 
-### 3. Keep prompt construction separate from persistence
+- safety policy
+- registry
+- runtime state
+- runtime setup
+- trace service
+- executor
+- MCP merge logic
 
-`prompts` should build prompt strings only.
-It should not own `seele.json` storage logic.
+This is likely the next major structural split point inside `core`.
 
-### 4. Keep memory logic cohesive
+### 3. `CoreBot` still exposes low-level creation methods instead of enough high-level capabilities
 
-The memory system is important enough to deserve its own top-level module.
-Session handling, context window behavior, retrieval, summary triggers, and long-term memory updates should live in the `memory` area, with clearer internal sub-boundaries.
+`CoreBot` already owns the right subsystems, but adapters still sometimes reach into:
 
-### 5. Use `tools` for LLM-callable capabilities
+- service getters
+- tool runtime getters
+- compatibility properties
 
-If a capability is exposed to the model as a tool, it belongs in `tools`.
-That includes MCP-related tool integration in this project.
+The next step is to expose higher-level bot capabilities so adapters do less assembly work.
 
-### 6. Prefer incremental migration
+This means `CoreBot` should be treated today as:
 
-Each refactor step should be independently mergeable and should keep behavior stable.
-Avoid a large "big bang" move.
+- the primary core dependency owner
+- an emerging runtime root
+- not yet a fully mature high-level application facade
+
+So future cleanup should reduce adapter-side orchestration first, then tighten this description further.
+
+### 4. Adapter-side compatibility layers still exist for tests and transition safety
+
+Some compatibility properties and fallback paths still exist because:
+
+- tests were historically centered on `MessageHandler`
+- a number of mocks still assume old boundaries
+
+These should be reduced deliberately, not all at once.
+
+### 5. `llm/chat_client.py` and `core/tools.py` are now stronger candidates for the next cleanup wave than `messages.py`
+
+`messages.py` is no longer the biggest problem.
+The deeper complexity is now concentrated more in:
+
+- [src/core/tools.py](../src/core/tools.py)
+- [src/llm/chat_client.py](../src/llm/chat_client.py)
+- the remaining controller skeleton in [src/adapter/telegram/handlers.py](../src/adapter/telegram/handlers.py)
 
 
-## Proposed Top-Level Responsibilities
+## Updated Assessment of Telegram Modules
+
+### `messages.py`
+
+Current judgment:
+
+- mostly reasonable now
+- no longer a major ownership hotspot
+- still contains transition scaffolding that should shrink later
+
+It should remain responsible for:
+
+- Telegram text message ingress
+- scheduled message ingress
+- forwarding text payloads into the conversation pipeline
+- sending formatted multi-segment Telegram responses
+
+It should not regain responsibility for:
+
+- file metadata extraction
+- file saving and download mechanics
+- direct construction of core services except narrow compatibility fallbacks
+
+It should also gradually lose:
+
+- handler-callable resolution shims
+- fallback service lookup paths kept only for historical tests and transition safety
+
+### `files.py`
+
+Current judgment:
+
+- correct as a dedicated Telegram file adapter
+
+It should own:
+
+- attachment extraction
+- upload normalization
+- save path generation
+- Telegram download mechanics
+- Telegram proactive file sending
+- file event message construction
+
+### `delivery.py`
+
+Current judgment:
+
+- still reasonable as a shared Telegram transport helper
+
+It should remain a small, transport-oriented utility module for:
+
+- typing indicators
+- segmented text sending
+- HTML-first fallback delivery behavior
+
+### `handlers.py`
+
+Current judgment:
+
+- directionally improved, but still too large
+
+It should continue shrinking toward:
+
+- Telegram controller / boundary object
+- adapter entrypoint that delegates to commands, messages, tool bridge, and `CoreBot`
+
+It should stop behaving like:
+
+- a giant compatibility shell
+- a pseudo composition root
+- a place that mirrors core-owned state
+
+
+## Target Top-Level Responsibilities
 
 ### `core`
 
-Application orchestration and workflow coordination.
+Owns application behavior and runtime state.
 
 Examples:
 
-- message processing flow
-- scheduled task processing flow
+- `CoreBot`
+- conversation flow
+- session flow
 - approval flow
-- session orchestration
-- tool execution coordination
+- tool runtime and execution flow
 
-`core` answers: "How does the app behave end-to-end?"
+Question answered by `core`:
+
+- "How does the system behave?"
 
 ### `memory`
 
-Memory-domain logic and persistence related to conversation memory.
+Owns memory-domain behavior and persistence coordination.
 
 Examples:
 
-- context window
-- session lifecycle
-- summary trigger logic
-- retrieval logic
-- memory database access
-- long-term memory profile update flow
+- context handling
+- session archive logic
+- recall and summaries
+- profile / Seele-related memory behavior
 
-`memory` answers: "How is conversational memory stored, summarized, recalled, and updated?"
+Question answered by `memory`:
 
-### `prompts`
-
-Prompt builders only.
-
-Examples:
-
-- system prompt construction
-- summary prompt construction
-- memory update prompt construction
-
-`prompts` answers: "What text do we send to the model?"
+- "How is conversational memory stored, recalled, summarized, and updated?"
 
 ### `llm`
 
-Model-facing clients and AI-specific gateways.
+Owns model-facing gateways and AI request orchestration.
 
 Examples:
 
-- chat completion client
-- embedding client
-- reranker client
-- memory generation client
+- chat requests
+- tool loop requests
+- embeddings
+- reranking
+- memory generation requests
 
-`llm` answers: "How do we call models?"
+Question answered by `llm`:
+
+- "How do we talk to models?"
 
 ### `adapter`
 
-Adapters for external application interfaces.
+Owns transport and platform translation.
 
 Examples:
 
-- Telegram bot integration
-- Telegram formatting / message sending bridge
+- Telegram adapter
+- Telegram commands/messages/files
+- Telegram delivery formatting and bridge helpers
 
-`adapter` answers: "How does the app connect to outside interfaces?"
+Question answered by `adapter`:
+
+- "How does this system connect to Telegram?"
 
 ### `tools`
 
-LLM-callable tool definitions, registries, tool execution wrappers, and capability modules.
+Owns concrete LLM-callable capabilities.
 
 Examples:
 
 - shell tool
-- file I/O tool
-- file search tool
+- file tools
+- search tools
 - memory search tool
 - scheduled task tool
-- MCP integration for tool exposure
+- MCP client
 - Telegram file send tool
 
-`tools` answers: "What capabilities can the model invoke?"
+Question answered by `tools`:
+
+- "What capabilities can the model invoke?"
 
 ### `utils`
 
-Small generic helpers without meaningful domain ownership.
+Owns only small generic helpers.
 
 Examples:
 
@@ -218,450 +374,286 @@ Examples:
 - text helpers
 
 
-## Target Directory Shape
+## Current Target Directory Shape
 
-This is a suggested target shape, not a mandatory one-shot move:
+This reflects the current intended shape more accurately than the older draft.
 
 ```text
 src/
   core/
+    approval.py
+    bot.py
     config.py
     conversation.py
-    approval.py
-    tools.py
+    database.py
+    scheduler.py
     session_service.py
+    tools.py
 
   memory/
     context.py
     manager.py
     recall.py
-    vector_retriever.py
+    seele.py
     sessions.py
     summaries.py
-    seele.py
+    vector_retriever.py
 
   prompts/
-    system_prompt.py
+    __init__.py
     memory_prompts.py
+    system_prompt.py
 
   llm/
     chat_client.py
-    memory_client.py
-    request_executor.py
-    tool_loop.py
-    message_builder.py
     embedding.py
+    memory_client.py
+    message_builder.py
+    request_executor.py
     reranker.py
+    tool_loop.py
 
   adapter/
     telegram/
-      app.py
-      bot.py
+      __init__.py
+      adapter.py
       commands.py
+      delivery.py
       files.py
-      handlers.py
       formatter.py
+      handlers.py
       messages.py
       scheduled_sender.py
+      tool_bridge.py
 
   tools/
-    mcp_client.py
-    shell.py
     file_io.py
     file_search.py
+    mcp_client.py
     memory_search.py
     scheduled_tasks.py
     send_telegram_file.py
+    shell.py
     tool_trace.py
 
   utils/
     logger.py
     text.py
     time.py
-    path.py
 
-  config.py
   main_telegram.py
 ```
 
 
-## Current Pain Points
+## Execution Rules For The Next Phase
 
-### 1. `adapter/telegram/handlers.py` is overloaded
+These rules are strict and should guide future changes:
 
-It currently mixes:
+1. Move ownership to `core` before introducing new adapter helpers.
+2. Do not create new adapter-side host/manager/runtime layers for core behavior.
+3. If a module in `adapter` starts accumulating stateful workflow logic, stop and re-evaluate.
+4. Prefer deleting obsolete compatibility layers after tests are migrated, not preserving them indefinitely.
+5. When a test still targets an outdated boundary, prefer rewriting the test to match the new ownership model.
+6. Keep behavior stable, but do not keep fake facades forever just because they are familiar.
 
-- Telegram update handling
-- dependency construction
-- tool registration
-- tool dispatch
-- approval workflow
-- response formatting
-- file handling
-- main conversation orchestration
-- scheduled task orchestration
 
-This makes it difficult to reason about or change safely.
+## Next Refactor Steps
 
-### 2. `memory/manager.py` is still partially overloaded
+The next phase should follow this order.
 
-It currently mixes:
+### Step 1. Raise more high-level capabilities onto `CoreBot`
 
-- context window logic
-- session lifecycle
-- retrieval orchestration
-- summary creation
-- long-term memory update logic
-- fallback JSON generation
-- `seele.json` update behavior
+Goal:
 
-This should be split into smaller, more focused components.
+- let adapters call bot-level capabilities instead of assembling service calls themselves
 
-### 3. Prompt entrypoints and storage helpers were previously mixed together
+Examples:
 
-It currently handles both:
+- message processing entrypoints
+- scheduled message processing entrypoints
+- session reset / new-session entrypoints
+- tool-execution-related entrypoints where appropriate
 
-- prompt building
-- loading and updating `seele.json`
+Definition of success:
 
-Those responsibilities should be separated.
+- adapter modules invoke higher-level bot behavior instead of stitching workflows together locally
+- `CoreBot` becomes a clearer runtime entry surface, not just a dependency holder with factory methods
 
-### 4. the LLM chat layer was originally too broad
+### Step 2. Shrink `handlers.py` as a real controller cleanup
 
-It currently handles:
+Goal:
 
-- normal chat
-- tool loop
-- summary generation
-- memory update generation
-- complete memory JSON generation
-- sync and async wrappers
+- reduce `handlers.py` from a broad compatibility shell into a thin Telegram controller
 
-This makes the client harder to test and evolve.
+Tasks:
 
-### 5. Global `Config` usage is very wide
+- remove compatibility getters that are no longer needed
+- reduce initialization boilerplate
+- replace direct helper-resolution patterns with clearer bot-level or controller-level delegation where possible
+- re-evaluate whether `MessageHandler` is still the best name after this stage
 
-This is acceptable for now, but should gradually be reduced in newly extracted services.
+Definition of success:
 
+- `handlers.py` no longer exposes broad core subsystem properties except a minimal adapter contract
+- `handlers.py` no longer constructs fallback core services directly in normal runtime paths
+- most adapter modules depend on `CoreBot` capabilities or thin controller delegation, not handler getter indirection
+- `handlers.py` stops looking like the historical system center
 
-## File Migration Proposal
+### Step 3. Reduce transition scaffolding in adapter modules
 
-### Immediate mapping proposal
+Goal:
 
-- `src/memory/context.py` is now the home of the context window types
-- `src/core/database.py` -> `src/memory/database.py`
-- `src/memory/vector_retriever.py` is now the home of vector retrieval logic
-- `src/memory/manager.py` -> split across:
-  - `src/memory/sessions.py`
-  - `src/memory/summaries.py`
-  - `src/memory/recall.py`
-  - `src/memory/seele.py`
-- prompt entrypoints now live in `src/prompts/__init__.py`, with implementation split across:
-  - `src/prompts/system_prompt.py`
-  - `src/prompts/memory_prompts.py`
-- `src/adapter/telegram/app.py` is now the Telegram bot entry module
-- `src/adapter/telegram/handlers.py` -> split across:
-  - `src/adapter/telegram/formatter.py`
-  - `src/core/conversation.py`
-  - `src/core/approval.py`
-  - `src/core/tools.py`
-- `src/tools/mcp_client.py` -> `src/tools/mcp.py`
-- `src/llm/chat_client.py` -> split across:
-  - `src/llm/chat_client.py`
-  - `src/llm/memory_client.py`
-  - `src/llm/request_executor.py`
-  - `src/llm/tool_loop.py`
-  - `src/llm/message_builder.py`
+- remove temporary resolver patterns that still preserve old boundaries longer than necessary
 
+Focus:
 
-## Recommended Refactor Phases
+- reduce compatibility call-resolution patterns in `messages.py`
+- remove fallback service lookup paths once tests no longer rely on them
+- keep adapter modules thin without introducing new adapter-owned runtime layers
 
-## Phase 1: Write down boundaries and prepare tests
+Definition of success:
 
-### Goal
+- adapter modules still handle Telegram I/O, but contain far fewer transition shims
 
-Stabilize the system before moving code.
+### Step 4. Revisit `core/tools.py` structure only when ownership is more stable
 
-### Tasks
+Goal:
 
-- document module responsibilities
-- identify hot paths that must remain behaviorally stable
-- add or strengthen tests for:
-  - normal message processing
-  - scheduled task processing
-  - tool execution and approval flow
-  - `seele.json` update and fallback flow
-  - Telegram formatting and segmentation
-  - session create/reset behavior
+- keep tool ownership in `core` without prematurely churning module boundaries
 
-### Expected result
+Current recommendation:
 
-Refactor work can proceed with lower regression risk.
+- do not split `core/tools.py` yet
+- first finish ownership cleanup around `CoreBot`, `handlers.py`, and adapter-facing capabilities
+- only revisit an internal split after the public ownership boundaries stop moving
 
+Important rule:
 
-## Phase 2: Extract Telegram formatting from handlers
+- do not push this complexity back into `adapter`
 
-### Goal
+Definition of success:
 
-Reduce `handlers.py` size without changing behavior.
+- tool runtime remains core-owned and the file does not grow by reabsorbing adapter logic
+- any later split is driven by stable ownership boundaries, not by file size alone
 
-### Tasks
+### Step 5. Revisit adapter naming after responsibility reduction
 
-- create `adapter/telegram/formatter.py`
-- move response formatting logic there
-- move message segmentation logic there
-- keep `handlers.py` as a thin caller
+Goal:
 
-### Expected result
+- make remaining adapter names match real responsibilities
 
-The Telegram-specific presentation layer becomes isolated and easier to test.
+Questions to re-evaluate later:
 
+- should `handlers.py` stay as `handlers.py`
+- should a smaller `controller.py` shape replace it
+- are some wrappers now so thin that they can be merged or deleted
 
-## Phase 3: Extract approval flow into `core`
+Definition of success:
 
-### Goal
+- module names describe their real job, not historical leftovers
 
-Remove stateful approval logic from the Telegram handler.
+### Step 6. Continue structural cleanup in `llm/chat_client.py`
 
-### Tasks
+Goal:
 
-- create `core/approval.py`
-- move pending approval state and lifecycle logic there
-- expose simple methods like:
-  - `register_request(...)`
-  - `approve_pending(...)`
-  - `reject_or_timeout_pending(...)`
-- keep Telegram command handlers as thin adapters
+- reduce remaining breadth in the chat client
 
-### Expected result
+Focus:
 
-Approval becomes reusable and testable independently from Telegram transport code.
+- further separate general chat flow from specialized memory-generation behavior
+- keep sync/async wrappers from multiplying
+- avoid new responsibility creep
 
+Definition of success:
 
-## Phase 4: Extract conversation orchestration from handlers
+- chat client remains a chat-layer owner, not a grab bag of all LLM behavior
 
-### Goal
 
-Move the main business flow out of Telegram interface code.
+## Testing Strategy For Refactor Work
 
-### Tasks
+Every refactor step should keep behavior stable and re-run focused tests.
 
-- create `core/conversation.py`
-- move `_process_message(...)`
-- move `_process_scheduled_task(...)`
-- move high-level orchestration of:
-  - saving user input
-  - retrieving memory
-  - enabling relevant tools
-  - calling the LLM
-  - persisting assistant output
+Current high-value test groups include:
 
-### Expected result
+- `tests/test_handlers.py`
+- `tests/test_message_handler.py`
+- `tests/test_tg_bot.py`
+- `tests/test_main_telegram.py`
+- `tests/test_telegram_file_helpers.py`
+- tool- and memory-specific focused suites when touching those areas
 
-Telegram becomes an adapter, not the owner of core application flow.
+Testing rule:
 
-
-## Phase 5: Extract tool registration and dispatch
-
-### Goal
-
-Separate "tool system management" from message handling.
-
-### Tasks
-
-- create `core/tools.py`
-- move tool registration code out of the Telegram handler
-- move tool dispatch and dangerous command approval integration out of the Telegram handler
-
-### Expected result
-
-Tooling becomes a more explicit subsystem instead of being embedded in one large class.
-
-
-## Phase 6: Separate prompt entrypoints from prompt builders
-
-### Goal
-
-Separate prompt generation from `seele.json` storage/update responsibilities.
-
-### Tasks
-
-- create `prompts/system_prompt.py`
-- create `prompts/memory_prompts.py`
-- move prompt builders into those files
-- create `memory/profile_store.py` for:
-  - load `seele.json`
-  - update `seele.json`
-  - cache invalidation
-
-### Expected result
-
-Prompt code becomes easier to reason about and memory profile persistence gets its own home.
-
-
-## Phase 7: Split the memory manager
-
-### Goal
-
-Separate core memory domain responsibilities.
-
-### Suggested internal split
-
-#### `memory/manager.py`
-
-Owns:
-
-- session lifecycle
-- context window updates
-- memory retrieval entry points
-- assistant/user message persistence coordination
-
-#### `memory/summaries.py`
-
-Owns:
-
-- summary generation calls
-- summary persistence
-- summary trigger helpers
-
-#### `memory/profile_store.py`
-
-Owns:
-
-- long-term profile load/update
-- patch application
-- complete JSON fallback generation path
-
-### Expected result
-
-The memory subsystem becomes internally modular rather than centered on one very large class.
-
-
-## Phase 8: Split the LLM chat layer
-
-### Goal
-
-Separate chat functionality from memory-generation functionality.
-
-### Suggested split
-
-#### `llm/chat_client.py`
-
-Owns:
-
-- normal conversation requests
-- tool call loop
-- assistant message extraction
-- tool response sanitization
-
-#### `llm/memory_client.py`
-
-Owns:
-
-- summary generation
-- memory patch generation
-- complete JSON generation
-
-### Expected result
-
-Model access becomes easier to understand and maintain.
-
-
-## Phase 9: Reduce direct global `Config` coupling
-
-### Goal
-
-Gradually reduce hidden dependencies.
-
-### Tasks
-
-- keep `Config` for compatibility
-- allow newly extracted services to accept explicit config or selected values
-- prefer constructor injection for new modules
-- avoid new code that imports `Config` deep inside helper methods unless necessary
-
-### Expected result
-
-Testing and future architecture changes become easier.
+- when ownership changes, update tests to the new architecture instead of preserving outdated construction assumptions forever
+- prefer constructing `CoreBot` and the real owner of behavior directly over mocking `MessageHandler` as a god object
+- new or rewritten tests should target the current owner of behavior, not the historical delegator shell
 
 
 ## Dependency Direction Rules
 
-The following rules should guide future changes:
+The dependency rules remain:
 
 - `adapter` may call `core`
 - `core` may call `memory`, `llm`, and `tools`
-- `memory` may call `llm` for model-backed memory operations
-- `prompts` should not call `adapter`
+- `memory` may call `llm` when model-backed memory behavior is needed
 - `prompts` should not own persistence logic
+- `prompts` should not depend on `adapter`
 - `utils` should not depend on high-level modules
-- `tools` may depend on `utils`, `llm`, or dedicated services as needed
-- `adapter` should avoid owning business rules that belong in `core`
+- `adapter` should not own business rules that belong in `core`
 
 
-## What Should Not Be Put Into `utils`
+## What Should Not Go Into `utils`
 
-To keep the structure healthy, avoid putting these into `utils`:
+Do not hide meaningful architecture inside `utils`.
+
+In particular, do not move these there:
 
 - approval workflow
-- MCP client logic
-- Telegram transport logic
-- tool registry / tool dispatch logic
-- file tools with workspace/business constraints
+- Telegram transport lifecycle
+- MCP integration
+- tool registry or tool execution logic
+- file tools with workspace rules
 - long-term memory profile storage
-
-These modules are too stateful or too semantically important to be treated as generic utilities.
-
-
-## Recommended First PR Sequence
-
-To minimize risk, the first pull requests should be:
-
-1. Extract Telegram formatter
-2. Extract approval service
-3. Extract conversation service
-4. Extract tool registry and tool executor
-5. Split prompt entrypoints from prompt builders
-6. Split `memory.py`
-7. Split the LLM chat layer
-
-This sequence keeps the highest-risk behavior changes for later, after the structure is already improving.
+- adapter/core bridge logic
 
 
-## Definition of Done for Each Refactor Step
+## Definition of Done For Each Refactor Step
 
 Each step should satisfy most of the following:
 
-- behavior remains unchanged
-- tests still pass
-- moved code has a clearer owner
-- the old source file becomes smaller
-- the new module name matches its responsibility
+- behavior remains stable
+- focused tests pass
+- ownership is clearer than before
+- the old oversized file actually loses responsibility, not just body text
+- new module names match real responsibilities
 - dependency direction becomes more obvious
-- no new cross-cutting logic is hidden inside `utils`
+- no new adapter-side fake hosts are introduced for core behavior
 
 
-## Out of Scope for the First Refactor Wave
+## Out of Scope
 
-The following are useful but should not block the first refactor wave:
+These topics are still useful, but should not block the current structural refactor:
 
-- replacing `Config` with a full DI container
+- replacing `Config` with a full dependency injection container
 - redesigning all database abstractions
-- changing the user-facing Telegram behavior
-- rewriting prompts for quality rather than structure
+- changing end-user Telegram behavior for product reasons
+- rewriting prompts for quality instead of structure
 - replacing the current memory strategy
 
 
-## Final Recommendation
+## Working Recommendation
 
-The best strategy is to treat this as a structural cleanup of a working system.
+Treat the next phase as ownership cleanup, not helper extraction.
 
 Do not optimize for elegance first.
 Optimize for:
 
-- smaller ownership boundaries
-- fewer overloaded classes
-- clearer data and control flow
-- safer future feature work
+- correct ownership
+- thinner adapter boundaries
+- smaller overloaded modules
+- fewer fake facades
+- safer future changes
 
-If this plan is approved, the first implementation step should be extracting Telegram formatting and approval management from the current handler, because that gives immediate clarity with relatively low migration risk.
+If there is doubt during implementation, prefer this rule:
+
+- if a change only moves code but leaves the same object owning the same state, it is not enough

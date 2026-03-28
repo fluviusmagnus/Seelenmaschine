@@ -2,7 +2,12 @@ from typing import Dict, Any, Optional
 import json
 
 from utils.logger import get_logger
-from utils.time import parse_time_expression, format_timestamp
+from utils.time import (
+    format_duration_seconds,
+    format_timestamp,
+    parse_duration_to_seconds,
+    parse_time_expression,
+)
 
 logger = get_logger()
 
@@ -298,34 +303,8 @@ TIME FORMATS:
         Returns:
             Interval in seconds, or None if invalid
         """
-        time_expr = time_expr.strip().lower()
-
-        try:
-            if time_expr.endswith("s"):
-                return int(time_expr[:-1])
-            elif time_expr.endswith("m"):
-                return int(time_expr[:-1]) * 60
-            elif time_expr.endswith("h"):
-                return int(time_expr[:-1]) * 3600
-            elif time_expr.endswith("d"):
-                return int(time_expr[:-1]) * 86400
-            elif time_expr.endswith("w"):
-                return int(time_expr[:-1]) * 604800
-            else:
-                # Try to parse as plain seconds
-                return int(time_expr)
-        except (ValueError, IndexError):
-            return None
+        return parse_duration_to_seconds(time_expr)
 
     def _format_interval(self, seconds: int) -> str:
         """Format interval in seconds to human-readable string"""
-        if seconds % 604800 == 0:
-            return f"{seconds // 604800}w"
-        elif seconds % 86400 == 0:
-            return f"{seconds // 86400}d"
-        elif seconds % 3600 == 0:
-            return f"{seconds // 3600}h"
-        elif seconds % 60 == 0:
-            return f"{seconds // 60}m"
-        else:
-            return f"{seconds}s"
+        return format_duration_seconds(seconds)

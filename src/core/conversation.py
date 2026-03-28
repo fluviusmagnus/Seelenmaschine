@@ -51,6 +51,82 @@ class ConversationService:
                 return msg.get("content", "")
         return None
 
+    def _wrap_scheduled_task_message(self, task_message: str, task_name: str) -> str:
+        """Build the synthetic user message used for scheduled tasks."""
+        trigger_time = get_current_timestamp()
+        trigger_time_str = timestamp_to_str(trigger_time)
+        return (
+            f"[SYSTEM_SCHEDULED_TASK]\n"
+            f"Task Name: {task_name}\n"
+            f"Trigger Time: {trigger_time_str}\n"
+            f"Task: {task_message}\n\n"
+            f"Please respond proactively based on this scheduled task."
+        )
+
+    async def _retrieve_memory_context(
+        self,
+        *,
+        query_text: str,
+        current_context: List[Dict[str, str]],
+        embedding: List[float],
+        log_suffix: str = "",
+    ) -> tuple[List[str], List[str], List[str]]:
+        """Collect retrieved memories and recent summaries for an input query."""
+        last_bot_message = self._find_last_bot_message(current_context)
+        retrieved_summaries, retrieved_conversations = (
+            await self.memory.process_user_input_async(
+                user_input=query_text,
+                last_bot_message=last_bot_message,
+                user_input_embedding=embedding,
+            )
+        )
+        recent_summaries = self.memory.get_recent_summaries()
+
+        logger.debug(
+            f"Retrieved {len(retrieved_summaries)} summaries and "
+            f"{len(retrieved_conversations)} conversations{log_suffix}"
+        )
+        logger.debug(f"Got {len(recent_summaries)} recent summaries")
+        return retrieved_summaries, retrieved_conversations, recent_summaries
+
+    async def _run_with_memory_search_tool(
+        self,
+        operation: Callable[[], Awaitable[Dict[str, Any]]],
+        *,
+        enable_log: str,
+        disable_log: str,
+        mcp_log: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run an LLM operation while memory-search tooling is temporarily enabled."""
+        tool = self.memory_search_tool
+        if tool:
+            logger.debug(enable_log)
+            tool.enable()
+
+        try:
+            if self.mcp_client and self.ensure_mcp_connected is not None:
+                logger.debug(mcp_log or "Ensuring MCP is connected")
+                await self.ensure_mcp_connected()
+            return await operation()
+        finally:
+            if tool:
+                logger.debug(disable_log)
+                tool.disable()
+
+    async def _persist_assistant_messages(
+        self, assistant_messages: List[str], *, context_label: str
+    ) -> None:
+        """Persist assistant messages and log any summaries created during save."""
+        logger.debug(f"Persisting assistant responses to memory ({context_label})")
+        for assistant_message in assistant_messages:
+            _, summary_id = await self.memory.add_assistant_message_async(
+                assistant_message
+            )
+            if summary_id:
+                logger.info(
+                    f"Created new summary (ID: {summary_id}) during {context_label}"
+                )
+
     async def process_message(
         self,
         user_message: str,
@@ -66,45 +142,26 @@ class ConversationService:
             current_context = self.memory.get_context_messages()
 
             logger.debug("Step 3: Retrieving relevant memories")
-            last_bot_message = self._find_last_bot_message(current_context)
-
-            (
-                retrieved_summaries,
-                retrieved_conversations,
-            ) = await self.memory.process_user_input_async(
-                user_input=user_message,
-                last_bot_message=last_bot_message,
-                user_input_embedding=user_embedding,
+            retrieved_summaries, retrieved_conversations, recent_summaries = (
+                await self._retrieve_memory_context(
+                    query_text=user_message,
+                    current_context=current_context,
+                    embedding=user_embedding,
+                )
             )
-
-            logger.debug(
-                f"Retrieved {len(retrieved_summaries)} summaries and "
-                f"{len(retrieved_conversations)} conversations"
-            )
-
-            logger.debug("Step 4: Getting recent summaries")
-            recent_summaries = self.memory.get_recent_summaries()
-            logger.debug(f"Got {len(recent_summaries)} recent summaries")
-
-            logger.debug("Step 5: Enabling memory search tool")
-            self.memory_search_tool.enable()
-
-            try:
-                if self.mcp_client and self.ensure_mcp_connected is not None:
-                    logger.debug("Step 5.5: Ensuring MCP is connected")
-                    await self.ensure_mcp_connected()
-
-                logger.debug("Step 6: Calling LLM")
-                llm_result = await self.llm_client.chat_async_detailed(
+            logger.debug("Step 4-6: Calling LLM")
+            llm_result = await self._run_with_memory_search_tool(
+                lambda: self.llm_client.chat_async_detailed(
                     current_context=current_context,
                     retrieved_summaries=retrieved_summaries,
                     retrieved_conversations=retrieved_conversations,
                     recent_summaries=recent_summaries,
                     intermediate_callback=intermediate_callback,
-                )
-            finally:
-                logger.debug("Step 7: Disabling memory search tool")
-                self.memory_search_tool.disable()
+                ),
+                enable_log="Step 5: Enabling memory search tool",
+                disable_log="Step 7: Disabling memory search tool",
+                mcp_log="Step 5.5: Ensuring MCP is connected",
+            )
 
             assistant_messages = llm_result.get("assistant_messages", [])
             response = llm_result.get("final_text", "")
@@ -121,15 +178,10 @@ class ConversationService:
                 )
 
             logger.debug("Step 8: Adding assistant responses to memory")
-            for assistant_message in assistant_messages:
-                _, summary_id = await self.memory.add_assistant_message_async(
-                    assistant_message
-                )
-                if summary_id:
-                    logger.info(
-                        "Created new summary "
-                        f"(ID: {summary_id}) during message processing"
-                    )
+            await self._persist_assistant_messages(
+                assistant_messages,
+                context_label="message processing",
+            )
 
             logger.info(
                 "Message processing complete, returning combined response: "
@@ -149,14 +201,8 @@ class ConversationService:
     ) -> str:
         """Process a scheduled task message through the LLM and memory."""
         try:
-            trigger_time = get_current_timestamp()
-            trigger_time_str = timestamp_to_str(trigger_time)
-            wrapped_message = (
-                f"[SYSTEM_SCHEDULED_TASK]\n"
-                f"Task Name: {task_name}\n"
-                f"Trigger Time: {trigger_time_str}\n"
-                f"Task: {task_message}\n\n"
-                f"Please respond proactively based on this scheduled task."
+            wrapped_message = self._wrap_scheduled_task_message(
+                task_message, task_name
             )
 
             logger.debug(f"Wrapped scheduled task message: {wrapped_message[:100]}...")
@@ -165,50 +211,28 @@ class ConversationService:
 
             logger.debug("Step 2: Retrieving relevant memories for scheduled task")
             task_embedding = await self.embedding_client.get_embedding_async(task_message)
-            last_bot_message = self._find_last_bot_message(current_context)
-
-            (
-                retrieved_summaries,
-                retrieved_conversations,
-            ) = await self.memory.process_user_input_async(
-                user_input=task_message,
-                last_bot_message=last_bot_message,
-                user_input_embedding=task_embedding,
+            retrieved_summaries, retrieved_conversations, recent_summaries = (
+                await self._retrieve_memory_context(
+                    query_text=task_message,
+                    current_context=current_context,
+                    embedding=task_embedding,
+                    log_suffix=" for scheduled task",
+                )
             )
-
-            logger.debug(
-                f"Retrieved {len(retrieved_summaries)} summaries and "
-                f"{len(retrieved_conversations)} conversations for scheduled task"
-            )
-
-            logger.debug("Step 3: Getting recent summaries")
-            recent_summaries = self.memory.get_recent_summaries()
-            logger.debug(f"Got {len(recent_summaries)} recent summaries")
-
-            logger.debug("Step 4: Enabling memory search tool")
-            if self.memory_search_tool:
-                self.memory_search_tool.enable()
-
-            try:
-                if self.mcp_client and self.ensure_mcp_connected is not None:
-                    logger.debug("Step 4.5: Ensuring MCP is connected")
-                    await self.ensure_mcp_connected()
-
-                logger.debug("Step 5-6: Calling LLM with custom task message")
-                llm_result = (
-                    await self.llm_client.chat_with_custom_message_async_detailed(
+            logger.debug("Step 3-6: Calling LLM with custom task message")
+            llm_result = await self._run_with_memory_search_tool(
+                lambda: self.llm_client.chat_with_custom_message_async_detailed(
                         current_context=current_context,
                         retrieved_summaries=retrieved_summaries,
                         retrieved_conversations=retrieved_conversations,
                         recent_summaries=recent_summaries,
                         custom_user_message=wrapped_message,
                         intermediate_callback=intermediate_callback,
-                    )
-                )
-            finally:
-                logger.debug("Step 7: Disabling memory search tool")
-                if self.memory_search_tool:
-                    self.memory_search_tool.disable()
+                ),
+                enable_log="Step 4: Enabling memory search tool",
+                disable_log="Step 7: Disabling memory search tool",
+                mcp_log="Step 4.5: Ensuring MCP is connected",
+            )
 
             assistant_messages = llm_result.get("assistant_messages", [])
             response_text = llm_result.get("final_text", "")
@@ -226,15 +250,10 @@ class ConversationService:
                 )
 
             logger.debug("Step 8: Adding assistant responses to memory (scheduled task)")
-            for assistant_message in assistant_messages:
-                _, summary_id = await self.memory.add_assistant_message_async(
-                    assistant_message
-                )
-                if summary_id:
-                    logger.info(
-                        "Created new summary "
-                        f"(ID: {summary_id}) during scheduled task processing"
-                    )
+            await self._persist_assistant_messages(
+                assistant_messages,
+                context_label="scheduled task processing",
+            )
 
             logger.info(
                 "Scheduled task processing complete, returning combined response: "

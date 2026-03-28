@@ -125,23 +125,6 @@ class EmbeddingClient:
             logger.error(f"Failed to get embeddings batch: {e}")
             raise
 
-    def get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
-        """Synchronous wrapper for get_embeddings_batch. Use get_embeddings_batch_async in async contexts."""
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "get_embeddings_batch() called from async context. Use await get_embeddings_batch_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                loop = self._get_event_loop()
-                return loop.run_until_complete(self._async_get_embeddings_batch(texts))
-            else:
-                raise
-
     async def get_embeddings_batch_async(self, texts: List[str]) -> List[List[float]]:
         """Async method for getting embeddings batch. Use this in async contexts."""
         return await self._async_get_embeddings_batch(texts)

@@ -6,21 +6,71 @@ from zoneinfo import ZoneInfo
 
 from core.config import Config
 
+SECONDS_PER_MINUTE = 60
+SECONDS_PER_HOUR = 60 * SECONDS_PER_MINUTE
+SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR
+SECONDS_PER_WEEK = 7 * SECONDS_PER_DAY
+SECONDS_PER_MONTH = 30 * SECONDS_PER_DAY
+SECONDS_PER_YEAR = 365 * SECONDS_PER_DAY
+
+_SHORT_DURATION_PATTERN = re.compile(r"^(\d+)\s*(s|m|h|d|w)$")
+_RELATIVE_DURATION_PATTERN = re.compile(
+    r"^in\s+(\d+)\s*"
+    r"(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days|w|week|weeks)$"
+)
+_SECONDS_BY_UNIT = {
+    "s": 1,
+    "sec": 1,
+    "second": 1,
+    "seconds": 1,
+    "m": SECONDS_PER_MINUTE,
+    "min": SECONDS_PER_MINUTE,
+    "minute": SECONDS_PER_MINUTE,
+    "minutes": SECONDS_PER_MINUTE,
+    "h": SECONDS_PER_HOUR,
+    "hour": SECONDS_PER_HOUR,
+    "hours": SECONDS_PER_HOUR,
+    "d": SECONDS_PER_DAY,
+    "day": SECONDS_PER_DAY,
+    "days": SECONDS_PER_DAY,
+    "w": SECONDS_PER_WEEK,
+    "week": SECONDS_PER_WEEK,
+    "weeks": SECONDS_PER_WEEK,
+}
+_RELATIVE_TIME_UNITS = (
+    (SECONDS_PER_YEAR, "year"),
+    (SECONDS_PER_MONTH, "month"),
+    (SECONDS_PER_WEEK, "week"),
+    (SECONDS_PER_DAY, "day"),
+    (SECONDS_PER_HOUR, "hour"),
+    (SECONDS_PER_MINUTE, "minute"),
+)
+_DURATION_OUTPUT_UNITS = (
+    (SECONDS_PER_WEEK, "w"),
+    (SECONDS_PER_DAY, "d"),
+    (SECONDS_PER_HOUR, "h"),
+    (SECONDS_PER_MINUTE, "m"),
+)
+_SPECIAL_TIME_EXPRESSIONS = {
+    "tomorrow": SECONDS_PER_DAY,
+    "next week": SECONDS_PER_WEEK,
+}
+
+
+def _resolve_timezone(tz: Optional[ZoneInfo] = None) -> ZoneInfo:
+    return Config.TIMEZONE if tz is None else tz
+
 
 def get_current_timestamp() -> int:
     return int(time.time())
 
 
 def get_current_datetime(tz: Optional[ZoneInfo] = None) -> datetime:
-    if tz is None:
-        tz = Config.TIMEZONE
-    return datetime.now(tz)
+    return datetime.now(_resolve_timezone(tz))
 
 
 def timestamp_to_datetime(timestamp: int, tz: Optional[ZoneInfo] = None) -> datetime:
-    if tz is None:
-        tz = Config.TIMEZONE
-    return datetime.fromtimestamp(timestamp, tz)
+    return datetime.fromtimestamp(timestamp, _resolve_timezone(tz))
 
 
 def timestamp_to_str(
@@ -32,8 +82,6 @@ def timestamp_to_str(
 
 def format_current_time_str(tz: Optional[ZoneInfo] = None) -> str:
     """Format the current time as a timezone-aware prompt-friendly string."""
-    if tz is None:
-        tz = Config.TIMEZONE
     current_time = get_current_datetime(tz)
     return current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -59,32 +107,43 @@ def format_relative_time(timestamp: int, tz: Optional[ZoneInfo] = None) -> str:
     now = get_current_timestamp()
     diff = now - timestamp
 
-    if diff < 60:
+    if diff < SECONDS_PER_MINUTE:
         return "just now"
-    elif diff < 3600:
-        minutes = diff // 60
-        return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
-    elif diff < 86400:
-        hours = diff // 3600
-        return f"{hours} hour{'s' if hours > 1 else ''} ago"
-    elif diff < 604800:
-        days = diff // 86400
-        return f"{days} day{'s' if days > 1 else ''} ago"
-    elif diff < 2592000:
-        weeks = diff // 604800
-        return f"{weeks} week{'s' if weeks > 1 else ''} ago"
-    elif diff < 31536000:
-        months = diff // 2592000
-        return f"{months} month{'s' if months > 1 else ''} ago"
-    else:
-        years = diff // 31536000
-        return f"{years} year{'s' if years > 1 else ''} ago"
+    for unit_seconds, unit_name in _RELATIVE_TIME_UNITS:
+        if diff >= unit_seconds:
+            amount = diff // unit_seconds
+            suffix = "s" if amount > 1 else ""
+            return f"{amount} {unit_name}{suffix} ago"
+    return "just now"
 
 
 def validate_timestamp(timestamp: int) -> bool:
     min_timestamp = 0
-    max_timestamp = get_current_timestamp() + 86400 * 365
+    max_timestamp = get_current_timestamp() + SECONDS_PER_YEAR
     return min_timestamp <= timestamp <= max_timestamp
+
+
+def parse_duration_to_seconds(time_expr: str) -> Optional[int]:
+    """Parse a compact duration like '30s' or '2h' into seconds."""
+    normalized_expr = time_expr.strip().lower()
+    match = _SHORT_DURATION_PATTERN.match(normalized_expr)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+        return amount * _SECONDS_BY_UNIT[unit]
+
+    try:
+        return int(normalized_expr)
+    except ValueError:
+        return None
+
+
+def format_duration_seconds(seconds: int) -> str:
+    """Format seconds as the shortest whole-unit duration string."""
+    for unit_seconds, suffix in _DURATION_OUTPUT_UNITS:
+        if seconds % unit_seconds == 0:
+            return f"{seconds // unit_seconds}{suffix}"
+    return f"{seconds}s"
 
 
 def parse_time_expression(time_expr: str) -> Optional[int]:
@@ -125,48 +184,20 @@ def parse_time_expression(time_expr: str) -> Optional[int]:
         pass
 
     # Try parsing simple duration format (e.g., "30s", "5m", "2h", "1d", "1w")
-    # This must come before the "in X" pattern to match first
-    match = re.match(r"^(\d+)\s*(s|m|h|d|w)$", time_expr_lower)
-    if match:
-        amount = int(match.group(1))
-        unit = match.group(2)
-
-        if unit == "s":
-            return current_time + amount
-        elif unit == "m":
-            return current_time + amount * 60
-        elif unit == "h":
-            return current_time + amount * 3600
-        elif unit == "d":
-            return current_time + amount * 86400
-        elif unit == "w":
-            return current_time + amount * 604800
+    # This must come before the "in X" pattern to match first.
+    duration_seconds = parse_duration_to_seconds(time_expr_lower)
+    if duration_seconds is not None and _SHORT_DURATION_PATTERN.match(time_expr_lower):
+        return current_time + duration_seconds
 
     # "in X hours/minutes/days" format
-    match = re.match(
-        r"^in\s+(\d+)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours|d|day|days|w|week|weeks)$",
-        time_expr_lower,
-    )
+    match = _RELATIVE_DURATION_PATTERN.match(time_expr_lower)
     if match:
         amount = int(match.group(1))
         unit = match.group(2)
+        return current_time + amount * _SECONDS_BY_UNIT[unit]
 
-        if unit in ["s", "sec", "second", "seconds"]:
-            return current_time + amount
-        elif unit in ["m", "min", "minute", "minutes"]:
-            return current_time + amount * 60
-        elif unit in ["h", "hour", "hours"]:
-            return current_time + amount * 3600
-        elif unit in ["d", "day", "days"]:
-            return current_time + amount * 86400
-        elif unit in ["w", "week", "weeks"]:
-            return current_time + amount * 604800
-
-    # Special keywords
-    if time_expr_lower == "tomorrow":
-        return current_time + 86400
-    elif time_expr_lower == "next week":
-        return current_time + 604800
+    if time_expr_lower in _SPECIAL_TIME_EXPRESSIONS:
+        return current_time + _SPECIAL_TIME_EXPRESSIONS[time_expr_lower]
 
     return None
 

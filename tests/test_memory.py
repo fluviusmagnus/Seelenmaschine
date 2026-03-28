@@ -189,7 +189,7 @@ class TestMemoryManager:
         # Mock both summary generation and memory update
         with patch.object(
             memory_manager, "_generate_summary", return_value="Test summary"
-        ) as mock_summary:
+        ):
             with patch.object(
                 memory_manager,
                 "_generate_memory_update",
@@ -197,7 +197,7 @@ class TestMemoryManager:
             ) as mock_memory_update:
                 with patch.object(
                     memory_manager, "update_long_term_memory", return_value=True
-                ) as mock_update_ltm:
+                ):
                     conv_id, summary_id = memory_manager.add_assistant_message(
                         "Response"
                     )

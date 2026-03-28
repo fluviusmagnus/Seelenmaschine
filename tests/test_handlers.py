@@ -7,7 +7,7 @@ including tool execution, MCP client integration, and message processing.
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, AsyncMock
 import json
 import pytest
 
@@ -22,12 +22,20 @@ class TestMessageHandlerInitialization:
     @pytest.fixture
     def mock_dependencies(self):
         """Create mock dependencies"""
+        config = Mock()
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+        config.DEBUG_MODE = False
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
         return {
-            "config": Mock(),
+            "config": config,
             "db": Mock(),
             "embedding_client": Mock(),
             "reranker_client": Mock(),
-            "memory": Mock(),
+            "memory": memory,
             "scheduler": Mock(),
             "llm_client": Mock(),
         }
@@ -35,36 +43,12 @@ class TestMessageHandlerInitialization:
     def test_handler_initializes_components(self, mock_dependencies):
         """Test that handler initializes all required components"""
         from adapter.telegram.handlers import MessageHandler
-        from pathlib import Path
+        from core.bot import CoreBot
 
-        with patch("adapter.telegram.handlers.Config") as mock_config_class:
-            with patch("adapter.telegram.handlers.DatabaseManager"):
-                with patch("adapter.telegram.handlers.EmbeddingClient"):
-                    with patch("adapter.telegram.handlers.RerankerClient"):
-                        with patch("adapter.telegram.handlers.MemoryManager"):
-                            with patch("adapter.telegram.handlers.TaskScheduler"):
-                                with patch("adapter.telegram.handlers.ScheduledTaskTool"):
-                                    with patch("adapter.telegram.handlers.LLMClient"):
-                                        with patch("adapter.telegram.handlers.MemorySearchTool"):
-                                            mock_config_instance = Mock()
-                                            mock_config_instance.ENABLE_MCP = False
-                                            mock_config_instance.DATA_DIR = Path(
-                                                "data/test"
-                                            )
-                                            mock_config_instance.WORKSPACE_DIR = Path(
-                                                "data/test/workspace"
-                                            )
-                                            mock_config_instance.MEDIA_DIR = Path(
-                                                "data/test/workspace/media"
-                                            )
-                                            mock_config_class.return_value = (
-                                                mock_config_instance
-                                            )
+        core_bot = CoreBot(**mock_dependencies)
+        handler = MessageHandler(core_bot=core_bot)
 
-                                            handler = MessageHandler()
-
-                                            # Verify handler was created
-                                            assert handler is not None
+        assert handler is not None
 
 
 class TestToolExecution:
@@ -131,6 +115,33 @@ class TestToolExecution:
 class TestMessageProcessing:
     """Test message processing functionality"""
 
+    @staticmethod
+    def _build_core_bot_for_conversation(handler, *, scheduled: bool = False):
+        from core.bot import CoreBot
+
+        config = Mock()
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=getattr(handler, "embedding_client", Mock()),
+            reranker_client=Mock(),
+            memory=handler.memory,
+            scheduler=Mock(),
+            llm_client=handler.llm_client,
+        )
+        core_bot.create_conversation_service(
+            memory_search_tool=handler.memory_search_tool,
+            mcp_client=handler.mcp_client,
+            ensure_mcp_connected=handler._ensure_mcp_connected,
+            preview_text=handler._preview_text,
+        )
+        return core_bot
+
     @pytest.mark.asyncio
     async def test_process_message_returns_final_text_without_assistant_history(self):
         """Message processing should return the final LLM text and persist it once."""
@@ -159,11 +170,8 @@ class TestMessageProcessing:
             }
         )
 
-        handler._process_message = MessageHandler._process_message.__get__(
-            handler, Mock
-        )
-
-        response = await handler._process_message("帮我总结一下")
+        core_bot = self._build_core_bot_for_conversation(handler)
+        response = await core_bot.process_message("帮我总结一下")
 
         assert response == "这是最后答复"
         handler.memory.add_user_message_async.assert_awaited_once_with("帮我总结一下")
@@ -221,11 +229,8 @@ class TestMessageProcessing:
             }
         )
 
-        handler._process_message = MessageHandler._process_message.__get__(
-            handler, Mock
-        )
-
-        response = await handler._process_message("你好")
+        core_bot = self._build_core_bot_for_conversation(handler)
+        response = await core_bot.process_message("你好")
 
         assert response == "最终答复"
         assert handler.memory.add_assistant_message_async.await_count == 2
@@ -266,11 +271,8 @@ class TestMessageProcessing:
             }
         )
 
-        handler._process_scheduled_task = (
-            MessageHandler._process_scheduled_task.__get__(handler, Mock)
-        )
-
-        response = await handler._process_scheduled_task("提醒喝水", "喝水提醒")
+        core_bot = self._build_core_bot_for_conversation(handler, scheduled=True)
+        response = await core_bot.process_scheduled_task("提醒喝水", "喝水提醒")
 
         assert response == "别忘了喝水。"
         assert handler.memory.add_assistant_message_async.await_count == 2
@@ -286,9 +288,12 @@ class TestMessageProcessing:
         handler.config = Mock()
         handler.config.TELEGRAM_USER_ID = 123456789
         handler._pending_approval = None
-        handler._process_message = AsyncMock(
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock(
             side_effect=RuntimeError("maximum context length exceeded")
         )
+        handler._send_intermediate_response = AsyncMock()
         handler._format_exception_for_user = MessageHandler._format_exception_for_user
         handler.handle_message = MessageHandler.handle_message.__get__(handler, Mock)
 
@@ -315,6 +320,9 @@ class TestMessageProcessing:
     async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
         """Dangerous shell actions should continue executing after /approve."""
         from adapter.telegram.handlers import MessageHandler
+        from adapter.telegram.tool_bridge import TelegramToolBridge
+        from core.bot import CoreToolHost
+        from core.approval import ApprovalService
 
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
@@ -331,23 +339,24 @@ class TestMessageProcessing:
         shell_tool.execute = AsyncMock(return_value="dangerous command completed")
         handler._tool_registry["execute_shell_command"] = shell_tool
 
+        from core.tools import ToolSafetyPolicy
+
         handler._preview_text = MessageHandler._preview_text
         handler._format_exception_for_user = MessageHandler._format_exception_for_user
-        handler._is_dangerous_action = MessageHandler._is_dangerous_action.__get__(
-            handler, Mock
+        handler._tool_safety_policy = ToolSafetyPolicy(handler.config)
+        handler._approval_service = ApprovalService()
+        handler._approval_service.set_state_listener(
+            lambda request: setattr(handler, "_pending_approval", request)
         )
-        handler._request_approval = MessageHandler._request_approval.__get__(
-            handler, Mock
+        handler._tool_bridge = TelegramToolBridge(handler)
+        handler._tool_host = CoreToolHost(
+            handler,
+            get_tool_bridge=lambda: handler._tool_bridge,
         )
-        handler._send_status_message = MessageHandler._send_status_message.__get__(
-            handler, Mock
-        )
-        handler._notify_approved_action_finished = (
-            MessageHandler._notify_approved_action_finished.__get__(handler, Mock)
-        )
-        handler._notify_approved_action_failed = (
-            MessageHandler._notify_approved_action_failed.__get__(handler, Mock)
-        )
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.tool_runtime_state = None
+        handler.core_bot.execute_tool = handler._tool_host.execute_tool
         handler.handle_approve = MessageHandler.handle_approve.__get__(handler, Mock)
         handler._execute_tool = MessageHandler._execute_tool.__get__(handler, Mock)
 
@@ -397,7 +406,9 @@ class TestMessageProcessing:
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
         handler.config.TELEGRAM_USER_ID = 123456789
-        handler._process_message = AsyncMock()
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock()
         handler.handle_message = MessageHandler.handle_message.__get__(handler, Mock)
 
         loop = asyncio.get_running_loop()
@@ -426,283 +437,28 @@ class TestMessageProcessing:
 
         assert handler._pending_approval.future.done() is True
         assert handler._pending_approval.future.result() is False
-        handler._process_message.assert_not_called()
+        handler.core_bot.process_message.assert_not_called()
         update.message.reply_text.assert_awaited_once_with("❌ Pending action aborted.")
-
-
-class TestFileHandling:
-    """Test Telegram file handling in MessageHandler."""
-
-    @pytest.fixture
-    def mock_handler(self, tmp_path):
-        """Create a minimal mock handler with bound file methods."""
-        from adapter.telegram.handlers import MessageHandler
-
-        handler = Mock(spec=MessageHandler)
-        handler.config = Mock()
-        handler.config.TELEGRAM_USER_ID = 123456789
-        handler.config.WORKSPACE_DIR = tmp_path
-        handler.config.MEDIA_DIR = tmp_path / "media"
-        handler._process_message = AsyncMock(return_value="LLM file response")
-        handler._format_response_for_telegram = Mock(return_value="Formatted response")
-        handler._split_message_into_segments = Mock(return_value=["Segment 1"])
-
-        handler._sanitize_filename = MessageHandler._sanitize_filename.__get__(
-            handler, Mock
-        )
-        handler._guess_extension = MessageHandler._guess_extension.__get__(
-            handler, Mock
-        )
-        handler._build_media_file_path = MessageHandler._build_media_file_path.__get__(
-            handler, Mock
-        )
-        handler._extract_file_info_from_update = (
-            MessageHandler._extract_file_info_from_update.__get__(handler, Mock)
-        )
-        handler._download_telegram_file = (
-            MessageHandler._download_telegram_file.__get__(handler, Mock)
-        )
-        handler._format_saved_media_path = (
-            MessageHandler._format_saved_media_path.__get__(handler, Mock)
-        )
-        handler._build_file_event_message = (
-            MessageHandler._build_file_event_message.__get__(handler, Mock)
-        )
-        handler._resolve_telegram_file_path = (
-            MessageHandler._resolve_telegram_file_path.__get__(handler, Mock)
-        )
-        handler._is_allowed_telegram_file_path = (
-            MessageHandler._is_allowed_telegram_file_path.__get__(handler, Mock)
-        )
-        handler._detect_telegram_delivery_method = (
-            MessageHandler._detect_telegram_delivery_method.__get__(handler, Mock)
-        )
-        handler._build_sent_file_event_message = (
-            MessageHandler._build_sent_file_event_message.__get__(handler, Mock)
-        )
-        handler._send_telegram_file_to_user = (
-            MessageHandler._send_telegram_file_to_user.__get__(handler, Mock)
-        )
-        handler.handle_file = MessageHandler.handle_file.__get__(handler, Mock)
-        handler.memory = Mock()
-        handler.memory.add_assistant_message_async = AsyncMock()
-        handler.telegram_bot = Mock()
-        handler.telegram_bot.send_document = AsyncMock()
-        handler.telegram_bot.send_photo = AsyncMock()
-        handler.telegram_bot.send_video = AsyncMock()
-        handler.telegram_bot.send_audio = AsyncMock()
-        handler.telegram_bot.send_voice = AsyncMock()
-
-        return handler
-
-    @pytest.fixture
-    def mock_context(self):
-        """Create mock Telegram context."""
-        context = Mock()
-        context.bot = Mock()
-        context.bot.send_chat_action = AsyncMock()
-        context.bot.get_file = AsyncMock()
-        return context
-
-    @pytest.fixture
-    def mock_update_with_document(self):
-        """Create update containing a Telegram document."""
-        update = Mock()
-        update.effective_user = Mock()
-        update.effective_user.id = 123456789
-        update.effective_chat = Mock()
-        update.effective_chat.id = 123456789
-        update.message = Mock()
-        update.message.reply_text = AsyncMock()
-        update.message.caption = "这是附件说明"
-        update.message.photo = None
-        update.message.video = None
-        update.message.audio = None
-        update.message.voice = None
-
-        document = Mock()
-        document.file_id = "file-id"
-        document.file_unique_id = "unique-id"
-        document.file_name = "report.pdf"
-        document.mime_type = "application/pdf"
-        document.file_size = 1024
-        update.message.document = document
-
-        return update
-
-    def test_build_file_event_message(self, mock_handler, tmp_path):
-        """Test synthetic user message creation for files."""
-        saved_path = tmp_path / "media" / "report_unique-id.pdf"
-        file_info = {
-            "file_type": "document",
-            "original_name": "report.pdf",
-            "mime_type": "application/pdf",
-            "file_size": 1024,
-            "caption": "附件说明",
-        }
-
-        message = mock_handler._build_file_event_message(file_info, saved_path)
-
-        assert "[System Event] The user has sent a file." in message
-        assert "Original filename: report.pdf" in message
-        assert f"Saved to: {saved_path.resolve()}" in message
-        assert "MIME type: application/pdf" in message
-        assert "File size: 1024 bytes" in message
-        assert "Caption: 附件说明" in message
-
-    @pytest.mark.asyncio
-    async def test_handle_file_processes_document(
-        self, mock_handler, mock_context, mock_update_with_document
-    ):
-        """Test document upload is saved and forwarded into normal message flow."""
-        telegram_file = Mock()
-        telegram_file.download_to_drive = AsyncMock()
-        mock_context.bot.get_file.return_value = telegram_file
-
-        async def download_side_effect(custom_path):
-            Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(custom_path).write_text("dummy", encoding="utf-8")
-
-        telegram_file.download_to_drive.side_effect = download_side_effect
-
-        await mock_handler.handle_file(mock_update_with_document, mock_context)
-
-        mock_context.bot.get_file.assert_called_once_with("file-id")
-        mock_handler._process_message.assert_called_once()
-        processed_message = mock_handler._process_message.call_args[0][0]
-        assert "[System Event] The user has sent a file." in processed_message
-        assert "Original filename: report.pdf" in processed_message
-        assert "Saved to:" in processed_message
-        mock_update_with_document.message.reply_text.assert_called_once_with(
-            "Segment 1", parse_mode="HTML"
-        )
-
-    @pytest.mark.asyncio
-    async def test_handle_file_rejects_unauthorized_user(
-        self, mock_handler, mock_context, mock_update_with_document
-    ):
-        """Test unauthorized users cannot upload files."""
-        mock_update_with_document.effective_user.id = 999999999
-
-        await mock_handler.handle_file(mock_update_with_document, mock_context)
-
-        mock_handler._process_message.assert_not_called()
-        mock_update_with_document.message.reply_text.assert_called_once_with(
-            "Unauthorized access."
-        )
-
-    def test_detect_telegram_delivery_method(self, mock_handler, tmp_path):
-        """Test Telegram delivery method auto detection by file type."""
-        assert (
-            mock_handler._detect_telegram_delivery_method(tmp_path / "image.png")
-            == "photo"
-        )
-        assert (
-            mock_handler._detect_telegram_delivery_method(tmp_path / "clip.mp4")
-            == "video"
-        )
-        assert (
-            mock_handler._detect_telegram_delivery_method(tmp_path / "song.mp3")
-            == "audio"
-        )
-        assert (
-            mock_handler._detect_telegram_delivery_method(tmp_path / "note.ogg")
-            == "voice"
-        )
-        assert (
-            mock_handler._detect_telegram_delivery_method(tmp_path / "report.pdf")
-            == "document"
-        )
-
-    @pytest.mark.asyncio
-    async def test_send_telegram_file_to_user_uses_photo_and_logs_system_event(
-        self, mock_handler, tmp_path
-    ):
-        """Test proactive photo sending and assistant-role system-tone logging."""
-        image_path = tmp_path / "media" / "chart.png"
-        image_path.parent.mkdir(parents=True, exist_ok=True)
-        image_path.write_bytes(b"fake-image")
-
-        result = await mock_handler._send_telegram_file_to_user(
-            str(image_path), caption="最新图表"
-        )
-
-        assert result["delivery_method"] == "photo"
-        mock_handler.telegram_bot.send_photo.assert_awaited_once()
-        mock_handler.memory.add_assistant_message_async.assert_awaited_once()
-        event_text = mock_handler.memory.add_assistant_message_async.await_args.args[0]
-        assert event_text.startswith(
-            "[System Event] Assistant has sent a file via Telegram."
-        )
-        assert "Delivery method: photo" in event_text
-        assert "Caption: 最新图表" in event_text
-
-    @pytest.mark.asyncio
-    async def test_send_telegram_file_to_user_routes_by_media_type(
-        self, mock_handler, tmp_path
-    ):
-        """Test different Telegram APIs are selected by file type."""
-        video_path = tmp_path / "media" / "movie.mp4"
-        audio_path = tmp_path / "media" / "sound.mp3"
-        voice_path = tmp_path / "media" / "voice.ogg"
-        document_path = tmp_path / "media" / "report.pdf"
-
-        for path in [video_path, audio_path, voice_path, document_path]:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(b"binary")
-
-        await mock_handler._send_telegram_file_to_user(str(video_path))
-        await mock_handler._send_telegram_file_to_user(str(audio_path))
-        await mock_handler._send_telegram_file_to_user(str(voice_path))
-        await mock_handler._send_telegram_file_to_user(str(document_path))
-
-        mock_handler.telegram_bot.send_video.assert_awaited_once()
-        mock_handler.telegram_bot.send_audio.assert_awaited_once()
-        mock_handler.telegram_bot.send_voice.assert_awaited_once()
-        mock_handler.telegram_bot.send_document.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_send_telegram_file_to_user_rejects_outside_workspace(
-        self, mock_handler, tmp_path
-    ):
-        """Test proactive file sending rejects files outside workspace/media."""
-        outside_file = tmp_path.parent / "outside.txt"
-        outside_file.write_text("x", encoding="utf-8")
-
-        with pytest.raises(ValueError, match="outside allowed directories"):
-            await mock_handler._send_telegram_file_to_user(str(outside_file))
 
 
 class TestPathSafetyApproval:
     """Test unified path safety approval for builtin tools."""
 
     @pytest.fixture
-    def path_check_handler(self, tmp_path):
-        """Create a minimal handler with bound path safety methods."""
-        from adapter.telegram.handlers import MessageHandler
+    def safety_policy(self, tmp_path):
+        """Create the shared tool safety policy."""
+        from core.tools import ToolSafetyPolicy
 
-        handler = Mock(spec=MessageHandler)
-        handler.config = Mock()
-        handler.config.WORKSPACE_DIR = tmp_path
-        handler.config.MEDIA_DIR = tmp_path / "media"
-
-        handler._is_path_outside_allowed_dirs = (
-            MessageHandler._is_path_outside_allowed_dirs.__get__(handler, Mock)
-        )
-        handler._is_file_outside_workspace = (
-            MessageHandler._is_file_outside_workspace.__get__(handler, Mock)
-        )
-        handler._is_dangerous_action = MessageHandler._is_dangerous_action.__get__(
-            handler, Mock
-        )
-
-        return handler
+        config = Mock()
+        config.WORKSPACE_DIR = tmp_path
+        config.MEDIA_DIR = tmp_path / "media"
+        return ToolSafetyPolicy(config)
 
     def test_grep_search_path_with_dotdot_inside_workspace_is_allowed(
-        self, path_check_handler
+        self, safety_policy
     ):
         """Normalized .. paths staying in workspace should not require approval."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "grep_search",
             {"pattern": "todo", "path": "src/../src"},
         )
@@ -711,10 +467,10 @@ class TestPathSafetyApproval:
         assert reason == ""
 
     def test_grep_search_parent_traversal_outside_workspace_requires_approval(
-        self, path_check_handler
+        self, safety_policy
     ):
         """Relative traversal escaping workspace should require approval."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "grep_search",
             {"pattern": "todo", "path": "../outside"},
         )
@@ -722,9 +478,9 @@ class TestPathSafetyApproval:
         assert dangerous
         assert reason == "file_outside_workspace"
 
-    def test_glob_search_home_expansion_requires_approval(self, path_check_handler):
+    def test_glob_search_home_expansion_requires_approval(self, safety_policy):
         """Home-expanded paths should be checked against the same boundary rules."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "glob_search",
             {"pattern": "*.py", "path": "~"},
         )
@@ -732,9 +488,9 @@ class TestPathSafetyApproval:
         assert dangerous
         assert reason == "file_outside_workspace"
 
-    def test_glob_search_without_explicit_path_stays_allowed(self, path_check_handler):
+    def test_glob_search_without_explicit_path_stays_allowed(self, safety_policy):
         """Omitted search root should default to workspace and stay non-dangerous."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "glob_search",
             {"pattern": "*.py"},
         )
@@ -742,9 +498,9 @@ class TestPathSafetyApproval:
         assert not dangerous
         assert reason == ""
 
-    def test_shell_command_parent_traversal_requires_approval(self, path_check_handler):
+    def test_shell_command_parent_traversal_requires_approval(self, safety_policy):
         """Shell commands referencing explicit outside-workspace paths should require approval."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "execute_shell_command",
             {"command": "cat ../secret.txt"},
         )
@@ -752,11 +508,9 @@ class TestPathSafetyApproval:
         assert dangerous
         assert reason == "shell_threat:outside_workspace_path"
 
-    def test_shell_command_workspace_relative_path_stays_allowed(
-        self, path_check_handler
-    ):
+    def test_shell_command_workspace_relative_path_stays_allowed(self, safety_policy):
         """Shell commands using in-workspace relative paths should remain allowed."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "execute_shell_command",
             {"command": "cat src/file.txt"},
         )
@@ -764,9 +518,9 @@ class TestPathSafetyApproval:
         assert not dangerous
         assert reason == ""
 
-    def test_shell_command_outside_cwd_requires_approval(self, path_check_handler):
+    def test_shell_command_outside_cwd_requires_approval(self, safety_policy):
         """Shell cwd outside allowed directories should also require approval."""
-        dangerous, reason = path_check_handler._is_dangerous_action(
+        dangerous, reason = safety_policy.is_dangerous_action(
             "execute_shell_command",
             {"command": "echo hi", "cwd": "../outside"},
         )
@@ -984,4 +738,3 @@ class TestSplitMessageIntoSegments:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

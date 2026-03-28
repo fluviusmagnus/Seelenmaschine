@@ -267,6 +267,34 @@ class LLMClient:
 
         return content_str
 
+    async def _run_chat_messages(
+        self,
+        *,
+        current_context: List[Dict[str, str]],
+        retrieved_summaries: List[str],
+        retrieved_conversations: List[str],
+        recent_summaries: Optional[List[str]] = None,
+        custom_user_message: Optional[str] = None,
+        intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> Dict[str, Any]:
+        """Build prompt messages and execute the tool-aware chat loop."""
+        messages = self._build_chat_messages(
+            current_context,
+            retrieved_summaries,
+            retrieved_conversations,
+            recent_summaries,
+            custom_user_message=custom_user_message,
+        )
+        return await self._run_chat_with_tool_loop(
+            messages,
+            intermediate_callback=intermediate_callback,
+        )
+
+    async def _run_chat_messages_final_text(self, **kwargs: Any) -> str:
+        """Execute a chat flow and return only the final assistant text."""
+        detailed_result = await self._run_chat_messages(**kwargs)
+        return detailed_result["final_text"]
+
     async def _run_chat_with_tool_loop(
         self,
         messages: List[Dict[str, str]],
@@ -297,41 +325,6 @@ class LLMClient:
             force_chat_model=force_chat_model,
         )
 
-    def chat(
-        self,
-        current_context: List[Dict[str, str]],
-        retrieved_summaries: List[str],
-        retrieved_conversations: List[str],
-        recent_summaries: Optional[List[str]] = None,
-    ) -> str:
-        """Synchronous wrapper for chat. Use chat_async in async contexts."""
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "chat() called from async context. Use await chat_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                messages = self._build_chat_messages(
-                    current_context,
-                    retrieved_summaries,
-                    retrieved_conversations,
-                    recent_summaries,
-                )
-
-                loop = self._get_event_loop()
-
-                async def chat_with_tools() -> str:
-                    detailed_result = await self._run_chat_with_tool_loop(messages)
-                    return detailed_result["final_text"]
-
-                return loop.run_until_complete(chat_with_tools())
-            else:
-                raise
-
     async def chat_async(
         self,
         current_context: List[Dict[str, str]],
@@ -343,15 +336,12 @@ class LLMClient:
 
         Always uses chat_model for conversation, even when tools are available.
         """
-        messages = self._build_chat_messages(
-            current_context,
-            retrieved_summaries,
-            retrieved_conversations,
-            recent_summaries,
+        return await self._run_chat_messages_final_text(
+            current_context=current_context,
+            retrieved_summaries=retrieved_summaries,
+            retrieved_conversations=retrieved_conversations,
+            recent_summaries=recent_summaries,
         )
-
-        detailed_result = await self._run_chat_with_tool_loop(messages)
-        return detailed_result["final_text"]
 
     async def chat_async_detailed(
         self,
@@ -362,15 +352,12 @@ class LLMClient:
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Async chat returning both final text and intermediate assistant messages."""
-        messages = self._build_chat_messages(
-            current_context,
-            retrieved_summaries,
-            retrieved_conversations,
-            recent_summaries,
-        )
-
-        return await self._run_chat_with_tool_loop(
-            messages, intermediate_callback=intermediate_callback
+        return await self._run_chat_messages(
+            current_context=current_context,
+            retrieved_summaries=retrieved_summaries,
+            retrieved_conversations=retrieved_conversations,
+            recent_summaries=recent_summaries,
+            intermediate_callback=intermediate_callback,
         )
 
     async def chat_with_custom_message_async(
@@ -396,16 +383,13 @@ class LLMClient:
         Returns:
             Bot's response
         """
-        messages = self._build_chat_messages(
-            current_context,
-            retrieved_summaries,
-            retrieved_conversations,
-            recent_summaries,
+        return await self._run_chat_messages_final_text(
+            current_context=current_context,
+            retrieved_summaries=retrieved_summaries,
+            retrieved_conversations=retrieved_conversations,
+            recent_summaries=recent_summaries,
             custom_user_message=custom_user_message,
         )
-
-        detailed_result = await self._run_chat_with_tool_loop(messages)
-        return detailed_result["final_text"]
 
     async def chat_with_custom_message_async_detailed(
         self,
@@ -417,16 +401,13 @@ class LLMClient:
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Async chat with custom message, returning detailed assistant outputs."""
-        messages = self._build_chat_messages(
-            current_context,
-            retrieved_summaries,
-            retrieved_conversations,
-            recent_summaries,
+        return await self._run_chat_messages(
+            current_context=current_context,
+            retrieved_summaries=retrieved_summaries,
+            retrieved_conversations=retrieved_conversations,
+            recent_summaries=recent_summaries,
             custom_user_message=custom_user_message,
-        )
-
-        return await self._run_chat_with_tool_loop(
-            messages, intermediate_callback=intermediate_callback
+            intermediate_callback=intermediate_callback,
         )
 
     def _build_chat_messages(

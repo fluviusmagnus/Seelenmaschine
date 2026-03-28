@@ -1,7 +1,6 @@
-import asyncio
-import random
 from typing import Any
 
+from adapter.telegram.delivery import send_segmented_text, typing_indicator
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -25,21 +24,14 @@ class ScheduledMessageSender:
             logger.error("Cannot send scheduled message: application not initialized")
             return
 
-        async def _keep_typing_indicator() -> None:
-            while True:
-                try:
-                    await application.bot.send_chat_action(
-                        chat_id=self.config.TELEGRAM_USER_ID,
-                        action="typing",
-                    )
-                    await asyncio.sleep(3)
-                except Exception as error:
-                    logger.warning(f"Scheduled typing indicator failed: {error}")
-                    await asyncio.sleep(3)
-
         try:
-            typing_task = asyncio.create_task(_keep_typing_indicator())
-            try:
+            async with typing_indicator(
+                lambda: application.bot.send_chat_action(
+                    chat_id=self.config.TELEGRAM_USER_ID,
+                    action="typing",
+                ),
+                "Scheduled typing indicator failed",
+            ):
                 logger.info(
                     f"Processing scheduled task '{task_name}': {message[:50]}..."
                 )
@@ -55,45 +47,31 @@ class ScheduledMessageSender:
                 )
                 logger.debug(f"Scheduled response split into {len(segments)} segments")
 
-                for index, segment in enumerate(segments):
-                    try:
-                        await application.bot.send_message(
-                            chat_id=self.config.TELEGRAM_USER_ID,
-                            text=segment,
-                            parse_mode="HTML",
-                        )
-                        logger.debug(
-                            f"Sent scheduled segment {index + 1}/{len(segments)} ({len(segment)} chars)"
-                        )
-
-                        if index < len(segments) - 1:
-                            delay = random.uniform(1.0, 2.0)
-                            logger.debug(f"Waiting {delay:.1f}s before next segment")
-                            await asyncio.sleep(delay)
-                    except Exception as error:
-                        logger.warning(
-                            "HTML parsing failed for scheduled segment "
-                            f"{index + 1}, sending plain text: {error}"
-                        )
-                        try:
-                            await application.bot.send_message(
-                                chat_id=self.config.TELEGRAM_USER_ID,
-                                text=segment,
-                            )
-                        except Exception as fallback_error:
-                            logger.error(
-                                f"Failed to send scheduled segment {index + 1}: {fallback_error}"
-                            )
+                await send_segmented_text(
+                    segments=segments,
+                    send_html=lambda segment: application.bot.send_message(
+                        chat_id=self.config.TELEGRAM_USER_ID,
+                        text=segment,
+                        parse_mode="HTML",
+                    ),
+                    send_plain=lambda segment: application.bot.send_message(
+                        chat_id=self.config.TELEGRAM_USER_ID,
+                        text=segment,
+                    ),
+                    html_warning_template=(
+                        "HTML parsing failed for scheduled segment {index}, "
+                        "sending plain text: {error}"
+                    ),
+                    fatal_error_template=(
+                        "Failed to send scheduled segment {index}: {error}"
+                    ),
+                    preview_text=lambda text, _max_length=120: text,
+                    debug_prefix="Sent scheduled segment",
+                )
 
                 logger.info(
                     f"Scheduled task response sent ({len(segments)} segments): {llm_response[:50]}..."
                 )
-            finally:
-                typing_task.cancel()
-                try:
-                    await typing_task
-                except asyncio.CancelledError:
-                    pass
         except Exception as error:
             logger.error(
                 f"Failed to process/send scheduled message: {error}",

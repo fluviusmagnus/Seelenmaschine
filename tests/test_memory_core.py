@@ -12,10 +12,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, AsyncMock, call, mock_open
-from typing import List, Dict, Any
-import json
 
 from memory.context import Message
 
@@ -54,72 +53,6 @@ class TestMemoryManagerAutomaticSummarization:
             'llm_client': llm_client
         }
     
-    @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
-    def test_summary_triggered_at_24_messages(self, mock_dependencies):
-        """Test summarization is triggered when 24 messages accumulated"""
-        from memory.manager import MemoryManager
-        
-        # Create exactly 24 messages (trigger threshold)
-        messages = [
-            {"timestamp": 1000 + i, "role": "user" if i % 2 == 0 else "assistant", "text": f"Message {i}"}
-            for i in range(24)
-        ]
-        mock_dependencies['db'].get_unsummarized_conversations.return_value = messages
-        mock_dependencies['db'].get_summaries_by_session.return_value = []
-        
-        with patch('memory.manager.ContextWindow') as mock_ctx_class:
-            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                    with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
-                        mock_ctx = Mock()
-                        mock_ctx.add_summary = Mock()
-                        mock_ctx.add_message = Mock()
-                        mock_ctx.get_recent_summary_ids = Mock(return_value=[])
-                        mock_ctx_class.return_value = mock_ctx
-                        
-                        mm = MemoryManager(
-                            db=mock_dependencies['db'],
-                            embedding_client=mock_dependencies['embedding_client'],
-                            reranker_client=mock_dependencies['reranker_client']
-                        )
-                        
-                        # Verify the trigger condition is met
-                        assert len(messages) == 24
-    
-    @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
-    def test_summary_creates_embedding(self, mock_dependencies):
-        """Test that created summary is embedded and stored"""
-        from memory.manager import MemoryManager
-        
-        messages = [
-            {"timestamp": 1000 + i, "role": "user" if i % 2 == 0 else "assistant", "text": f"Message {i}"}
-            for i in range(24)
-        ]
-        mock_dependencies['db'].get_unsummarized_conversations.return_value = messages
-        mock_dependencies['db'].get_summaries_by_session.return_value = []
-        mock_dependencies['db'].insert_summary.return_value = 123
-        
-        with patch('memory.manager.ContextWindow') as mock_ctx_class:
-            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                    with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
-                        mock_ctx = Mock()
-                        mock_ctx.add_summary = Mock()
-                        mock_ctx.add_message = Mock()
-                        mock_ctx.get_recent_summary_ids = Mock(return_value=[])
-                        mock_ctx_class.return_value = mock_ctx
-                        
-                        mm = MemoryManager(
-                            db=mock_dependencies['db'],
-                            embedding_client=mock_dependencies['embedding_client'],
-                            reranker_client=mock_dependencies['reranker_client']
-                        )
-                        
-                        # Verify embedding was called
-                        # Note: This is a simplified test - in reality the summarization would trigger
-                        mock_dependencies['embedding_client'].get_embedding.assert_called()
-
-
 class TestMemoryManagerLongTermMemory:
     """Test long-term memory (seele.json) updates"""
     
