@@ -91,6 +91,8 @@ The first large refactor wave is complete, and the second wave is underway.
   - [src/adapter/telegram/delivery.py](../src/adapter/telegram/delivery.py)
   - [src/adapter/telegram/tool_bridge.py](../src/adapter/telegram/tool_bridge.py)
 - moved file-upload extraction and file-event message construction from `messages.py` into `files.py`
+- removed the generic handler component resolver/dispatcher patterns from `adapter/telegram/handlers.py` in favor of explicit component accessors
+- simplified `adapter/telegram/messages.py` and `adapter/telegram/adapter.py` to depend on direct adapter-owned helpers instead of extra indirection
 - removed a large amount of duplicated sync/async memory and chat wrapper logic
 - removed many placeholder tests and empty skipped tests
 
@@ -150,9 +152,7 @@ Interpretation:
 
 Even after moving real ownership out, it still carries:
 
-- many compatibility getters
 - a large initialization sequence
-- repeated helper resolution patterns
 - several methods that only forward to another object
 
 This means the file is no longer the old owner, but it still acts like a large composition shell.
@@ -507,7 +507,7 @@ Goal:
 
 Focus:
 
-- reduce compatibility call-resolution patterns in `messages.py`
+- continue reducing remaining compatibility access patterns in `messages.py` and `handlers.py`
 - remove fallback service lookup paths once tests no longer rely on them
 - keep adapter modules thin without introducing new adapter-owned runtime layers
 

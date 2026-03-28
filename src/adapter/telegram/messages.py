@@ -17,18 +17,6 @@ class TelegramMessages:
     def __init__(self, handler: Any):
         self.handler = handler
 
-    def _resolve_handler_component(
-        self,
-        attr_name: str,
-        expected_type: type[Any],
-        factory: Any,
-    ) -> Any:
-        """Prefer a concrete handler-owned helper, otherwise build a local fallback."""
-        component = getattr(self.handler, attr_name, None)
-        if isinstance(component, expected_type):
-            return component
-        return factory()
-
     async def handle_scheduled_message(
         self, message: str, task_name: str = "Scheduled Task"
     ) -> str:
@@ -110,14 +98,12 @@ class TelegramMessages:
     async def handle_file(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        files = self._resolve_handler_component(
-            "_files",
-            TelegramFiles,
-            lambda: TelegramFiles(
+        files = getattr(self.handler, "_files", None)
+        if not isinstance(files, TelegramFiles):
+            files = TelegramFiles(
                 config=self.handler.core_bot.config,
                 memory=self.handler.core_bot.memory,
-            ),
-        )
+            )
         await files.handle_file(
             update=update,
             context=context,

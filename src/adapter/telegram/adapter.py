@@ -53,17 +53,13 @@ class TelegramAdapter:
             filters_module=filters,
         )
 
-    def _get_commands(self) -> TelegramCommands:
-        """Resolve Telegram command handlers from the message handler."""
-        return self.message_handler._commands
-
     async def _cmd_start(self, update: Any, context: Any) -> None:
         """Delegate /start command handling to the command adapter."""
-        await self._get_commands().handle_start(update, context)
+        await self.message_handler._commands.handle_start(update, context)
 
     async def _cmd_help(self, update: Any, context: Any) -> None:
         """Delegate /help command handling to the command adapter."""
-        await self._get_commands().handle_help(update, context)
+        await self.message_handler._commands.handle_help(update, context)
 
     def run(self) -> None:
         """Start the adapter runtime."""
@@ -144,7 +140,7 @@ class TelegramApplicationSetup:
         filters_module: Any,
     ) -> List[Any]:
         """Build command and message handlers for the Telegram app."""
-        commands = self.telegram_adapter._get_commands()
+        commands = self.telegram_adapter.message_handler._commands
         return [
             command_handler_cls("start", commands.handle_start),
             command_handler_cls("help", commands.handle_help),

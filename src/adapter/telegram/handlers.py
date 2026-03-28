@@ -126,9 +126,7 @@ class MessageHandler:
         self._tool_bridge = TelegramToolBridge(self)
         self._tool_host = self.core_bot.create_tool_host(
             self,
-            get_tool_bridge=lambda: MessageHandler._get_tool_bridge.__get__(
-                self, type(self)
-            )(),
+            get_tool_bridge=self._tool_bridge_component,
         )
         self._commands = TelegramCommands(self)
         self._messages = TelegramMessages(self)
@@ -184,12 +182,8 @@ class MessageHandler:
         self, message: str, task_name: str = "Scheduled Task"
     ) -> str:
         """Handle messages from scheduled tasks."""
-        return await MessageHandler._call_handler_component_method(
-            self,
-            "_get_messages",
-            "handle_scheduled_message",
-            message,
-            task_name,
+        return await self._messages_component().handle_scheduled_message(
+            message, task_name
         )
 
     def _set_pending_approval(self, request: Optional[PendingApprovalRequest]) -> None:
@@ -205,6 +199,10 @@ class MessageHandler:
             TelegramResponseFormatter,
         )
 
+    def _telegram_formatter_component(self) -> TelegramResponseFormatter:
+        """Return the Telegram formatter component."""
+        return self._get_telegram_formatter()
+
     def _get_files(self) -> TelegramFiles:
         """Lazily resolve Telegram file operations."""
         return MessageHandler._get_or_create_component(
@@ -217,6 +215,10 @@ class MessageHandler:
             ),
         )
 
+    def _files_component(self) -> TelegramFiles:
+        """Return the Telegram file helper."""
+        return self._get_files()
+
     def _get_commands(self) -> TelegramCommands:
         """Lazily resolve the Telegram command helper."""
         return MessageHandler._get_or_create_component(
@@ -225,6 +227,10 @@ class MessageHandler:
             TelegramCommands,
             lambda: TelegramCommands(self),
         )
+
+    def _commands_component(self) -> TelegramCommands:
+        """Return the Telegram command helper."""
+        return self._get_commands()
 
     def _get_messages(self) -> TelegramMessages:
         """Lazily resolve the Telegram message helper."""
@@ -235,6 +241,10 @@ class MessageHandler:
             lambda: TelegramMessages(self),
         )
 
+    def _messages_component(self) -> TelegramMessages:
+        """Return the Telegram message helper."""
+        return self._get_messages()
+
     def _get_tool_bridge(self) -> TelegramToolBridge:
         """Lazily resolve the Telegram bridge used by tool execution."""
         return MessageHandler._get_or_create_component(
@@ -243,6 +253,10 @@ class MessageHandler:
             TelegramToolBridge,
             lambda: TelegramToolBridge(self),
         )
+
+    def _tool_bridge_component(self) -> TelegramToolBridge:
+        """Return the Telegram tool bridge."""
+        return self._get_tool_bridge()
 
     def _get_tool_host(self) -> CoreToolHost:
         """Lazily resolve the core-owned tool host."""
@@ -256,9 +270,7 @@ class MessageHandler:
             CoreToolHost,
             lambda: self.core_bot.create_tool_host(
                 self,
-                get_tool_bridge=lambda: MessageHandler._get_tool_bridge.__get__(
-                    self, type(self)
-                )(),
+                get_tool_bridge=self._tool_bridge_component,
             ),
         )
 
