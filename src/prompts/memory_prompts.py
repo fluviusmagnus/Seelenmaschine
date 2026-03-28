@@ -1,8 +1,9 @@
 """Prompt builders for memory and summary generation."""
 
 import json
-from datetime import datetime
 from typing import Any, Dict, Optional
+
+from utils.time import format_timestamp_range
 
 
 def build_summary_prompt(
@@ -54,11 +55,10 @@ def build_memory_update_prompt(
 
     time_info = ""
     if first_timestamp and last_timestamp:
-        start_time = datetime.fromtimestamp(first_timestamp, timezone).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-        end_time = datetime.fromtimestamp(last_timestamp, timezone).strftime(
-            "%Y-%m-%d %H:%M:%S"
+        start_time, end_time = format_timestamp_range(
+            first_timestamp,
+            last_timestamp,
+            tz=timezone,
         )
         time_info = f"\n**TIME CONTEXT**: These conversations occurred between {start_time} and {end_time}. Use this temporal context when updating time-sensitive fields like short_term emotions/needs or memorable_events.\n"
 
@@ -177,11 +177,10 @@ def build_complete_memory_json_prompt(
 
     time_info = ""
     if first_timestamp and last_timestamp:
-        start_time = datetime.fromtimestamp(first_timestamp, timezone).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-        end_time = datetime.fromtimestamp(last_timestamp, timezone).strftime(
-            "%Y-%m-%d %H:%M:%S"
+        start_time, end_time = format_timestamp_range(
+            first_timestamp,
+            last_timestamp,
+            tz=timezone,
         )
         time_info = f"\n**TIME CONTEXT**: These conversations occurred between {start_time} and {end_time}. Use this temporal context when updating time-sensitive fields.\n"
 

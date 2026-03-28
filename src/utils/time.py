@@ -1,8 +1,8 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from typing import Optional
-import time
 import re
+import time
+from datetime import datetime
+from typing import Optional
+from zoneinfo import ZoneInfo
 
 from core.config import Config
 
@@ -28,6 +28,27 @@ def timestamp_to_str(
 ) -> str:
     dt = timestamp_to_datetime(timestamp, tz)
     return dt.strftime(format_str)
+
+
+def format_current_time_str(tz: Optional[ZoneInfo] = None) -> str:
+    """Format the current time as a timezone-aware prompt-friendly string."""
+    if tz is None:
+        tz = Config.TIMEZONE
+    current_time = get_current_datetime(tz)
+    return current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def format_timestamp_range(
+    start_timestamp: int,
+    end_timestamp: int,
+    tz: Optional[ZoneInfo] = None,
+    format_str: str = "%Y-%m-%d %H:%M:%S",
+) -> tuple[str, str]:
+    """Format a timestamp range using a shared timezone and format."""
+    return (
+        timestamp_to_str(start_timestamp, format_str=format_str, tz=tz),
+        timestamp_to_str(end_timestamp, format_str=format_str, tz=tz),
+    )
 
 
 def datetime_to_timestamp(dt: datetime) -> int:

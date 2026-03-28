@@ -1,19 +1,18 @@
 """System prompt builders."""
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
+
+from utils.time import format_current_time_str
 
 
 def get_current_time_str(timezone: Any, logger: Any) -> str:
     """Get current time string with timezone."""
     try:
-        current_time = datetime.now(timezone)
-        return current_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+        return format_current_time_str(timezone)
     except Exception as e:
-        current_time = datetime.now(ZoneInfo("UTC"))
         logger.warning(f"Invalid timezone in Config.TIMEZONE, falling back to UTC: {e}")
-        return current_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+        return format_current_time_str(ZoneInfo("UTC"))
 
 
 def build_cacheable_system_prompt(
