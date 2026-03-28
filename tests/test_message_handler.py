@@ -270,5 +270,32 @@ def test_query_tool_history_is_not_self_logged(
         assert trace_path.read_text(encoding="utf-8").strip() == ""
 
 
+@pytest.mark.asyncio
+async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
+    """Non-dangerous tool calls should proactively notify the Telegram user."""
+    handler = MessageHandler(core_bot=core_bot)
+    handler.telegram_bot = Mock()
+    handler.telegram_bot.send_message = AsyncMock()
+
+    read_tool = Mock()
+    read_tool.name = "read_file"
+    read_tool.execute = AsyncMock(return_value="file content")
+    handler._tool_registry["read_file"] = read_tool
+
+    result = await handler._execute_tool("read_file", '{"file_path": "notes.txt"}')
+    await __import__("asyncio").sleep(0)
+
+    assert result == "file content"
+    read_tool.execute.assert_awaited_once_with(file_path="notes.txt")
+    handler.telegram_bot.send_message.assert_awaited()
+
+    sent_texts = [
+        call.kwargs["text"]
+        for call in handler.telegram_bot.send_message.await_args_list
+    ]
+    assert any("Tool execution:" in text for text in sent_texts)
+    assert any("read_file" in text for text in sent_texts)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

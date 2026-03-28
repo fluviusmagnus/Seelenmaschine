@@ -108,8 +108,11 @@ class CoreToolHost:
             tool_runtime_state = getattr(
                 getattr(self.owner, "core_bot", None), "tool_runtime_state", None
             )
+            config = getattr(self.owner, "config", None) or getattr(
+                getattr(self.owner, "core_bot", None), "config", None
+            )
             return ToolExecutor(
-                config=getattr(self.owner, "config", None),
+                config=config,
                 tool_registry=registry_service,
                 mcp_client=(
                     getattr(tool_runtime_state, "mcp_client", None)
@@ -128,9 +131,7 @@ class CoreToolHost:
                     getattr(
                         getattr(self.owner, "_tool_safety_policy", None),
                         "is_dangerous_action",
-                        ToolSafetyPolicy(
-                            getattr(self.owner, "config", None)
-                        ).is_dangerous_action,
+                        ToolSafetyPolicy(config).is_dangerous_action,
                     ),
                 ),
                 request_approval=tool_bridge.request_approval,
