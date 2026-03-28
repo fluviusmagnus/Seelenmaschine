@@ -8,7 +8,7 @@ Seelenmaschine has a powerful built-in scheduled task feature that supports:
 - ⏰ **Smart Task Triggering**: After triggering, LLM generates personalized responses instead of directly sending fixed messages
 - 🔄 **Periodic Tasks**: Execute at fixed intervals
 - 📝 **Task Management**: List, pause, resume, cancel
-- 💬 **Automatic message sending via Telegram
+- 💬 **Automatic message sending via Telegram**
 
 ## Core Design Philosophy
 
@@ -32,13 +32,13 @@ User receives: The above personalized response (saved to memory)
 
 ## Usage Through Conversation
 
-The simplest way is to directly tell the AI your needs, and it will call the `scheduled_task` skill:
+The simplest way is to directly tell the AI what you need, and it will call the `scheduled_task` tool:
 
 ### Add One-Time Reminder
 
 ```
 You: Remind me about the meeting tomorrow at 3 PM
-AI: [Calls scheduled_task skill]
+AI: [Calls scheduled_task tool]
     ✓ Task created (ID: abc123...)
     Name: Meeting Reminder
     Type: One-time
@@ -50,7 +50,7 @@ AI: [Calls scheduled_task skill]
 
 ```
 You: Remind me to drink water every morning at 8 AM
-AI: [Calls scheduled_task skill]
+AI: [Calls scheduled_task tool]
     ✓ Task created (ID: def456...)
     Name: Daily Water Reminder
     Type: Recurring
@@ -62,7 +62,7 @@ AI: [Calls scheduled_task skill]
 
 ```
 You: List all my scheduled tasks
-AI: [Calls scheduled_task skill]
+AI: [Calls scheduled_task tool]
     Active tasks (2):
     
     • Meeting Reminder (ID: abc123...)
@@ -81,15 +81,15 @@ AI: [Calls scheduled_task skill]
 
 ```
 You: Pause task def456
-AI: [Calls scheduled_task skill]
+AI: [Calls scheduled_task tool]
     ✓ Task paused: Daily Water Reminder
 
 You: Resume task def456
-AI: [Calls scheduled_task skill]
+AI: [Calls scheduled_task tool]
     ✓ Task resumed: Daily Water Reminder
 
 You: Cancel task abc123
-AI: [Calls scheduled_task skill]
+AI: [Calls scheduled_task tool]
     ✓ Task cancelled: Meeting Reminder
 ```
 
@@ -170,11 +170,11 @@ When a task triggers, the message format sent to the LLM is as follows:
 
 ### Data Storage Strategy
 
-| Data | Saved to Database | Counted in Context | Description |
-|------|-------------------|-------------------|-------------|
-| Task message (`message`) | ❌ No | ❌ No | Only used to trigger LLM, not saved |
-| Task name (`name`) | ✅ Yes | ❌ No | Used for listing and managing tasks |
-| LLM generated response | ✅ Yes | ✅ Yes | Saved as normal conversation |
+| Data                     | Saved to Database | Counted in Context | Description                         |
+| ------------------------ | ----------------- | ------------------ | ----------------------------------- |
+| Task message (`message`) | ❌ No              | ❌ No               | Only used to trigger LLM, not saved |
+| Task name (`name`)       | ✅ Yes             | ❌ No               | Used for listing and managing tasks |
+| LLM generated response   | ✅ Yes             | ✅ Yes              | Saved as normal conversation        |
 
 ### Database Table Structure
 
@@ -259,7 +259,7 @@ scheduler.stop()
 Run unit tests:
 
 ```bash
-.venv/bin/python -m pytest tests/test_scheduler.py -v
+python -m pytest tests/test_scheduler.py -v
 ```
 
 Test coverage:

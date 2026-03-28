@@ -10,7 +10,7 @@ This directory contains detailed feature documentation and usage guides for the 
 
 - **[SCHEDULED_TASKS_EN.md](SCHEDULED_TASKS_EN.md)** - Scheduled Task System
   - One-time and periodic tasks
-  - Scheduled task skill usage guide
+  - Scheduled task tool usage guide
   - API reference and examples
 
 - **[SEARCH_EXAMPLES.md](SEARCH_EXAMPLES.md)** - Memory Search Feature
@@ -21,13 +21,18 @@ This directory contains detailed feature documentation and usage guides for the 
 
 ## 🔗 Other Important Documents
 
-These documents are located in the project root directory:
+These documents are located in the project root or adjacent directories:
 
 - **[../README_EN.md](../README_EN.md)** - Main project documentation
   - Quick start
   - Configuration guide
   - Project structure
   - Usage instructions
+
+- **[ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)** - Current architecture refactor plan
+  - Core/adapter boundary
+  - Refactor status
+  - Next cleanup steps
 
 - **[../migration/README_EN.md](../migration/README_EN.md)** - Migration tool technical documentation
   - Migration tool architecture

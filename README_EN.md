@@ -25,7 +25,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
 - 🛠️ **Complete Session Management**:
   - `/new` - Archive current session and create new session
   - `/reset` - Delete current session
-- 📱 **Telegram Bot Interface**: Currently sends messages primarily in HTML mode for more reliable rich-text rendering
+- 📱 **Telegram Bot Interface**: Command menu, segmented replies, file upload/sending, and proactive scheduled messages
 - 🌐 **Web Search**: Jina Deepsearch API integration
 - 🔌 **MCP (Model Context Protocol) Support**:
    - Dynamically connect external tools and data sources
@@ -140,10 +140,6 @@ JINA_API_KEY=
 # Workspace Configuration (Restricts local file operations)
 WORKSPACE_DIR=          # Optional, workspace root directory, defaults to data/<profile>/workspace
 MEDIA_DIR=              # Optional, media file storage directory, defaults to WORKSPACE_DIR/media
-
-# Skills Configuration
-ENABLE_SKILLS=true
-SKILLS_DIR=skills/
 ```
 
 ### Data Directory Structure
@@ -230,31 +226,54 @@ Control the enabling status of each tool through configuration files. Dangerous 
 Seelenmaschine/
 ├── src/                          # Source code directory
 │   ├── main_telegram.py          # Telegram Bot entry point
-│   ├── config.py                 # Configuration management
+│   ├── adapter/                  # Platform adapters
+│   │   └── telegram/
+│   │       ├── adapter.py        # Telegram app setup and lifecycle
+│   │       ├── commands.py       # Telegram command handlers
+│   │       ├── delivery.py       # Segmented Telegram delivery
+│   │       ├── files.py          # Telegram file ingress/egress
+│   │       ├── formatter.py      # Telegram response formatting
+│   │       ├── handlers.py       # Telegram controller/entry surface
+│   │       ├── messages.py       # Text/file message flows
+│   │       ├── scheduled_sender.py # Scheduled message bridge
+│   │       └── tool_bridge.py    # Approval and tool-status bridge
 │   ├── core/                     # Core modules
+│   │   ├── approval.py           # Dangerous action approval flow
+│   │   ├── bot.py                # CoreBot runtime root
+│   │   ├── config.py             # Configuration management
+│   │   ├── conversation.py       # Conversation orchestration
 │   │   ├── database.py           # Database management (sqlite-vec)
-│   │   ├── memory.py             # Memory system
-│   │   ├── context.py            # Context Window management
-│   │   ├── retriever.py          # Memory retrieval
-│   │   └── scheduler.py          # Task scheduler
+│   │   ├── scheduler.py          # Task scheduler
+│   │   ├── session_service.py    # Session lifecycle service
+│   │   └── tools.py              # Tool runtime/registry/execution orchestration
 │   ├── llm/                      # LLM modules
-│   │   ├── client.py             # LLM client
+│   │   ├── chat_client.py        # Chat client
 │   │   ├── embedding.py          # Embedding client
-│   │   └── reranker.py           # Rerank client
+│   │   ├── memory_client.py      # Memory-oriented model calls
+│   │   ├── message_builder.py    # Message building
+│   │   ├── request_executor.py   # Request executor
+│   │   ├── reranker.py           # Rerank client
+│   │   └── tool_loop.py          # Tool-calling loop
+│   ├── memory/                   # Memory subsystem
+│   │   ├── context.py            # Context Window management
+│   │   ├── manager.py            # Memory manager
+│   │   ├── recall.py             # Memory recall
+│   │   ├── seele.py              # Long-term profile updates
+│   │   ├── sessions.py           # Session handling
+│   │   ├── summaries.py          # Summary generation
+│   │   └── vector_retriever.py   # Vector retrieval
 │   ├── tools/                    # Tool system
 │   │   ├── mcp_client.py         # MCP client
 │   │   ├── memory_search.py      # Self-query tool
-│   │   ├── scheduled_task_tool.py # Scheduled task tool
-│   │   ├── send_telegram_file_tool.py # Telegram file sending tool
+│   │   ├── scheduled_tasks.py    # Scheduled task tool
+│   │   ├── send_telegram_file.py # Telegram file sending tool
 │   │   ├── file_io.py            # File operation tools
 │   │   ├── file_search.py        # File search tools
 │   │   ├── shell.py              # Shell command execution tool
 │   │   └── tool_trace.py         # Tool invocation tracing
-│   ├── tg_bot/                   # Telegram Bot interface
-│   │   ├── bot.py                # Bot main logic
-│   │   └── handlers.py           # Message handlers
 │   ├── prompts/                  # Prompts
-│   │   └── system.py             # System prompts and related prompt builders
+│   │   ├── memory_prompts.py     # Memory prompts
+│   │   └── system_prompt.py      # System prompt builder
 │   └── utils/                    # Utility functions
 │       ├── text.py               # Text processing
 │       ├── time.py               # Time processing
@@ -310,12 +329,21 @@ Seelenmaschine/
 - Synchronized and updated each time a new summary is generated
 - Directly embedded into system prompts
 
-## Debug Mode
+## Debug and Runtime Notes
+
+### Debug Mode
 
 In debug mode, the program will:
 - Log complete prompts sent to LLM (`DEBUG_SHOW_FULL_PROMPT=true`)
 - Log database read/write operations (`DEBUG_LOG_DATABASE_OPS=true`)
 - Save logs to external files
+
+### Local tool workspace
+
+- Relative-path file operations resolve from `WORKSPACE_DIR`
+- `WORKSPACE_DIR` defaults to `data/<profile>/workspace`
+- `MEDIA_DIR` defaults to `WORKSPACE_DIR/media`
+- File and shell tools are constrained to `WORKSPACE_DIR` / `MEDIA_DIR`; out-of-bounds actions require approval or are blocked
 
 ## Running Tests
 

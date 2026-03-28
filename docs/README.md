@@ -10,7 +10,7 @@
 
 - **[SCHEDULED_TASKS.md](SCHEDULED_TASKS.md)** - 定时任务系统
   - 一次性任务和周期性任务
-  - 定时任务 Skill 使用说明
+  - 定时任务工具使用说明
   - API 参考和示例
 
 - **[SEARCH_EXAMPLES.md](SEARCH_EXAMPLES.md)** - 记忆搜索功能
@@ -21,19 +21,13 @@
 
 ## 🔗 其他重要文档
 
-这些文档位于项目根目录：
+这些文档位于项目根目录或相邻目录：
 
 - **[../README.md](../README.md)** - 项目主文档
   - 快速开始
   - 配置说明
   - 项目结构
   - 使用说明
-
-- **[../MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md)** - 数据迁移指南
-  - 迁移工具使用
-  - 数据库版本升级
-  - 旧数据转换
-  - 故障排查
 
 - **[../migration/README.md](../migration/README.md)** - 迁移工具技术文档
   - 迁移工具架构
@@ -45,10 +39,10 @@
   - 构建和测试命令
   - 开发工作流程
 
-- **[../BREAKING.md](../BREAKING.md)** - 升级计划（历史参考）
-  - v2.0 升级计划
-  - 架构变更说明
-  - 技术栈选择
+- **[ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)** - 当前架构重构计划
+  - core / adapter 边界
+  - 当前重构进展
+  - 后续清理步骤
 
 ## 📖 按主题浏览
 
@@ -56,7 +50,7 @@
 
 1. 阅读 [README.md](../README.md) 了解项目概况
 2. 按照快速开始部分安装和配置
-3. 如果有旧数据，参考 [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md)
+3. 如果有旧数据，参考 [migration/README.md](../migration/README.md)
 
 ### 功能使用
 
@@ -68,7 +62,7 @@
 
 - **AI 开发**: [AGENTS.md](../AGENTS.md)
 - **数据迁移**: [migration/README.md](../migration/README.md)
-- **架构参考**: [BREAKING.md](../BREAKING.md)
+- **架构参考**: [ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)
 
 ## 🔄 文档更新
 
