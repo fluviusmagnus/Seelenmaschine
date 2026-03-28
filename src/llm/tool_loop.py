@@ -1,0 +1,104 @@
+import asyncio
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+from utils.logger import get_logger
+
+logger = get_logger()
+
+
+class ToolLoop:
+    """Run the assistant/tool exchange loop until a final answer is produced."""
+
+    def __init__(self, llm_client: object):
+        self.llm_client = llm_client
+
+    async def run_chat_with_tool_loop(
+        self,
+        messages: List[Dict[str, str]],
+        intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> Dict[str, Any]:
+        """Run chat completion loop with tool execution and collect assistant texts."""
+        assistant_messages: List[str] = []
+        iteration = 1
+
+        result = await self.llm_client._async_chat(
+            messages, use_tools=True, force_chat_model=True
+        )
+
+        while result["tool_calls"]:
+            logger.info(
+                f"LLM tool loop iteration {iteration}: received {len(result['tool_calls'])} tool call(s)"
+            )
+            assistant_text = self.llm_client._extract_assistant_text_from_result(result)
+            if assistant_text:
+                assistant_messages.append(assistant_text)
+                logger.info(
+                    "LLM emitted intermediate assistant text before tool execution: "
+                    f"{self.llm_client._preview_text(assistant_text)}"
+                )
+                if intermediate_callback:
+                    await intermediate_callback(assistant_text)
+
+            if self.llm_client._tool_executor is None:
+                logger.warning("Tool calls but no executor registered")
+                break
+
+            tool_responses = []
+            for call in result["tool_calls"]:
+                logger.info(f"Executing tool: {call['name']}")
+                try:
+                    response = self.llm_client._tool_executor(
+                        call["name"], call["arguments"]
+                    )
+                    if asyncio.iscoroutine(response):
+                        response = await response
+                    sanitized_response = (
+                        self.llm_client._sanitize_tool_response_for_prompt(response)
+                    )
+                    logger.info(
+                        f"Tool '{call['name']}' completed with response preview: "
+                        f"{self.llm_client._preview_text(sanitized_response)}"
+                    )
+                    tool_responses.append(
+                        {
+                            "tool_call_id": call["id"],
+                            "role": "tool",
+                            "content": sanitized_response,
+                        }
+                    )
+                except Exception as error:
+                    error_text = f"{type(error).__name__}: {error}"
+                    logger.error(f"Tool execution failed: {error_text}")
+                    tool_responses.append(
+                        {
+                            "tool_call_id": call["id"],
+                            "role": "tool",
+                            "content": f"Error: {error_text}",
+                        }
+                    )
+
+            assistant_message = self.llm_client._build_assistant_message_from_result(
+                result
+            )
+            messages.append(assistant_message)
+            messages.extend(tool_responses)
+
+            result = await self.llm_client._async_chat(
+                messages, use_tools=True, force_chat_model=True
+            )
+            iteration += 1
+
+        final_text = self.llm_client._extract_assistant_text_from_result(result) or ""
+        if final_text:
+            assistant_messages.append(final_text)
+
+        logger.info(
+            "LLM tool loop finished: "
+            f"assistant_messages={len(assistant_messages)}, "
+            f"final_text={self.llm_client._preview_text(final_text)}"
+        )
+
+        return {
+            "final_text": final_text,
+            "assistant_messages": assistant_messages,
+        }

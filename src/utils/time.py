@@ -4,7 +4,7 @@ from typing import Optional
 import time
 import re
 
-from config import Config
+from core.config import Config
 
 
 def get_current_timestamp() -> int:
@@ -174,3 +174,4 @@ def format_timestamp(
         return timestamp_to_str(timestamp, "%H:%M:%S")
     else:
         return str(timestamp)
+

@@ -27,7 +27,7 @@ python -m ruff check src
 python -m ruff check --fix src
 
 # Check a specific file
-python -m ruff check src/tg_bot/handlers.py
+python -m ruff check src/adapter/telegram/handlers.py
 ```
 
 If you explicitly need the virtualenv executable path:
@@ -62,7 +62,7 @@ If you explicitly need the virtualenv executable path:
 
 ### Imports
 - Order: standard library -> third-party -> local modules
-- Use absolute imports for local modules (for example, `from config import Config`)
+- Use absolute imports for local modules (for example, `from core.config import Config`)
 - Group imports with blank lines between categories
 
 ```python
@@ -71,8 +71,8 @@ from datetime import datetime
 
 from openai import AsyncOpenAI
 
-from config import Config
-from core.memory import MemoryManager
+from core.config import Config
+from memory.manager import MemoryManager
 ```
 
 ### Type Hints
@@ -123,13 +123,13 @@ logger.error(f"Failed to retrieve data: {error}")
 ```
 
 ### Configuration
-- All runtime configuration goes through the `Config` class in [`src/config.py`](src/config.py)
+- All runtime configuration goes through the `Config` class in [`src/core/config.py`](src/core/config.py)
 - Use `Config.*` for accessing settings
 - Initialize config with `init_config(profile)` before constructing objects that depend on profile-specific paths or settings
 - Be careful with module-level imports that read `Config` values too early
 
 ```python
-from config import Config, init_config
+from core.config import Config, init_config
 
 init_config(profile)
 
@@ -175,10 +175,11 @@ message = f"Processing {item_type} with ID {item_id}"
 
 ### File Structure
 - `src/` - All Python source code
-- `src/core/` - Core components (`database.py`, `memory.py`, `scheduler.py`, `retriever.py`, `context.py`)
-- `src/llm/` - LLM clients (`embedding.py`, `reranker.py`, `client.py`)
-- `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_task_tool.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_telegram_file_tool.py`, `tool_trace.py`)
-- `src/tg_bot/` - Telegram bot implementation
+- `src/core/` - Application coordination (`approval.py`, `config.py`, `conversation.py`, `database.py`, `scheduler.py`, `tools.py`)
+- `src/memory/` - Memory subsystem (`manager.py`, `context.py`, `vector_retriever.py`, `recall.py`, `sessions.py`, `summaries.py`, `seele.py`)
+- `src/llm/` - LLM clients and orchestration helpers (`chat_client.py`, `memory_client.py`, `request_executor.py`, `tool_loop.py`, `message_builder.py`, `embedding.py`, `reranker.py`)
+- `src/adapter/telegram/` - Telegram adapter implementation
+- `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_tasks.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_telegram_file.py`, `tool_trace.py`)
 - `src/prompts/` - Prompt builders and prompt-related helpers
 - `src/utils/` - Utilities (`logger.py`, `time.py`, `text.py`)
 - `data/<profile>/` - Profile-specific data directory

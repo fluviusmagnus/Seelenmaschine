@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch
-from core.memory import MemoryManager
-from config import Config
+from memory.manager import MemoryManager
+from core.config import Config
 
 
 @pytest.fixture
@@ -86,3 +86,5 @@ def test_add_user_message_always_strips_for_embedding(mock_deps, monkeypatch):
     embedded_text = embedding_call[0][0]
     assert "<blockquote>" not in embedded_text
     assert embedded_text == "User message"
+
+

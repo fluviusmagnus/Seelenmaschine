@@ -21,12 +21,12 @@ class TestLLMClientInitialization:
     
     def test_initialization_with_defaults(self):
         """Test LLMClient initialization with default values"""
-        from llm.client import LLMClient
+        from llm.chat_client import LLMClient
         
-        with patch('llm.client.Config.OPENAI_API_KEY', "test_key"):
-            with patch('llm.client.Config.OPENAI_API_BASE', "https://api.openai.com/v1"):
-                with patch('llm.client.Config.CHAT_MODEL', "gpt-4o"):
-                    with patch('llm.client.Config.TOOL_MODEL', "gpt-4o"):
+        with patch('llm.chat_client.Config.OPENAI_API_KEY', "test_key"):
+            with patch('llm.chat_client.Config.OPENAI_API_BASE', "https://api.openai.com/v1"):
+                with patch('llm.chat_client.Config.CHAT_MODEL', "gpt-4o"):
+                    with patch('llm.chat_client.Config.TOOL_MODEL', "gpt-4o"):
                         client = LLMClient()
                         
                         assert client.api_key == "test_key"
@@ -46,7 +46,7 @@ class TestLLMClientChat:
     @pytest.mark.skip(reason="Requires complex async OpenAI mocking")
     def test_chat_basic(self, mock_openai_client):
         """Test basic chat without tools"""
-        from llm.client import LLMClient
+        from llm.chat_client import LLMClient
         
         # Mock response
         mock_response = Mock()
@@ -56,11 +56,11 @@ class TestLLMClientChat:
         
         mock_openai_client.chat.completions.create.return_value = mock_response
         
-        with patch('llm.client.Config.OPENAI_API_KEY', "test_key"):
-            with patch('llm.client.Config.OPENAI_API_BASE', "https://api.openai.com/v1"):
-                with patch('llm.client.Config.CHAT_MODEL', "gpt-4o"):
-                    with patch('llm.client.Config.TOOL_MODEL', "gpt-4o"):
-                        with patch('llm.client.AsyncOpenAI', return_value=mock_openai_client):
+        with patch('llm.chat_client.Config.OPENAI_API_KEY', "test_key"):
+            with patch('llm.chat_client.Config.OPENAI_API_BASE', "https://api.openai.com/v1"):
+                with patch('llm.chat_client.Config.CHAT_MODEL', "gpt-4o"):
+                    with patch('llm.chat_client.Config.TOOL_MODEL', "gpt-4o"):
+                        with patch('llm.chat_client.AsyncOpenAI', return_value=mock_openai_client):
                             client = LLMClient()
                             
                             messages = [{"role": "user", "content": "Hello"}]
@@ -75,7 +75,7 @@ class TestLLMClientTools:
     
     def test_chat_with_tools(self):
         """Test chat with tool calls"""
-        from llm.client import LLMClient
+        from llm.chat_client import LLMClient
         
         # TODO: Implement test for tool calling
         pass
@@ -89,3 +89,4 @@ class TestLLMClientTools:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

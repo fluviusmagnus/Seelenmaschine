@@ -4,15 +4,17 @@ from typing import List, Dict, Any, Optional, Callable, Awaitable
 
 from openai import AsyncOpenAI
 
-from config import Config
+from core.config import Config
+from llm.memory_client import MemoryClient
+from llm.message_builder import ChatMessageBuilder
+from llm.request_executor import ChatRequestExecutor
+from llm.tool_loop import ToolLoop
 from prompts import (
-    get_summary_prompt,
-    get_memory_update_prompt,
     get_complete_memory_json_prompt,
-)
-from prompts.system import (
     get_cacheable_system_prompt,
     get_current_time_str,
+    get_memory_update_prompt,
+    get_summary_prompt,
     load_seele_json,
 )
 from utils.logger import get_logger
@@ -42,6 +44,10 @@ class LLMClient:
 
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
         self._tool_executor: Optional[Callable] = None
+        self._memory_client = MemoryClient(self)
+        self._message_builder = ChatMessageBuilder(self)
+        self._chat_request = ChatRequestExecutor(self)
+        self._tool_loop = ToolLoop(self)
 
     @staticmethod
     def _preview_text(text: Optional[str], max_length: int = 120) -> str:
@@ -100,6 +106,16 @@ class LLMClient:
 
     def _get_tools(self) -> Optional[List[Dict[str, Any]]]:
         return self._tools_cache
+
+    def _get_cacheable_system_prompt(
+        self, recent_summaries: Optional[List[str]] = None
+    ) -> str:
+        """Build the cacheable system prompt."""
+        return get_cacheable_system_prompt(recent_summaries)
+
+    def _get_current_time_str(self) -> str:
+        """Format the current time string for prompts."""
+        return get_current_time_str()
 
     def _get_display_name_for_role(self, role: str) -> str:
         """Map internal conversation roles to display names from seele.json."""
@@ -257,84 +273,10 @@ class LLMClient:
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Run chat completion loop with tool execution and collect assistant texts."""
-        assistant_messages: List[str] = []
-        iteration = 1
-
-        # Always use chat_model for conversation
-        result = await self._async_chat(messages, use_tools=True, force_chat_model=True)
-
-        while result["tool_calls"]:
-            logger.info(
-                f"LLM tool loop iteration {iteration}: received {len(result['tool_calls'])} tool call(s)"
-            )
-            assistant_text = self._extract_assistant_text_from_result(result)
-            if assistant_text:
-                assistant_messages.append(assistant_text)
-                logger.info(
-                    "LLM emitted intermediate assistant text before tool execution: "
-                    f"{self._preview_text(assistant_text)}"
-                )
-                if intermediate_callback:
-                    await intermediate_callback(assistant_text)
-
-            if self._tool_executor is None:
-                logger.warning("Tool calls but no executor registered")
-                break
-
-            tool_responses = []
-            for call in result["tool_calls"]:
-                logger.info(f"Executing tool: {call['name']}")
-                try:
-                    response = self._tool_executor(call["name"], call["arguments"])
-                    if asyncio.iscoroutine(response):
-                        response = await response
-                    sanitized_response = self._sanitize_tool_response_for_prompt(
-                        response
-                    )
-                    logger.info(
-                        f"Tool '{call['name']}' completed with response preview: "
-                        f"{self._preview_text(sanitized_response)}"
-                    )
-                    tool_responses.append(
-                        {
-                            "tool_call_id": call["id"],
-                            "role": "tool",
-                            "content": sanitized_response,
-                        }
-                    )
-                except Exception as e:
-                    error_text = f"{type(e).__name__}: {e}"
-                    logger.error(f"Tool execution failed: {error_text}")
-                    tool_responses.append(
-                        {
-                            "tool_call_id": call["id"],
-                            "role": "tool",
-                            "content": f"Error: {error_text}",
-                        }
-                    )
-
-            assistant_message = self._build_assistant_message_from_result(result)
-            messages.append(assistant_message)
-            messages.extend(tool_responses)
-
-            result = await self._async_chat(
-                messages, use_tools=True, force_chat_model=True
-            )
-            iteration += 1
-
-        final_text = self._extract_assistant_text_from_result(result) or ""
-        if final_text:
-            assistant_messages.append(final_text)
-
-        logger.info(
-            "LLM tool loop finished: "
-            f"assistant_messages={len(assistant_messages)}, final_text={self._preview_text(final_text)}"
+        return await self._tool_loop.run_chat_with_tool_loop(
+            messages,
+            intermediate_callback=intermediate_callback,
         )
-
-        return {
-            "final_text": final_text,
-            "assistant_messages": assistant_messages,
-        }
 
     async def _async_chat(
         self,
@@ -349,104 +291,11 @@ class LLMClient:
             use_tools: Whether to include tools in the request
             force_chat_model: If True, always use chat_model even when tools are available
         """
-        # Ensure client is initialized BEFORE getting the reference
-        if force_chat_model:
-            # Always use chat_model when forced (e.g., for regular conversation)
-            self._ensure_chat_client_initialized()
-            client = self._chat_client
-            model = self.chat_model
-        elif use_tools and self._get_tools():
-            self._ensure_tool_client_initialized()
-            client = self._tool_client
-            model = self.tool_model
-        else:
-            self._ensure_chat_client_initialized()
-            client = self._chat_client
-            model = self.chat_model
-
-        try:
-            params: Dict[str, Any] = {"model": model, "messages": messages}
-            included_tool_names: List[str] = []
-
-            if use_tools:
-                tools = self._get_tools()
-                if tools:
-                    params["tools"] = tools
-                    included_tool_names = self._get_tool_names()
-                    if Config.DEBUG_SHOW_FULL_PROMPT:
-                        logger.debug(f"Including {len(tools)} tools in request")
-                        for tool in tools:
-                            logger.debug(
-                                f"  - {tool['function']['name']}: {tool['function']['description']}"
-                            )
-
-            logger.info(
-                "Sending LLM request: "
-                f"model={model}, messages={len(messages)}, tools={included_tool_names or []}"
-            )
-
-            if Config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(f"Full prompt sent to LLM (model={model}):\n{messages}")
-
-            response = await client.chat.completions.create(**params)
-
-            message = response.choices[0].message
-
-            result = {
-                "content": message.content or "",
-                "tool_calls": None,
-                "api_tool_calls": None,
-                "reasoning_content": None,
-            }
-
-            # Extract reasoning content if present (for o1/o3 models)
-            if hasattr(message, "reasoning_content") and message.reasoning_content:
-                result["reasoning_content"] = message.reasoning_content
-                if Config.DEBUG_SHOW_FULL_PROMPT:
-                    logger.debug(
-                        f"Model reasoning: {message.reasoning_content[:200]}..."
-                    )
-
-            if message.tool_calls:
-                result["api_tool_calls"] = self._format_tool_calls_for_api(
-                    message.tool_calls
-                )
-                result["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    }
-                    for tc in message.tool_calls
-                    if getattr(tc, "id", None)
-                    and getattr(getattr(tc, "function", None), "name", None)
-                ]
-
-                if not result["tool_calls"]:
-                    result["tool_calls"] = None
-                if not result["api_tool_calls"]:
-                    result["api_tool_calls"] = None
-
-            if result["tool_calls"]:
-                tool_names = [call["name"] for call in result["tool_calls"]]
-                logger.info(
-                    f"LLM response contains {len(tool_names)} tool call(s): {tool_names}"
-                )
-            else:
-                logger.info("LLM response contains no tool calls")
-
-            if result["content"]:
-                logger.debug(
-                    "LLM response content preview: "
-                    f"{self._preview_text(result['content'])}"
-                )
-
-            return result
-
-        except Exception as e:
-            error_message = self._format_llm_exception(e)
-            logger.error(f"LLM chat failed: {error_message}", exc_info=True)
-            raise RuntimeError(error_message) from e
+        return await self._chat_request.async_chat(
+            messages=messages,
+            use_tools=use_tools,
+            force_chat_model=force_chat_model,
+        )
 
     def chat(
         self,
@@ -606,141 +455,32 @@ class LLMClient:
             recent_summaries: Recent conversation summaries (max 3)
             custom_user_message: Optional custom user message to append instead of context's last message
         """
-        messages = []
-
-        # 1. Main system prompt (single large cacheable block)
-        messages.append(
-            {"role": "system", "content": get_cacheable_system_prompt(recent_summaries)}
+        return self._message_builder.build_chat_messages(
+            current_context=current_context,
+            retrieved_summaries=retrieved_summaries,
+            retrieved_conversations=retrieved_conversations,
+            recent_summaries=recent_summaries,
+            custom_user_message=custom_user_message,
         )
-
-        # 2. Current conversation history (excluding last user message)
-        if current_context:
-            history = current_context[:-1]
-            messages.append(
-                {
-                    "role": "system",
-                    "content": "BEGINNING OF THE CURRENT CONVERSATION.",
-                }
-            )
-            messages.extend(history)
-            messages.append(
-                {
-                    "role": "system",
-                    "content": "END OF THE CURRENT CONVERSATION.",
-                }
-            )
-
-        # 3. Retrieved historical summaries (if any)
-        if retrieved_summaries:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": "## Related Historical Summaries\n\n"
-                    + "\n\n".join(retrieved_summaries),
-                }
-            )
-
-        # 4. Retrieved historical conversations (if any)
-        if retrieved_conversations:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": "## Related Historical Conversations\n\n"
-                    + "\n\n".join(retrieved_conversations),
-                }
-            )
-
-        # 5. Current time
-        messages.append(
-            {
-                "role": "system",
-                "content": f"END OF ALL CONTEXT.\n\n**Current Time**: {get_current_time_str()}",
-            }
-        )
-
-        # 6. Current user input (emphasize at the end)
-        if custom_user_message:
-            # Use custom user message (e.g., for scheduled tasks)
-            emphasized_message = {
-                "role": "user",
-                "content": f"{custom_user_message}",
-            }
-            messages.append(emphasized_message)
-        elif current_context:
-            current_user_message = current_context[-1]
-            # Add emphasis to highlight this is the current request
-            emphasized_message = {
-                "role": current_user_message["role"],
-                "content": f"Now continue the conversation. Please respond to the following input based on all context provided.\n\n⚡ [Current Request]\n\n{current_user_message['content']}",
-            }
-            messages.append(emphasized_message)
-
-        return messages
 
     def generate_summary(
         self, existing_summary: Optional[str], new_conversations: List[Dict[str, str]]
     ) -> str:
-        conv_text = self._format_conversation_messages(new_conversations)
-
-        prompt = get_summary_prompt(existing_summary, conv_text)
-
-        loop = self._get_event_loop()
-
-        async def get_summary() -> str:
-            self._ensure_tool_client_initialized()
-
-            if Config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(
-                    f"Summary prompt sent to tool_model ({self.tool_model}):\n{prompt}"
-                )
-
-            response = await self._tool_client.chat.completions.create(
-                model=self.tool_model,
-                messages=[
-                    {"role": "system", "content": "You are a conversation summarizer."},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-
-            result = response.choices[0].message.content or ""
-            if Config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(f"Summary result from tool_model:\n{result}")
-            return result
-
-        try:
-            return loop.run_until_complete(get_summary())
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(get_summary())
+        return self._memory_client.generate_summary(
+            existing_summary=existing_summary,
+            new_conversations=new_conversations,
+            prompt_builder=get_summary_prompt,
+        )
 
     async def generate_summary_async(
         self, existing_summary: Optional[str], new_conversations: List[Dict[str, str]]
     ) -> str:
         """Async version of generate_summary. Use this in async contexts."""
-        conv_text = self._format_conversation_messages(new_conversations)
-
-        prompt = get_summary_prompt(existing_summary, conv_text)
-
-        self._ensure_tool_client_initialized()
-
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(
-                f"Summary (async) prompt sent to tool_model ({self.tool_model}):\n{prompt}"
-            )
-
-        response = await self._tool_client.chat.completions.create(
-            model=self.tool_model,
-            messages=[
-                {"role": "system", "content": "You are a conversation summarizer."},
-                {"role": "user", "content": prompt},
-            ],
+        return await self._memory_client.generate_summary_async(
+            existing_summary=existing_summary,
+            new_conversations=new_conversations,
+            prompt_builder=get_summary_prompt,
         )
-
-        result = response.choices[0].message.content or ""
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(f"Summary (async) result from tool_model:\n{result}")
-        return result
 
     def generate_memory_update(
         self,
@@ -750,51 +490,13 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Synchronous wrapper for generate_memory_update. Use generate_memory_update_async in async contexts."""
-        conv_text = self._format_conversation_messages(messages)
-
-        prompt = get_memory_update_prompt(
-            conv_text, current_seele_json, first_timestamp, last_timestamp
+        return self._memory_client.generate_memory_update(
+            messages=messages,
+            current_seele_json=current_seele_json,
+            prompt_builder=get_memory_update_prompt,
+            first_timestamp=first_timestamp,
+            last_timestamp=last_timestamp,
         )
-
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "generate_memory_update() called from async context. Use await generate_memory_update_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                loop = self._get_event_loop()
-
-                async def get_update() -> str:
-                    self._ensure_tool_client_initialized()
-
-                    if Config.DEBUG_SHOW_FULL_PROMPT:
-                        logger.debug(
-                            f"Memory update prompt sent to tool_model ({self.tool_model}):\n{prompt}"
-                        )
-
-                    response = await self._tool_client.chat.completions.create(
-                        model=self.tool_model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You generate JSON patches for memory updates.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                    )
-
-                    result = response.choices[0].message.content or ""
-                    if Config.DEBUG_SHOW_FULL_PROMPT:
-                        logger.debug(f"Memory update result from tool_model:\n{result}")
-                    return result
-
-                return loop.run_until_complete(get_update())
-            else:
-                raise
 
     async def generate_memory_update_async(
         self,
@@ -804,34 +506,13 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Async version of generate_memory_update. Use this in async contexts."""
-        conv_text = self._format_conversation_messages(messages)
-
-        prompt = get_memory_update_prompt(
-            conv_text, current_seele_json, first_timestamp, last_timestamp
+        return await self._memory_client.generate_memory_update_async(
+            messages=messages,
+            current_seele_json=current_seele_json,
+            prompt_builder=get_memory_update_prompt,
+            first_timestamp=first_timestamp,
+            last_timestamp=last_timestamp,
         )
-
-        self._ensure_tool_client_initialized()
-
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(
-                f"Memory update (async) prompt sent to tool_model ({self.tool_model}):\n{prompt}"
-            )
-
-        response = await self._tool_client.chat.completions.create(
-            model=self.tool_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You generate JSON patches for memory updates.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-        )
-
-        result = response.choices[0].message.content or ""
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(f"Memory update (async) result from tool_model:\n{result}")
-        return result
 
     def generate_complete_memory_json(
         self,
@@ -842,57 +523,14 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Synchronous wrapper for generating complete seele.json. Use generate_complete_memory_json_async in async contexts."""
-        conv_text = self._format_conversation_messages(messages)
-
-        prompt = get_complete_memory_json_prompt(
-            conv_text,
-            current_seele_json,
-            error_message,
-            first_timestamp,
-            last_timestamp,
+        return self._memory_client.generate_complete_memory_json(
+            messages=messages,
+            current_seele_json=current_seele_json,
+            error_message=error_message,
+            prompt_builder=get_complete_memory_json_prompt,
+            first_timestamp=first_timestamp,
+            last_timestamp=last_timestamp,
         )
-
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "generate_complete_memory_json() called from async context. Use await generate_complete_memory_json_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                loop = self._get_event_loop()
-
-                async def get_complete_json() -> str:
-                    self._ensure_tool_client_initialized()
-
-                    if Config.DEBUG_SHOW_FULL_PROMPT:
-                        logger.debug(
-                            f"Complete memory JSON prompt sent to tool_model ({self.tool_model}):\n{prompt}"
-                        )
-
-                    response = await self._tool_client.chat.completions.create(
-                        model=self.tool_model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You generate complete seele.json objects for memory updates.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                    )
-
-                    result = response.choices[0].message.content or ""
-                    if Config.DEBUG_SHOW_FULL_PROMPT:
-                        logger.debug(
-                            f"Complete memory JSON result from tool_model:\n{result}"
-                        )
-                    return result
-
-                return loop.run_until_complete(get_complete_json())
-            else:
-                raise
 
     async def generate_complete_memory_json_async(
         self,
@@ -903,40 +541,14 @@ class LLMClient:
         last_timestamp: Optional[int] = None,
     ) -> str:
         """Async version of generate_complete_memory_json. Use this in async contexts."""
-        conv_text = self._format_conversation_messages(messages)
-
-        prompt = get_complete_memory_json_prompt(
-            conv_text,
-            current_seele_json,
-            error_message,
-            first_timestamp,
-            last_timestamp,
+        return await self._memory_client.generate_complete_memory_json_async(
+            messages=messages,
+            current_seele_json=current_seele_json,
+            error_message=error_message,
+            prompt_builder=get_complete_memory_json_prompt,
+            first_timestamp=first_timestamp,
+            last_timestamp=last_timestamp,
         )
-
-        self._ensure_tool_client_initialized()
-
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(
-                f"Complete memory JSON (async) prompt sent to tool_model ({self.tool_model}):\n{prompt}"
-            )
-
-        response = await self._tool_client.chat.completions.create(
-            model=self.tool_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You generate complete seele.json objects for memory updates.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-        )
-
-        result = response.choices[0].message.content or ""
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(
-                f"Complete memory JSON (async) result from tool_model:\n{result}"
-            )
-        return result
 
     async def _async_close(self) -> None:
         if self._chat_client is not None:
@@ -967,3 +579,4 @@ class LLMClient:
     async def close_async(self) -> None:
         """Async version of close. Use this in async contexts."""
         await self._async_close()
+

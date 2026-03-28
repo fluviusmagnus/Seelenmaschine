@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -317,3 +317,4 @@ class AppendFileTool:
             return f"Appended {len(content)} characters to {resolved_path}."
         except Exception as e:
             return f"Error: Append file failed due to \n{e}"
+

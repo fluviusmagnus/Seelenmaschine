@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
-from core.retriever import MemoryRetriever, RetrievedSummary, RetrievedConversation
+from memory.vector_retriever import VectorRetriever, RetrievedSummary, RetrievedConversation
 from core.database import DatabaseManager
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
@@ -32,16 +32,16 @@ def mock_reranker_client():
 
 @pytest.fixture
 def retriever(mock_db, mock_embedding_client, mock_reranker_client):
-    """Create MemoryRetriever with mock dependencies."""
-    return MemoryRetriever(
+    """Create VectorRetriever with mock dependencies."""
+    return VectorRetriever(
         db=mock_db,
         embedding_client=mock_embedding_client,
         reranker_client=mock_reranker_client,
     )
 
 
-class TestMemoryRetriever:
-    """Test MemoryRetriever functionality."""
+class TestVectorRetriever:
+    """Test VectorRetriever functionality."""
 
     def test_initialization(
         self, retriever, mock_db, mock_embedding_client, mock_reranker_client
@@ -56,7 +56,7 @@ class TestMemoryRetriever:
     ):
         """Test retrieving memories without reranker."""
         # Mock Config values
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "RECALL_SUMMARY_PER_QUERY", 3)
         monkeypatch.setattr(Config, "RECALL_CONV_PER_SUMMARY", 4)
@@ -83,7 +83,7 @@ class TestMemoryRetriever:
     ):
         """Test retrieving memories with bot message."""
         # Mock Config values
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "RECALL_SUMMARY_PER_QUERY", 3)
         monkeypatch.setattr(Config, "RECALL_CONV_PER_SUMMARY", 4)
@@ -103,7 +103,7 @@ class TestMemoryRetriever:
     def test_format_summaries_for_prompt(self, retriever, monkeypatch):
         """Test formatting summaries for prompt."""
         # Mock Config values with ZoneInfo object
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "TIMEZONE", ZoneInfo("UTC"))
 
@@ -124,7 +124,7 @@ class TestMemoryRetriever:
     def test_format_conversations_for_prompt(self, retriever, monkeypatch):
         """Test formatting conversations for prompt."""
         # Mock Config values with ZoneInfo object
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "TIMEZONE", ZoneInfo("UTC"))
 
@@ -138,7 +138,7 @@ class TestMemoryRetriever:
             )
         ]
 
-        with patch("prompts.system.load_seele_json") as mock_load_seele_json:
+        with patch("prompts.load_seele_json") as mock_load_seele_json:
             mock_load_seele_json.return_value = {
                 "bot": {"name": "Assistant"},
                 "user": {"name": "User"},
@@ -147,3 +147,6 @@ class TestMemoryRetriever:
 
         assert len(formatted) == 1
         assert "User: Test message" in formatted[0]
+
+
+

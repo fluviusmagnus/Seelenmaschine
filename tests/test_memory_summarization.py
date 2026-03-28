@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
 from typing import List, Dict, Any
 
-from core.context import Message
+from memory.context import Message
 
 
 class TestMemoryManagerAutomaticSummarization:
@@ -60,7 +60,7 @@ class TestMemoryManagerAutomaticSummarization:
     @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
     def test_summary_trigger_at_threshold_24_messages(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test summarization is triggered when reaching 24 messages threshold"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Create exactly 24 unsummarized conversations (at threshold)
         unsummarized = [
@@ -70,10 +70,10 @@ class TestMemoryManagerAutomaticSummarization:
         mock_db.get_unsummarized_conversations.return_value = unsummarized
         mock_db.get_summaries_by_session.return_value = []
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                    with patch('config.Config.RECENT_SUMMARIES_MAX', 3):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+                    with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
                         mock_ctx = Mock()
                         mock_ctx.add_summary = Mock()
                         mock_ctx.add_message = Mock()
@@ -92,7 +92,7 @@ class TestMemoryManagerAutomaticSummarization:
     @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
     def test_summary_creates_12_messages_summary(self, mock_db, mock_embedding_client, mock_reranker_client, mock_llm_client):
         """Test that summarization creates summary of 12 oldest messages, keeps 12 recent"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Create 24 messages
         unsummarized = [
@@ -101,10 +101,10 @@ class TestMemoryManagerAutomaticSummarization:
         ]
         mock_db.get_unsummarized_conversations.return_value = unsummarized
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                    with patch('config.Config.RECENT_SUMMARIES_MAX', 3):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+                    with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
                         mock_ctx = Mock()
                         mock_ctx.add_summary = Mock()
                         mock_ctx.add_message = Mock()
@@ -148,7 +148,7 @@ class TestMemoryManagerLongTermMemory:
     
     def test_memory_update_json_patch_generation(self, mock_dependencies):
         """Test that memory update generates valid JSON Patch"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
 
         messages = [
             Message("user", "I like black coffee"),
@@ -160,7 +160,7 @@ class TestMemoryManagerLongTermMemory:
             '[{"op":"add","path":"/user/preferences/coffee","value":"black"}]'
         )
 
-        with patch("core.memory.ContextWindow") as mock_ctx_class:
+        with patch("memory.manager.ContextWindow") as mock_ctx_class:
             mock_ctx = Mock()
             mock_ctx.get_recent_summary_ids.return_value = []
             mock_ctx.add_summary = Mock()
@@ -178,7 +178,7 @@ class TestMemoryManagerLongTermMemory:
             "get_long_term_memory",
             return_value={"user": {"preferences": {}}},
         ):
-            with patch("llm.client.LLMClient", return_value=llm_client):
+            with patch("llm.chat_client.LLMClient", return_value=llm_client):
                 json_patch = mm._generate_memory_update(messages, summary_id=42)
 
         assert json_patch == (
@@ -195,14 +195,14 @@ class TestMemoryManagerLongTermMemory:
     
     def test_memory_update_applies_to_seele_json(self, mock_dependencies):
         """Test that generated memory updates are forwarded to seele.json updater."""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
 
         messages = [
             Message("user", "I prefer tea"),
             Message("assistant", "Saved"),
         ]
 
-        with patch("core.memory.ContextWindow") as mock_ctx_class:
+        with patch("memory.manager.ContextWindow") as mock_ctx_class:
             mock_ctx = Mock()
             mock_ctx.get_recent_summary_ids.return_value = []
             mock_ctx.add_summary = Mock()
@@ -264,18 +264,18 @@ class TestMemoryManagerRetrievalFlow:
     
     def test_retrieval_excludes_recent_summaries(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that recent summaries in context window are excluded from search"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Setup active session
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.get_summaries_by_session.return_value = []
         mock_db.get_unsummarized_conversations.return_value = []
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('core.memory.MemoryRetriever') as mock_retriever_class:
-                with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                    with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
-                        with patch('config.Config.RECENT_SUMMARIES_MAX', 3):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('memory.manager.VectorRetriever') as mock_retriever_class:
+                with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                    with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+                        with patch('core.config.Config.RECENT_SUMMARIES_MAX', 3):
                             mock_ctx = Mock()
                             mock_ctx.get_recent_summary_ids.return_value = [1, 2, 3]
                             mock_ctx_class.return_value = mock_ctx
@@ -295,9 +295,9 @@ class TestMemoryManagerRetrievalFlow:
     
     def test_retrieval_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test dual-query retrieval when last bot message exists"""
-        from core.retriever import MemoryRetriever
+        from memory.vector_retriever import VectorRetriever
         
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=mock_db,
             embedding_client=mock_embedding_client,
             reranker_client=mock_reranker_client
@@ -332,9 +332,9 @@ class TestMemoryManagerRetrievalFlow:
     
     def test_retrieval_reranking_applied(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that reranking is applied to retrieved memories"""
-        from core.retriever import MemoryRetriever
+        from memory.vector_retriever import VectorRetriever
         
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=mock_db,
             embedding_client=mock_embedding_client,
             reranker_client=mock_reranker_client
@@ -378,3 +378,7 @@ class TestMemoryManagerRetrievalFlow:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+
+

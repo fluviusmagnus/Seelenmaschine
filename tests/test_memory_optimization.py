@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from core.memory import MemoryManager
+from memory.manager import MemoryManager
 from llm.embedding import EmbeddingClient
 from core.database import DatabaseManager
-from core.retriever import MemoryRetriever
+from memory.vector_retriever import VectorRetriever
 
 
 @pytest.fixture
@@ -139,3 +139,5 @@ async def test_dual_query_embedding_reuse(mock_db, mock_reranker):
 
     # Total API calls should still be 2
     assert embedding_client._client.embeddings.create.call_count == 2
+
+

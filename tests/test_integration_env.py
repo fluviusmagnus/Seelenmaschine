@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 @pytest.fixture(scope="module")
 def test_config():
     """Initialize test configuration from test.env"""
-    from config import init_config, Config
+    from core.config import init_config, Config
 
     # Save original values
     original_initialized = Config._initialized
@@ -110,13 +110,13 @@ class TestMemoryManagerIntegration:
     
     def test_memory_manager_with_test_db(self, test_config, mock_embedding_for_test):
         """Test MemoryManager uses test database"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         from core.database import DatabaseManager
         
         db = DatabaseManager()
         
-        with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 32):
-            with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 16):
+        with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 32):
+            with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 16):
                 mm = MemoryManager(
                     db=db,
                     embedding_client=mock_embedding_for_test,
@@ -149,8 +149,8 @@ class TestContextWindowIntegration:
     
     def test_context_window_respects_config_limits(self, test_config):
         """Test ContextWindow respects CONTEXT_WINDOW_TRIGGER_SUMMARY"""
-        from core.context import ContextWindow
-        from core.memory import MemoryManager
+        from memory.context import ContextWindow
+        from memory.manager import MemoryManager
         
         # Create context window
         ctx = ContextWindow()
@@ -189,7 +189,7 @@ class TestToolsIntegration:
     
     def test_scheduled_task_tool_with_test_config(self, test_config):
         """Test ScheduledTaskTool uses test configuration"""
-        from tools.scheduled_task_tool import ScheduledTaskTool
+        from tools.scheduled_tasks import ScheduledTaskTool
         from core.scheduler import TaskScheduler
         from core.database import DatabaseManager
         
@@ -209,11 +209,11 @@ class TestPromptsIntegration:
     
     def test_system_prompt_uses_test_config(self, test_config):
         """Test system prompt generation uses test config"""
-        from prompts.system import get_cacheable_system_prompt
+        from prompts import get_cacheable_system_prompt
         
         # Clear cache to force reload
-        import prompts.system
-        prompts.system._seele_json_cache = {}
+        import prompts
+        prompts._seele_json_cache = {}
         
         # Generate prompt
         prompt = get_cacheable_system_prompt(recent_summaries=[])
@@ -266,3 +266,7 @@ class TestEndToEndFlow:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+
+

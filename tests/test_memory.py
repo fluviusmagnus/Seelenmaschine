@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from core.memory import MemoryManager
+from memory.manager import MemoryManager
 from core.database import DatabaseManager
-from core.retriever import RetrievedSummary, RetrievedConversation
+from memory.vector_retriever import RetrievedSummary, RetrievedConversation
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
 
@@ -142,7 +142,7 @@ class TestMemoryManager:
     def test_add_assistant_message(self, memory_manager, mock_db, monkeypatch):
         """Test adding assistant message."""
         # Mock Config values using monkeypatch
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "CONTEXT_WINDOW_TRIGGER_SUMMARY", 100)
 
@@ -159,7 +159,7 @@ class TestMemoryManager:
     ):
         """Test that adding assistant message triggers summary when threshold reached."""
         # Mock Config values
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "CONTEXT_WINDOW_TRIGGER_SUMMARY", 24)
         monkeypatch.setattr(Config, "CONTEXT_WINDOW_KEEP_MIN", 12)
@@ -266,7 +266,7 @@ class TestMemoryManager:
 
     def test_get_recent_summaries(self, memory_manager, monkeypatch):
         """Test getting recent summaries."""
-        from config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "RECENT_SUMMARIES_MAX", 3)
 
@@ -281,3 +281,6 @@ class TestMemoryManager:
         """Test update_long_term_memory returns False for invalid JSON."""
         result = memory_manager.update_long_term_memory(1, "not json")
         assert result is False
+
+
+

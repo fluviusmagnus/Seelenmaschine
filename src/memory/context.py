@@ -1,5 +1,5 @@
-from typing import List, Dict, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 import sys
 from pathlib import Path
 
@@ -49,7 +49,7 @@ class ContextWindow:
     def add_summary(self, summary: str, summary_id: int) -> None:
         self.recent_summaries.append(Summary(summary=summary, summary_id=summary_id))
 
-        from config import Config
+        from core.config import Config
 
         max_summaries = Config.RECENT_SUMMARIES_MAX
         if len(self.recent_summaries) > max_summaries:
@@ -95,3 +95,4 @@ class ContextWindow:
         self.context_window = []
         self.recent_summaries = []
         logger.debug("Context window cleared")
+

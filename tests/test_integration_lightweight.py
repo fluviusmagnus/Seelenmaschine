@@ -45,7 +45,7 @@ class TestContextWindowIntegration:
     
     def test_message_addition_and_retrieval(self):
         """Test adding messages and retrieving context"""
-        from core.context import ContextWindow, Message
+        from memory.context import ContextWindow, Message
         
         ctx = ContextWindow()
         
@@ -69,8 +69,8 @@ class TestPromptBuildingIntegration:
     
     def test_system_prompt_with_seele_data(self, tmp_path):
         """Test building system prompt with actual seele.json"""
-        from prompts.system import get_cacheable_system_prompt, _seele_json_cache
-        import prompts.system
+        from prompts import get_cacheable_system_prompt, _seele_json_cache
+        import prompts
         
         # Create test seele.json
         seele_data = {
@@ -93,10 +93,10 @@ class TestPromptBuildingIntegration:
         seele_path.write_text(json.dumps(seele_data, indent=2))
         
         # Clear cache
-        prompts.system._seele_json_cache = {}
+        prompts._seele_json_cache = {}
         
-        with patch('prompts.system.Config.SEELE_JSON_PATH', seele_path):
-            with patch('prompts.system.Config.DATA_DIR', tmp_path):
+        with patch('prompts.Config.SEELE_JSON_PATH', seele_path):
+            with patch('prompts.Config.DATA_DIR', tmp_path):
                 # Build prompt
                 prompt = get_cacheable_system_prompt(recent_summaries=["Previous chat summary"])
                 
@@ -175,3 +175,5 @@ class TestJsonPatchIntegration:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+

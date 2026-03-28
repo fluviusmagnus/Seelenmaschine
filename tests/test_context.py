@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from core.context import ContextWindow, Message, Summary
+from memory.context import ContextWindow, Message, Summary
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ class TestContextWindow:
 
     def test_add_summary_trims_old(self, context_window, monkeypatch):
         """Test that old summaries are trimmed when max is exceeded."""
-        from config import Config
+        from core.config import Config
         monkeypatch.setattr(Config, 'RECENT_SUMMARIES_MAX', 3)
 
         context_window.add_summary("Summary 1", 1)
@@ -228,7 +228,7 @@ class TestContextWindow:
 
     def test_integration_flow(self, context_window, monkeypatch):
         """Test typical usage flow."""
-        from config import Config
+        from core.config import Config
         monkeypatch.setattr(Config, 'RECENT_SUMMARIES_MAX', 3)
 
         initial_count = context_window.get_total_message_count()
@@ -248,3 +248,5 @@ class TestContextWindow:
         summaries = context_window.get_recent_summaries_as_text()
         assert len(summaries) == 2
         assert "weather" in summaries[0]
+
+

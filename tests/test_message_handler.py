@@ -8,13 +8,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
-from tg_bot.handlers import MessageHandler
+from adapter.telegram.handlers import MessageHandler
 
 
 @pytest.fixture
 def mock_config(tmp_path):
     """Mock Config"""
-    with patch("tg_bot.handlers.Config") as mock:
+    with patch("adapter.telegram.handlers.Config") as mock:
         config_instance = Mock()
         config_instance.ENABLE_MCP = False
         config_instance.TELEGRAM_USER_ID = 12345
@@ -29,7 +29,7 @@ def mock_config(tmp_path):
 @pytest.fixture
 def mock_db():
     """Mock DatabaseManager"""
-    with patch("tg_bot.handlers.DatabaseManager") as mock:
+    with patch("adapter.telegram.handlers.DatabaseManager") as mock:
         db_instance = Mock()
         db_instance.get_active_session.return_value = {"session_id": 1}
         mock.return_value = db_instance
@@ -39,7 +39,7 @@ def mock_db():
 @pytest.fixture
 def mock_embedding_client():
     """Mock EmbeddingClient"""
-    with patch("tg_bot.handlers.EmbeddingClient") as mock:
+    with patch("adapter.telegram.handlers.EmbeddingClient") as mock:
         client = Mock()
         client.get_embedding.return_value = [0.1] * 1536
         mock.return_value = client
@@ -49,7 +49,7 @@ def mock_embedding_client():
 @pytest.fixture
 def mock_reranker_client():
     """Mock RerankerClient"""
-    with patch("tg_bot.handlers.RerankerClient") as mock:
+    with patch("adapter.telegram.handlers.RerankerClient") as mock:
         client = Mock()
         client.is_enabled.return_value = False
         mock.return_value = client
@@ -59,7 +59,7 @@ def mock_reranker_client():
 @pytest.fixture
 def mock_memory():
     """Mock MemoryManager"""
-    with patch("tg_bot.handlers.MemoryManager") as mock:
+    with patch("adapter.telegram.handlers.MemoryManager") as mock:
         memory = Mock()
         memory.get_current_session_id.return_value = 1
         memory.get_context_messages.return_value = [
@@ -80,7 +80,7 @@ def mock_memory():
 @pytest.fixture
 def mock_llm_client():
     """Mock LLMClient"""
-    with patch("tg_bot.handlers.LLMClient") as mock:
+    with patch("adapter.telegram.handlers.LLMClient") as mock:
         client = Mock()
         client.chat_async_detailed = AsyncMock(
             return_value={
@@ -97,7 +97,7 @@ def mock_llm_client():
 @pytest.fixture
 def mock_scheduler():
     """Mock TaskScheduler"""
-    with patch("tg_bot.handlers.TaskScheduler") as mock:
+    with patch("adapter.telegram.handlers.TaskScheduler") as mock:
         scheduler = Mock()
         mock.return_value = scheduler
         yield scheduler
@@ -301,3 +301,4 @@ def test_query_tool_history_is_not_self_logged(
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

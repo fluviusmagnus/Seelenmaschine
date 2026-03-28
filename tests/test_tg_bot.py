@@ -44,9 +44,9 @@ class TestTelegramBotInitialization:
     @pytest.mark.asyncio
     async def test_bot_initialization(self, mock_config, mock_message_handler):
         """Test bot initialization with dependencies"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler)
 
             assert bot.config == mock_config
@@ -59,9 +59,9 @@ class TestTelegramBotInitialization:
         self, mock_config, mock_message_handler
     ):
         """Test that scheduler message callback is registered"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler)
 
             # Verify callback was registered
@@ -117,10 +117,10 @@ class TestTelegramBotApplication:
         self, mock_config, mock_message_handler, mock_application
     ):
         """Test application creation and handler registration"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            with patch("tg_bot.bot.Application.builder") as mock_builder:
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
+            with patch("adapter.telegram.bot.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
@@ -150,10 +150,10 @@ class TestTelegramBotApplication:
         self, mock_config, mock_message_handler, mock_application
     ):
         """Bot should enable concurrent update handling so /approve isn't blocked."""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            with patch("tg_bot.bot.Application.builder") as mock_builder:
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
+            with patch("adapter.telegram.bot.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
@@ -171,10 +171,10 @@ class TestTelegramBotApplication:
         self, mock_config, mock_message_handler, mock_application
     ):
         """Test post_init hook starts scheduler and registers commands"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            with patch("tg_bot.bot.Application.builder") as mock_builder:
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
+            with patch("adapter.telegram.bot.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
@@ -233,9 +233,9 @@ class TestTelegramBotCommands:
     @pytest.mark.asyncio
     async def test_cmd_start_authorized(self, mock_config, mock_update, mock_context):
         """Test /start command for authorized user"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=Mock())
             await bot._cmd_start(mock_update, mock_context)
 
@@ -247,12 +247,12 @@ class TestTelegramBotCommands:
     @pytest.mark.asyncio
     async def test_cmd_start_unauthorized(self, mock_config, mock_update, mock_context):
         """Test /start command for unauthorized user"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
         # Change user ID to unauthorized
         mock_update.effective_user.id = 999999999
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=Mock())
             await bot._cmd_start(mock_update, mock_context)
 
@@ -263,9 +263,9 @@ class TestTelegramBotCommands:
     @pytest.mark.asyncio
     async def test_cmd_help(self, mock_config, mock_update, mock_context):
         """Test /help command"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=Mock())
             await bot._cmd_help(mock_update, mock_context)
 
@@ -303,9 +303,9 @@ class TestTelegramBotScheduledMessages:
         self, mock_config, mock_message_handler
     ):
         """Test successful scheduled message sending with segments"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler)
 
             # Mock the application and bot
@@ -340,14 +340,14 @@ class TestTelegramBotScheduledMessages:
         self, mock_config, mock_message_handler
     ):
         """Test scheduled message sending with multiple segments"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
         # Setup multiple segments
         mock_message_handler._split_message_into_segments = Mock(
             return_value=["Segment 1", "Segment 2", "Segment 3"]
         )
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler)
 
             # Mock the application and bot
@@ -368,9 +368,9 @@ class TestTelegramBotScheduledMessages:
     @pytest.mark.asyncio
     async def test_send_scheduled_message_no_application(self, mock_config):
         """Test scheduled message when application is not initialized"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=Mock())
             # Don't set _application
 
@@ -383,9 +383,9 @@ class TestTelegramBotScheduledMessages:
         self, mock_config, mock_message_handler
     ):
         """Test that typing indicator is sent during scheduled message"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler)
 
             # Mock the application and bot
@@ -410,14 +410,14 @@ class TestTelegramBotScheduledMessages:
         self, mock_config, mock_message_handler
     ):
         """Test fallback to plain text when HTML parsing fails"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
         # Setup single segment
         mock_message_handler._split_message_into_segments = Mock(
             return_value=["Segment with <b>HTML</b>"]
         )
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler)
 
             # Mock the application and bot
@@ -474,9 +474,9 @@ class TestTelegramBotMessageSegmentation:
         self, mock_config, mock_message_handler_with_segments
     ):
         """Test that there is a delay between message segments"""
-        from tg_bot.bot import TelegramBot
+        from adapter.telegram.bot import TelegramBot
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
+        with patch("adapter.telegram.bot.Config", return_value=mock_config):
             bot = TelegramBot(message_handler=mock_message_handler_with_segments)
 
             # Mock the application and bot
@@ -506,3 +506,4 @@ class TestTelegramBotMessageSegmentation:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

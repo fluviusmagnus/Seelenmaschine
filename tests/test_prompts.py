@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from typing import Dict, Any, Optional, List
 
-from prompts.system import (
+from prompts import (
     get_current_time_str,
     get_cacheable_system_prompt,
     get_summary_prompt,
@@ -17,7 +17,7 @@ from prompts.system import (
 @pytest.fixture
 def reset_seele_json_cache():
     """Reset the seele json cache between tests."""
-    import prompts.system as system_module
+    import prompts as system_module
 
     # Reset cache
     if hasattr(system_module, "_seele_json_cache"):
@@ -35,11 +35,11 @@ class TestLoadSeeeleJson:
         self, tmp_path, reset_seele_json_cache, monkeypatch
     ):
         """Test loading when file doesn't exist."""
-        from prompts.system import load_seele_json, _load_seele_json_from_disk
+        from prompts import load_seele_json, _load_seele_json_from_disk
 
         # Patch Config to return a non-existent path
         with monkeypatch.context() as m:
-            from src.config import Config
+            from core.config import Config
 
             m.setattr(
                 Config, "SEELE_JSON_PATH", tmp_path / "nonexistent" / "seele.json"
@@ -47,7 +47,7 @@ class TestLoadSeeeleJson:
             m.setattr(Config, "DATA_DIR", tmp_path / "nonexistent")
 
             # Also need to patch the template loading
-            import prompts.system as sys_module
+            import prompts as sys_module
 
             original_cache = getattr(sys_module, "_seele_json_cache", None)
             sys_module._seele_json_cache = {}  # Reset cache
@@ -77,18 +77,18 @@ class TestUpdateSeeeleJson:
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
         # Patch Config
-        from src.config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
         monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         # Reset cache
-        from prompts import system
+        import prompts as system
 
         system._seele_json_cache = {}
 
         # Apply patch
-        from prompts.system import update_seele_json
+        from prompts import update_seele_json
 
         result = update_seele_json(
             [{"op": "replace", "path": "/user/name", "value": "Alice"}]
@@ -108,16 +108,16 @@ class TestUpdateSeeeleJson:
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
-        from src.config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
         monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
-        from prompts import system
+        import prompts as system
 
         system._seele_json_cache = {}
 
-        from prompts.system import update_seele_json
+        from prompts import update_seele_json
 
         result = update_seele_json(
             [{"op": "add", "path": "/bot/likes/-", "value": "music"}]
@@ -136,16 +136,16 @@ class TestUpdateSeeeleJson:
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
-        from src.config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
         monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
-        from prompts import system
+        import prompts as system
 
         system._seele_json_cache = {}
 
-        from prompts.system import update_seele_json
+        from prompts import update_seele_json
 
         result = update_seele_json(
             [{"op": "replace", "path": "/bot/personality/mbti", "value": "INTP"}]
@@ -164,16 +164,16 @@ class TestUpdateSeeeleJson:
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
-        from src.config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
         monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
-        from prompts import system
+        import prompts as system
 
         system._seele_json_cache = {}
 
-        from prompts.system import update_seele_json
+        from prompts import update_seele_json
 
         # Invalid path should return False
         result = update_seele_json(
@@ -193,16 +193,16 @@ class TestUpdateSeeeleJson:
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
 
-        from src.config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
         monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
-        from prompts import system
+        import prompts as system
 
         system._seele_json_cache = {}
 
-        from prompts.system import update_seele_json
+        from prompts import update_seele_json
 
         # Add operation with nested path should work
         result = update_seele_json(
@@ -265,18 +265,18 @@ class TestGetCacheableSystemPrompt:
         seele_path.write_text(json.dumps(seele_data, indent=2))
 
         # Patch Config
-        from src.config import Config
+        from core.config import Config
 
         monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
         monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
 
         # Reset cache
-        from prompts import system
+        import prompts as system
 
         system._seele_json_cache = {}
 
         # Call function
-        from prompts.system import get_cacheable_system_prompt
+        from prompts import get_cacheable_system_prompt
 
         prompt = get_cacheable_system_prompt([])
 
@@ -360,7 +360,7 @@ class TestGetCompleteMemoryJsonPrompt:
 
     def test_get_complete_memory_json_prompt(self, reset_seele_json_cache):
         """Test getting complete memory JSON prompt."""
-        # load_seele_json is a local function, not exported from prompts.system
+        # load_seele_json is a local function, not exported from prompts
         pytest.skip("load_seele_json is not available for patching")
 
 
@@ -369,8 +369,8 @@ class TestPromptIntegration:
 
     def test_full_prompt_workflow(self):
         """Test complete prompt workflow."""
-        # Skip since DATA_DIR is not available in prompts.system
-        pytest.skip("DATA_DIR not available in prompts.system module")
+        # Skip since DATA_DIR is not available in prompts
+        pytest.skip("DATA_DIR not available in prompts module")
 
     def test_summary_prompt_workflow(self):
         """Test summary prompt creation workflow."""
@@ -412,3 +412,6 @@ class TestPromptIntegration:
         )
 
         assert isinstance(memory_prompt, str)
+
+
+

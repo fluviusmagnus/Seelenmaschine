@@ -1,6 +1,6 @@
 import unittest
-from config import Config
-from tg_bot.handlers import MessageHandler
+from core.config import Config
+from adapter.telegram.handlers import MessageHandler
 
 
 class TestFormatting(unittest.TestCase):
@@ -105,3 +105,5 @@ class TestFormatting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

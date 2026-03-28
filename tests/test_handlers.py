@@ -34,18 +34,18 @@ class TestMessageHandlerInitialization:
 
     def test_handler_initializes_components(self, mock_dependencies):
         """Test that handler initializes all required components"""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
         from pathlib import Path
 
-        with patch("tg_bot.handlers.Config") as mock_config_class:
-            with patch("tg_bot.handlers.DatabaseManager"):
-                with patch("tg_bot.handlers.EmbeddingClient"):
-                    with patch("tg_bot.handlers.RerankerClient"):
-                        with patch("tg_bot.handlers.MemoryManager"):
-                            with patch("tg_bot.handlers.TaskScheduler"):
-                                with patch("tg_bot.handlers.ScheduledTaskTool"):
-                                    with patch("tg_bot.handlers.LLMClient"):
-                                        with patch("tg_bot.handlers.MemorySearchTool"):
+        with patch("adapter.telegram.handlers.Config") as mock_config_class:
+            with patch("adapter.telegram.handlers.DatabaseManager"):
+                with patch("adapter.telegram.handlers.EmbeddingClient"):
+                    with patch("adapter.telegram.handlers.RerankerClient"):
+                        with patch("adapter.telegram.handlers.MemoryManager"):
+                            with patch("adapter.telegram.handlers.TaskScheduler"):
+                                with patch("adapter.telegram.handlers.ScheduledTaskTool"):
+                                    with patch("adapter.telegram.handlers.LLMClient"):
+                                        with patch("adapter.telegram.handlers.MemorySearchTool"):
                                             mock_config_instance = Mock()
                                             mock_config_instance.ENABLE_MCP = False
                                             mock_config_instance.DATA_DIR = Path(
@@ -134,7 +134,7 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_message_returns_final_text_without_assistant_history(self):
         """Message processing should return the final LLM text and persist it once."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.memory = Mock()
@@ -180,7 +180,7 @@ class TestMessageProcessing:
 
     def test_format_exception_for_user_truncates_long_messages(self):
         """User-facing error summaries should stay concise."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         error = RuntimeError("x" * 500)
 
@@ -192,7 +192,7 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_message_saves_intermediate_assistant_messages(self):
         """Assistant text emitted during tool calling should also be saved to memory."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.memory = Mock()
@@ -235,7 +235,7 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_scheduled_task_saves_intermediate_assistant_messages(self):
         """Scheduled task assistant text emitted during tool calling should be saved."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.memory = Mock()
@@ -280,7 +280,7 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_handle_message_returns_error_details_on_failure(self):
         """Top-level message errors should include readable details for debugging."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
@@ -314,7 +314,7 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
         """Dangerous shell actions should continue executing after /approve."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
@@ -392,7 +392,7 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_handle_message_aborts_pending_approval_on_regular_message(self):
         """A non-/approve message should abort the pending dangerous action."""
-        from tg_bot.handlers import MessageHandler, PendingApprovalRequest
+        from adapter.telegram.handlers import MessageHandler, PendingApprovalRequest
 
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
@@ -436,7 +436,7 @@ class TestFileHandling:
     @pytest.fixture
     def mock_handler(self, tmp_path):
         """Create a minimal mock handler with bound file methods."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
@@ -679,7 +679,7 @@ class TestPathSafetyApproval:
     @pytest.fixture
     def path_check_handler(self, tmp_path):
         """Create a minimal handler with bound path safety methods."""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         handler = Mock(spec=MessageHandler)
         handler.config = Mock()
@@ -781,7 +781,7 @@ class TestSplitMessageIntoSegments:
     @pytest.fixture
     def mock_handler(self):
         """Create a mock MessageHandler with the split method"""
-        from tg_bot.handlers import MessageHandler
+        from adapter.telegram.handlers import MessageHandler
 
         # Create a minimal mock handler
         handler = Mock(spec=MessageHandler)
@@ -984,3 +984,4 @@ class TestSplitMessageIntoSegments:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
