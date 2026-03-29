@@ -160,7 +160,6 @@ class ConversationService:
                     embedding=user_embedding,
                 )
             )
-            logger.debug("Step 4-6: Calling LLM")
             llm_result = await self._run_with_memory_search_tool(
                 lambda: self.llm_client.chat_async_detailed(
                     current_context=current_context,
@@ -178,16 +177,22 @@ class ConversationService:
             tool_context_messages = llm_result.get("tool_context_messages", [])
             response = llm_result.get("final_text", "")
 
-            logger.debug(
-                "LLM detailed result for current message: "
-                f"assistant_messages={len(assistant_messages)}, "
-                f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
-            )
-            for idx, assistant_message in enumerate(assistant_messages, start=1):
+            if self.config.DEBUG_SHOW_FULL_PROMPT:
                 logger.debug(
-                    f"Assistant message {idx}/{len(assistant_messages)} to persist: "
-                    f"{self.preview_text(assistant_message)}"
+                    "LLM detailed result for current message: "
+                    f"assistant_messages={len(assistant_messages)}"
                 )
+            else:
+                logger.debug(
+                    "LLM detailed result for current message: "
+                    f"assistant_messages={len(assistant_messages)}, "
+                    f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
+                )
+                for idx, assistant_message in enumerate(assistant_messages, start=1):
+                    logger.debug(
+                        f"Assistant message {idx}/{len(assistant_messages)} to persist: "
+                        f"{self.preview_text(assistant_message)}"
+                    )
 
             logger.debug("Step 8: Adding assistant responses to memory")
             await self._persist_tool_context_messages(
@@ -199,10 +204,11 @@ class ConversationService:
                 context_label="message processing",
             )
 
-            logger.debug(
-                "Message processing complete, returning combined response: "
-                f"{self.preview_text(response)}"
-            )
+            if not self.config.DEBUG_SHOW_FULL_PROMPT:
+                logger.debug(
+                    "Message processing complete, returning combined response: "
+                    f"{self.preview_text(response)}"
+                )
             return response
         except Exception as e:
             logger.error(f"Error in process_message: {e}", exc_info=True)
@@ -235,7 +241,6 @@ class ConversationService:
                     log_suffix=" for scheduled task",
                 )
             )
-            logger.debug("Step 3-6: Calling LLM with custom task message")
             llm_result = await self._run_with_memory_search_tool(
                 lambda: self.llm_client.chat_with_custom_message_async_detailed(
                         current_context=current_context,
@@ -254,17 +259,23 @@ class ConversationService:
             tool_context_messages = llm_result.get("tool_context_messages", [])
             response_text = llm_result.get("final_text", "")
 
-            logger.debug(
-                "LLM detailed result for scheduled task: "
-                f"assistant_messages={len(assistant_messages)}, "
-                f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
-            )
-            for idx, assistant_message in enumerate(assistant_messages, start=1):
+            if self.config.DEBUG_SHOW_FULL_PROMPT:
                 logger.debug(
-                    "Scheduled task assistant message "
-                    f"{idx}/{len(assistant_messages)} to persist: "
-                    f"{self.preview_text(assistant_message)}"
+                    "LLM detailed result for scheduled task: "
+                    f"assistant_messages={len(assistant_messages)}"
                 )
+            else:
+                logger.debug(
+                    "LLM detailed result for scheduled task: "
+                    f"assistant_messages={len(assistant_messages)}, "
+                    f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
+                )
+                for idx, assistant_message in enumerate(assistant_messages, start=1):
+                    logger.debug(
+                        "Scheduled task assistant message "
+                        f"{idx}/{len(assistant_messages)} to persist: "
+                        f"{self.preview_text(assistant_message)}"
+                    )
 
             logger.debug("Step 8: Adding assistant responses to memory (scheduled task)")
             await self._persist_tool_context_messages(
@@ -276,10 +287,11 @@ class ConversationService:
                 context_label="scheduled task processing",
             )
 
-            logger.debug(
-                "Scheduled task processing complete, returning combined response: "
-                f"{self.preview_text(response_text)}"
-            )
+            if not self.config.DEBUG_SHOW_FULL_PROMPT:
+                logger.debug(
+                    "Scheduled task processing complete, returning combined response: "
+                    f"{self.preview_text(response_text)}"
+                )
             return response_text
         except Exception as e:
             logger.error(f"Error in process_scheduled_task: {e}", exc_info=True)

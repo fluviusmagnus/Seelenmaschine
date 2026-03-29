@@ -351,11 +351,11 @@ class ToolRuntime:
 
                 mcp_tools = await state.mcp_client.list_tools()
                 logger.info(f"Connected MCP client with {len(mcp_tools)} tools")
-                for tool in mcp_tools:
-                    tool_func = tool.get("function", {})
-                    name = tool_func.get("name", "Unknown")
-                    desc = tool_func.get("description", "No description")
-                    logger.debug(f"  - [MCP Tool] {name}: {desc}")
+                tool_names = [
+                    tool.get("function", {}).get("name", "Unknown")
+                    for tool in mcp_tools
+                ]
+                logger.debug(f"MCP tool names: {tool_names}")
 
                 self._publish_tools(mcp_tools)
                 logger.info(

@@ -2,6 +2,8 @@ import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
 from llm.chat_client import LLMClient
+from llm.request_executor import ChatRequestExecutor
+from llm.tool_loop import ToolLoop
 
 
 @pytest.fixture
@@ -441,6 +443,7 @@ class TestLLMClient:
         assert result == {
             "final_text": "查到了，结果如下。",
             "assistant_messages": ["我先帮你查一下。", "查到了，结果如下。"],
+            "tool_context_messages": [],
         }
 
     @pytest.mark.asyncio
@@ -535,4 +538,68 @@ class TestLLMClient:
         create_kwargs = mock_async_client.chat.completions.create.await_args.kwargs
         assert create_kwargs["tools"] == tools
         assert create_kwargs["messages"] == [{"role": "user", "content": "hello"}]
+
+
+class TestDebugLogReduction:
+    """Test log reduction when full prompt debug is enabled."""
+
+    def test_request_executor_skips_content_preview_when_full_prompt_enabled(self):
+        llm_client = Mock()
+        llm_client._preview_text.return_value = "preview"
+        executor = ChatRequestExecutor(llm_client)
+
+        with patch("llm.request_executor.Config") as mock_config:
+            with patch("llm.request_executor.logger") as mock_logger:
+                mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                executor._log_response(
+                    {
+                        "tool_calls": None,
+                        "content": "full content",
+                        "api_tool_calls": None,
+                        "reasoning_content": None,
+                    }
+                )
+
+                debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
+                assert "LLM response contains no tool calls" in debug_messages
+                assert not any(
+                    message.startswith("LLM response content preview:")
+                    for message in debug_messages
+                )
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_skips_intermediate_preview_when_full_prompt_enabled(self):
+        llm_client = Mock()
+        llm_client._async_chat = AsyncMock(
+            side_effect=[
+                {
+                    "tool_calls": [{"name": "demo_tool", "arguments": "{}", "id": "1"}],
+                    "content": "intermediate",
+                },
+                {"tool_calls": None, "content": "final"},
+            ]
+        )
+        llm_client._extract_assistant_text_from_result.side_effect = [
+            "intermediate",
+            "final",
+        ]
+        llm_client._tool_executor = AsyncMock(return_value="tool output")
+        llm_client._sanitize_tool_response_for_prompt.return_value = "tool output"
+        llm_client._preview_text.return_value = "preview"
+        llm_client._build_assistant_message_from_result.return_value = {"role": "assistant"}
+
+        tool_loop = ToolLoop(llm_client)
+
+        with patch("llm.tool_loop.Config") as mock_config:
+            with patch("llm.tool_loop.logger") as mock_logger:
+                mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                await tool_loop.run_chat_with_tool_loop([{"role": "user", "content": "hi"}])
+
+                debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
+                assert not any(
+                    message.startswith(
+                        "LLM emitted intermediate assistant text before tool execution:"
+                    )
+                    for message in debug_messages
+                )
 

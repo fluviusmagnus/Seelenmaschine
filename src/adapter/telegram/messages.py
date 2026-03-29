@@ -131,10 +131,6 @@ class TelegramMessages:
                 "Typing indicator failed",
             ):
                 response = await self.process_message(user_message)
-                logger.debug(
-                    "Prepared final text for Telegram reply: "
-                    f"{self.preview_text(response)}"
-                )
                 await self.response_sender.send_reply_text(
                     reply_text=update.message.reply_text,
                     text=response,

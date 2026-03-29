@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -33,10 +34,11 @@ class ToolLoop:
             assistant_text = self.llm_client._extract_assistant_text_from_result(result)
             if assistant_text:
                 assistant_messages.append(assistant_text)
-                logger.debug(
-                    "LLM emitted intermediate assistant text before tool execution: "
-                    f"{self.llm_client._preview_text(assistant_text)}"
-                )
+                if not Config.DEBUG_SHOW_FULL_PROMPT:
+                    logger.debug(
+                        "LLM emitted intermediate assistant text before tool execution: "
+                        f"{self.llm_client._preview_text(assistant_text)}"
+                    )
                 if intermediate_callback:
                     await intermediate_callback(assistant_text)
 
@@ -98,11 +100,17 @@ class ToolLoop:
         if final_text:
             assistant_messages.append(final_text)
 
-        logger.debug(
-            "LLM tool loop finished: "
-            f"assistant_messages={len(assistant_messages)}, "
-            f"final_text={self.llm_client._preview_text(final_text)}"
-        )
+        if Config.DEBUG_SHOW_FULL_PROMPT:
+            logger.debug(
+                "LLM tool loop finished: "
+                f"assistant_messages={len(assistant_messages)}"
+            )
+        else:
+            logger.debug(
+                "LLM tool loop finished: "
+                f"assistant_messages={len(assistant_messages)}, "
+                f"final_text={self.llm_client._preview_text(final_text)}"
+            )
 
         return {
             "final_text": final_text,

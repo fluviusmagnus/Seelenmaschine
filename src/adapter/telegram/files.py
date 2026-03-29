@@ -84,10 +84,6 @@ class TelegramFiles:
                     f"{preview_text(user_message)}"
                 )
                 response = await process_message(user_message)
-                logger.info(
-                    "Prepared final text for Telegram file reply: "
-                    f"{preview_text(response)}"
-                )
 
                 await response_sender.send_reply_text(
                     reply_text=update.message.reply_text,

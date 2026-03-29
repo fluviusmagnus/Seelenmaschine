@@ -45,11 +45,9 @@ class ChatRequestExecutor:
                 params["tools"] = tools
                 included_tool_names = self.llm_client._get_tool_names()
                 if Config.DEBUG_SHOW_FULL_PROMPT:
-                    logger.debug(f"Including {len(tools)} tools in request")
-                    for tool in tools:
-                        logger.debug(
-                            f"  - {tool['function']['name']}: {tool['function']['description']}"
-                        )
+                    logger.debug(
+                        f"Including {len(tools)} tools in request: {included_tool_names}"
+                    )
 
         return params, included_tool_names
 
@@ -99,7 +97,7 @@ class ChatRequestExecutor:
         else:
             logger.debug("LLM response contains no tool calls")
 
-        if result["content"]:
+        if result["content"] and not Config.DEBUG_SHOW_FULL_PROMPT:
             logger.debug(
                 "LLM response content preview: "
                 f"{self.llm_client._preview_text(result['content'])}"
