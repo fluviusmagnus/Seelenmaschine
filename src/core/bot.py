@@ -190,7 +190,7 @@ class CoreBot:
         """Ensure MCP is connected through the core-owned tool runtime."""
         await self.get_tool_runtime().ensure_mcp_connected()
 
-    async def execute_tool(self, tool_name: str, arguments_json: str) -> str:
+    async def execute_tool(self, tool_name: str, arguments_json: str) -> Any:
         """Execute an LLM tool call through the core-owned tool executor."""
         if self._tool_owner is None:
             raise RuntimeError("Tool runtime owner has not been attached")

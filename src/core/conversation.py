@@ -127,6 +127,17 @@ class ConversationService:
                     f"Created new summary (ID: {summary_id}) during {context_label}"
                 )
 
+    async def _persist_tool_context_messages(
+        self, tool_context_messages: List[str], *, context_label: str
+    ) -> None:
+        """Persist tool call context messages to the current session context."""
+        if not tool_context_messages:
+            return
+
+        logger.debug(f"Persisting tool context messages ({context_label})")
+        for tool_message in tool_context_messages:
+            await self.memory.add_tool_message_async(tool_message)
+
     async def process_message(
         self,
         user_message: str,
@@ -164,6 +175,7 @@ class ConversationService:
             )
 
             assistant_messages = llm_result.get("assistant_messages", [])
+            tool_context_messages = llm_result.get("tool_context_messages", [])
             response = llm_result.get("final_text", "")
 
             logger.info(
@@ -178,6 +190,10 @@ class ConversationService:
                 )
 
             logger.debug("Step 8: Adding assistant responses to memory")
+            await self._persist_tool_context_messages(
+                tool_context_messages,
+                context_label="message processing",
+            )
             await self._persist_assistant_messages(
                 assistant_messages,
                 context_label="message processing",
@@ -235,6 +251,7 @@ class ConversationService:
             )
 
             assistant_messages = llm_result.get("assistant_messages", [])
+            tool_context_messages = llm_result.get("tool_context_messages", [])
             response_text = llm_result.get("final_text", "")
 
             logger.info(
@@ -250,6 +267,10 @@ class ConversationService:
                 )
 
             logger.debug("Step 8: Adding assistant responses to memory (scheduled task)")
+            await self._persist_tool_context_messages(
+                tool_context_messages,
+                context_label="scheduled task processing",
+            )
             await self._persist_assistant_messages(
                 assistant_messages,
                 context_label="scheduled task processing",

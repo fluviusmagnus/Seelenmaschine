@@ -30,6 +30,7 @@ class ToolTraceStore:
     def append_trace(
         self,
         *,
+        trace_id: Optional[int] = None,
         session_id: Optional[int],
         tool_name: str,
         arguments: Dict[str, Any],
@@ -43,7 +44,7 @@ class ToolTraceStore:
         timestamp = int(time.time())
         result_text = "" if result is None else str(result)
         arguments_text = self._to_json_text(arguments)
-        trace_id = time.time_ns()
+        trace_id = trace_id or time.time_ns()
 
         record = {
             "trace_id": trace_id,

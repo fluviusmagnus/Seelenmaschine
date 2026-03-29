@@ -157,6 +157,7 @@ class TestMessageProcessing:
         handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
         handler.memory.get_recent_summaries = Mock(return_value=[])
         handler.memory.add_assistant_message_async = AsyncMock(return_value=(2, None))
+        handler.memory.add_tool_message_async = AsyncMock(return_value=3)
 
         handler.memory_search_tool = Mock()
         handler.memory_search_tool.enable = Mock()
@@ -170,6 +171,7 @@ class TestMessageProcessing:
             return_value={
                 "final_text": "这是最后答复",
                 "assistant_messages": ["这是最后答复"],
+                "tool_context_messages": [],
             }
         )
 
@@ -216,6 +218,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
+        handler.memory.add_tool_message_async = AsyncMock(return_value=4)
 
         handler.memory_search_tool = Mock()
         handler.memory_search_tool.enable = Mock()
@@ -229,6 +232,9 @@ class TestMessageProcessing:
             return_value={
                 "final_text": "最终答复",
                 "assistant_messages": ["我先查一下", "最终答复"],
+                "tool_context_messages": [
+                    '[Tool Call]\ntrace_id: 1\ntool: "search_memories"\narguments: {"query": "test"}\nresult preview: "ok"'
+                ],
             }
         )
 
@@ -236,6 +242,7 @@ class TestMessageProcessing:
         response = await core_bot.process_message("你好")
 
         assert response == "最终答复"
+        handler.memory.add_tool_message_async.assert_awaited_once()
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我先查一下")
         handler.memory.add_assistant_message_async.assert_any_await("最终答复")
@@ -253,6 +260,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
+        handler.memory.add_tool_message_async = AsyncMock(return_value=4)
 
         handler.embedding_client = Mock()
         handler.embedding_client.get_embedding_async = AsyncMock(
@@ -271,6 +279,9 @@ class TestMessageProcessing:
             return_value={
                 "final_text": "别忘了喝水。",
                 "assistant_messages": ["我提醒你一下", "别忘了喝水。"],
+                "tool_context_messages": [
+                    '[Tool Call]\ntrace_id: 2\ntool: "scheduled_task"\narguments: {"message": "提醒喝水"}\nresult preview: "ok"'
+                ],
             }
         )
 
@@ -278,6 +289,7 @@ class TestMessageProcessing:
         response = await core_bot.process_scheduled_task("提醒喝水", "喝水提醒")
 
         assert response == "别忘了喝水。"
+        handler.memory.add_tool_message_async.assert_awaited_once()
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
         handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")
@@ -469,7 +481,7 @@ class TestMessageProcessing:
         result = await execution_task
         await asyncio.sleep(0)
 
-        assert result == "dangerous command completed"
+        assert result["result"] == "dangerous command completed"
         shell_tool.execute.assert_awaited_once_with(command="rm /etc/passwd")
         update.message.reply_text.assert_not_awaited()
         assert pending_holder["request"] is None

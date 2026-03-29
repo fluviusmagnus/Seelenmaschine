@@ -72,7 +72,7 @@ class DatabaseManager:
                 )
 
                 cursor.execute(
-                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3.1')"
+                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3.2')"
                 )
 
                 cursor.execute(
@@ -114,8 +114,11 @@ class DatabaseManager:
                         conversation_id INTEGER PRIMARY KEY AUTOINCREMENT,
                         session_id INTEGER NOT NULL,
                         timestamp INTEGER NOT NULL,
-                        role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
                         text TEXT NOT NULL,
+                        message_type TEXT NOT NULL DEFAULT 'conversation',
+                        include_in_turn_count INTEGER NOT NULL DEFAULT 1,
+                        include_in_summary INTEGER NOT NULL DEFAULT 1,
                         FOREIGN KEY(session_id) REFERENCES sessions(session_id)
                     )
                 """
@@ -326,6 +329,65 @@ class DatabaseManager:
                     "UPDATE meta SET value = '3.1' WHERE key = 'schema_version'"
                 )
                 logger.info("Successfully migrated to version 3.1")
+                current_version = "3.1"
+
+            # Migration 3.1 -> 3.2: extend conversations with system/tool metadata
+            if current_version == "3.1":
+                logger.info(
+                    "Migrating database from version 3.1 to 3.2 (Adding conversation metadata)"
+                )
+                cursor.execute("PRAGMA foreign_keys=OFF")
+
+                cursor.execute(
+                    """
+                    CREATE TABLE conversations_new (
+                        conversation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+                        text TEXT NOT NULL,
+                        message_type TEXT NOT NULL DEFAULT 'conversation',
+                        include_in_turn_count INTEGER NOT NULL DEFAULT 1,
+                        include_in_summary INTEGER NOT NULL DEFAULT 1,
+                        FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+                    )
+                """
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO conversations_new (
+                        conversation_id, session_id, timestamp, role, text,
+                        message_type, include_in_turn_count, include_in_summary
+                    )
+                    SELECT conversation_id, session_id, timestamp, role, text,
+                           'conversation', 1, 1
+                    FROM conversations
+                """
+                )
+
+                cursor.execute("DROP TABLE conversations")
+                cursor.execute(
+                    "ALTER TABLE conversations_new RENAME TO conversations"
+                )
+                cursor.execute(
+                    "CREATE INDEX idx_conversations_session ON conversations(session_id)"
+                )
+                cursor.execute(
+                    "CREATE INDEX idx_conversations_timestamp ON conversations(timestamp DESC)"
+                )
+
+                cursor.execute("DROP TRIGGER IF EXISTS conversations_ai")
+                cursor.execute("DROP TRIGGER IF EXISTS conversations_ad")
+                cursor.execute("DROP TRIGGER IF EXISTS conversations_au")
+                cursor.execute("DROP TABLE IF EXISTS fts_conversations")
+                self._upgrade_to_3_0(cursor)
+
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute(
+                    "UPDATE meta SET value = '3.2' WHERE key = 'schema_version'"
+                )
+                logger.info("Successfully migrated to version 3.2")
 
     def _upgrade_to_3_0(self, cursor):
         """Helper to create FTS5 tables and triggers for 2.0 -> 3.0 migration"""
@@ -500,13 +562,30 @@ class DatabaseManager:
         role: str,
         text: str,
         embedding: Optional[List[float]] = None,
+        *,
+        message_type: str = "conversation",
+        include_in_turn_count: bool = True,
+        include_in_summary: bool = True,
     ) -> int:
         """Insert a conversation and return its ID."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO conversations (session_id, timestamp, role, text) VALUES (?, ?, ?, ?)",
-                (session_id, timestamp, role, text),
+                """
+                INSERT INTO conversations (
+                    session_id, timestamp, role, text,
+                    message_type, include_in_turn_count, include_in_summary
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    timestamp,
+                    role,
+                    text,
+                    message_type,
+                    int(include_in_turn_count),
+                    int(include_in_summary),
+                ),
             )
             conversation_id = cursor.lastrowid or 0
 
@@ -671,7 +750,11 @@ class DatabaseManager:
                 return []
 
     def get_conversations_by_session(
-        self, session_id: int, limit: Optional[int] = None
+        self,
+        session_id: int,
+        limit: Optional[int] = None,
+        *,
+        include_in_summary_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get conversations for a session, optionally limited to most recent N.
 
@@ -685,25 +768,32 @@ class DatabaseManager:
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
+            filters = ["session_id = ?"]
+            params: List[Any] = [session_id]
+
+            if include_in_summary_only:
+                filters.append("include_in_summary = 1")
+
+            where_clause = " AND ".join(filters)
+
             if limit:
                 # Get most recent N conversations, then reverse to chronological order
-                query = """
+                query = f"""
                     SELECT * FROM (
                         SELECT * FROM conversations 
-                        WHERE session_id = ?
+                        WHERE {where_clause}
                         ORDER BY timestamp DESC
                         LIMIT ?
                     ) ORDER BY timestamp ASC
                 """
-                params = [session_id, limit]
+                params.append(limit)
             else:
                 # Get all conversations in chronological order
-                query = """
+                query = f"""
                     SELECT * FROM conversations 
-                    WHERE session_id = ?
+                    WHERE {where_clause}
                     ORDER BY timestamp ASC
                 """
-                params = [session_id]
 
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
@@ -1058,6 +1148,8 @@ class DatabaseManager:
                             0.0 as rank
                         FROM conversations c
                     """
+
+                conditions.append("c.message_type = 'conversation'")
 
                 if exclude_session_id is not None:
                     conditions.append("c.session_id != ?")

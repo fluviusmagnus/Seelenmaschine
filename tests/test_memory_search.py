@@ -159,6 +159,15 @@ class TestMemorySearchTool:
         assert call_kwargs["role"] == "user"
 
     @pytest.mark.asyncio
+    async def test_execute_search_excludes_tool_call_messages(self, memory_search_tool, mock_db):
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(query="test")
+
+        call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert call_kwargs["query"] == "test"
+
+    @pytest.mark.asyncio
     async def test_execute_with_time_period(self, memory_search_tool, mock_db):
         """Test executing search with time period filter."""
         mock_db.search_conversations_by_keyword.return_value = []

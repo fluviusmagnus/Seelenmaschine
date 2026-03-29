@@ -66,7 +66,11 @@ class SessionMemory:
         timestamp: int,
         role: str,
         text: str,
-        embedding: List[float],
+        embedding: Optional[List[float]],
+        *,
+        message_type: str = "conversation",
+        include_in_turn_count: bool = True,
+        include_in_summary: bool = True,
     ) -> int:
         """Persist a conversation message and mirror it into the context window."""
         conversation_id = self.db.insert_conversation(
@@ -75,9 +79,49 @@ class SessionMemory:
             role=role,
             text=text,
             embedding=embedding,
+            message_type=message_type,
+            include_in_turn_count=include_in_turn_count,
+            include_in_summary=include_in_summary,
         )
-        self.context_window.add_message(role=role, text=text, embedding=embedding)
+        self.context_window.add_message(
+            role=role,
+            text=text,
+            embedding=embedding,
+            message_type=message_type,
+            include_in_turn_count=include_in_turn_count,
+            include_in_summary=include_in_summary,
+        )
         return conversation_id
+
+    def add_tool_message(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Store a tool-context message as a persisted system message."""
+        message_timestamp = timestamp or get_current_timestamp()
+        return self._store_message(
+            session_id=session_id,
+            timestamp=message_timestamp,
+            role="system",
+            text=text,
+            embedding=None,
+            message_type="tool_call",
+            include_in_turn_count=False,
+            include_in_summary=False,
+        )
+
+    async def add_tool_message_async(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Async wrapper for persisting a tool-context message."""
+        return self.add_tool_message(session_id, text, timestamp=timestamp)
 
     @staticmethod
     def _assistant_text_for_storage(text: str) -> str:
@@ -90,7 +134,10 @@ class SessionMemory:
         self, session_id: int, message_count: int
     ) -> Tuple[int, int]:
         """Resolve summary timestamps from stored conversations when possible."""
-        conversations = self.db.get_conversations_by_session(session_id)
+        conversations = self.db.get_conversations_by_session(
+            session_id,
+            include_in_summary_only=True,
+        )
         if conversations and len(conversations) >= message_count:
             return conversations[0]["timestamp"], conversations[message_count - 1][
                 "timestamp"
@@ -141,7 +188,13 @@ class SessionMemory:
             return
 
         for conv in unsummarized_conversations:
-            self.context_window.add_message(role=conv["role"], text=conv["text"])
+            self.context_window.add_message(
+                role=conv["role"],
+                text=conv["text"],
+                message_type=conv.get("message_type", "conversation"),
+                include_in_turn_count=bool(conv.get("include_in_turn_count", 1)),
+                include_in_summary=bool(conv.get("include_in_summary", 1)),
+            )
 
         logger.info(f"Restored {total_count} unsummarized messages to context window")
 
@@ -153,7 +206,7 @@ class SessionMemory:
         """Create a new session and close the old one if needed."""
         old_session = self.db.get_active_session()
         if old_session:
-            remaining_messages = self.context_window.context_window
+            remaining_messages = self.context_window.get_summarizable_messages()
             if remaining_messages:
                 logger.info(
                     f"Summarizing {len(remaining_messages)} remaining messages before closing session"
@@ -189,7 +242,7 @@ class SessionMemory:
         """Async version of new_session."""
         old_session = self.db.get_active_session()
         if old_session:
-            remaining_messages = self.context_window.context_window
+            remaining_messages = self.context_window.get_summarizable_messages()
             if remaining_messages:
                 logger.info(
                     f"Summarizing {len(remaining_messages)} remaining messages before closing session"

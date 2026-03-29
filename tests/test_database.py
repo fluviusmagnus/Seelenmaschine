@@ -32,7 +32,7 @@ class TestDatabaseManager:
             cursor.execute("SELECT value FROM meta WHERE key = 'schema_version'")
             result = cursor.fetchone()
             assert result is not None
-            assert result[0] == "3.1"
+            assert result[0] == "3.2"
 
     def test_create_session(self, db_manager):
         """Test creating a new session."""
@@ -109,6 +109,33 @@ class TestDatabaseManager:
             assert row["timestamp"] == 1234567891
             assert row["role"] == "user"
             assert row["text"] == "Hello world"
+            assert row["message_type"] == "conversation"
+            assert row["include_in_turn_count"] == 1
+            assert row["include_in_summary"] == 1
+
+    def test_insert_tool_context_conversation(self, db_manager):
+        """Tool context messages should persist as non-conversation records."""
+        session_id = db_manager.create_session(1234567890)
+
+        conv_id = db_manager.insert_conversation(
+            session_id=session_id,
+            timestamp=1234567891,
+            role="system",
+            text="[Tool Call]",
+            message_type="tool_call",
+            include_in_turn_count=False,
+            include_in_summary=False,
+        )
+
+        with db_manager._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM conversations WHERE conversation_id = ?", (conv_id,))
+            row = cursor.fetchone()
+            assert row is not None
+            assert row["role"] == "system"
+            assert row["message_type"] == "tool_call"
+            assert row["include_in_turn_count"] == 0
+            assert row["include_in_summary"] == 0
 
     def test_insert_summary(self, db_manager):
         """Test inserting a summary."""

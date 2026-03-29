@@ -19,6 +19,7 @@ class ToolLoop:
     ) -> Dict[str, Any]:
         """Run chat completion loop with tool execution and collect assistant texts."""
         assistant_messages: List[str] = []
+        tool_context_messages: List[str] = []
         iteration = 1
 
         result = await self.llm_client._async_chat(
@@ -52,13 +53,18 @@ class ToolLoop:
                     )
                     if asyncio.iscoroutine(response):
                         response = await response
+                    response_text = (
+                        response.get("result", "") if isinstance(response, dict) else response
+                    )
                     sanitized_response = (
-                        self.llm_client._sanitize_tool_response_for_prompt(response)
+                        self.llm_client._sanitize_tool_response_for_prompt(response_text)
                     )
                     logger.info(
                         f"Tool '{call['name']}' completed with response preview: "
                         f"{self.llm_client._preview_text(sanitized_response)}"
                     )
+                    if isinstance(response, dict) and response.get("context_message"):
+                        tool_context_messages.append(response["context_message"])
                     tool_responses.append(
                         {
                             "tool_call_id": call["id"],
@@ -101,4 +107,5 @@ class ToolLoop:
         return {
             "final_text": final_text,
             "assistant_messages": assistant_messages,
+            "tool_context_messages": tool_context_messages,
         }

@@ -79,6 +79,7 @@ def mock_llm_client():
         return_value={
             "final_text": "This is a test response",
             "assistant_messages": ["This is a test response"],
+            "tool_context_messages": [],
         }
     )
     client.set_tools = Mock()
@@ -234,7 +235,8 @@ def test_execute_tool_memory_search(
 
     result = asyncio.run(core_bot.execute_tool("search_memories", '{"query": "test"}'))
 
-    assert result == "Found memories"
+    assert result["result"] == "Found memories"
+    assert "[Tool Call]" in result["context_message"]
     memory_search_tool.execute.assert_called_once_with(query="test")
 
     trace_path = handler.core_bot.config.DATA_DIR / "tool_traces.jsonl"
@@ -257,7 +259,7 @@ def test_query_tool_history_is_not_self_logged(
 
     result = asyncio.run(core_bot.execute_tool("query_tool_history", "{}"))
 
-    assert "No tool history records found." in result
+    assert "No tool history records found." in result["result"]
     trace_path = handler.core_bot.config.DATA_DIR / "tool_traces.jsonl"
     if trace_path.exists():
         assert trace_path.read_text(encoding="utf-8").strip() == ""
@@ -280,7 +282,8 @@ async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
     result = await core_bot.execute_tool("read_file", '{"file_path": "notes.txt"}')
     await __import__("asyncio").sleep(0)
 
-    assert result == "file content"
+    assert result["result"] == "file content"
+    assert "trace_id:" in result["context_message"]
     read_tool.execute.assert_awaited_once_with(file_path="notes.txt")
     handler.telegram_bot.send_message.assert_awaited()
 

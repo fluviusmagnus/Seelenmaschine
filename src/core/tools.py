@@ -140,6 +140,7 @@ class ToolTraceService:
     async def record_trace(
         self,
         *,
+        trace_id: Optional[int] = None,
         tool_name: str,
         arguments: Dict[str, Any],
         result: Any,
@@ -147,16 +148,17 @@ class ToolTraceService:
         duration_ms: int,
         approval_required: bool,
         approved_by_user: bool,
-    ) -> None:
+    ) -> Optional[int]:
         """Persist a tool execution trace unless the trace-query tool triggered it."""
         if tool_name == "query_tool_history":
-            return
+            return None
         if self.store is None:
-            return
+            return None
 
         try:
             session_id = self.get_current_session_id()
-            self.store.append_trace(
+            return self.store.append_trace(
+                trace_id=trace_id,
                 session_id=session_id,
                 tool_name=tool_name,
                 arguments=arguments,
@@ -168,6 +170,7 @@ class ToolTraceService:
             )
         except Exception as error:
             logger.warning(f"Failed to persist tool trace for {tool_name}: {error}")
+            return None
 
 
 class ToolRuntimeState:
@@ -398,6 +401,29 @@ class ToolExecutor:
         self.telegram_bot = telegram_bot
 
     @staticmethod
+    def _to_json_text(value: Any) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except Exception:
+            return str(value)
+
+    def _build_tool_context_message(
+        self,
+        *,
+        trace_id: int,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result: Any,
+    ) -> str:
+        return (
+            "[Tool Call]\n"
+            f"trace_id: {trace_id}\n"
+            f'tool: "{tool_name}"\n'
+            f"arguments: {self._to_json_text(arguments)}\n"
+            f'result preview: "{self.preview_text(str(result))}"'
+        )
+
+    @staticmethod
     def _elapsed_ms(start_time: float) -> int:
         """Convert a perf_counter start time into milliseconds."""
         return int((time.perf_counter() - start_time) * 1000)
@@ -405,15 +431,17 @@ class ToolExecutor:
     async def _record_tool_result(
         self,
         *,
+        trace_id: int,
         tool_name: str,
         arguments: Dict[str, Any],
         result: str,
         start_time: float,
         dangerous: bool,
         approval_granted: bool,
-    ) -> None:
+    ) -> Optional[int]:
         """Persist a successful or handled tool result to the trace log."""
-        await self.record_tool_trace(
+        return await self.record_tool_trace(
+            trace_id=trace_id,
             tool_name=tool_name,
             arguments=arguments,
             result=result,
@@ -426,6 +454,7 @@ class ToolExecutor:
     async def _finalize_success(
         self,
         *,
+        trace_id: int,
         tool_name: str,
         arguments: Dict[str, Any],
         result: str,
@@ -433,13 +462,14 @@ class ToolExecutor:
         dangerous: bool,
         approval_granted: bool,
         source_label: str,
-    ) -> str:
+    ) -> Dict[str, Any]:
         """Log, trace, and notify for a successful tool execution path."""
         logger.info(
             f"{source_label} tool execution finished: {tool_name}, "
             f"preview={self.preview_text(result)}"
         )
-        await self._record_tool_result(
+        stored_trace_id = await self._record_tool_result(
+            trace_id=trace_id,
             tool_name=tool_name,
             arguments=arguments,
             result=result,
@@ -449,17 +479,28 @@ class ToolExecutor:
         )
         if approval_granted:
             await self.notify_approved_action_finished(tool_name, result)
-        return result
+        effective_trace_id = stored_trace_id or trace_id
+        return {
+            "result": result,
+            "trace_id": effective_trace_id,
+            "context_message": self._build_tool_context_message(
+                trace_id=effective_trace_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+            ),
+        }
 
     async def _try_execute_registered_tool(
         self,
         *,
+        trace_id: int,
         tool_name: str,
         arguments: Dict[str, Any],
         start_time: float,
         dangerous: bool,
         approval_granted: bool,
-    ) -> Optional[str]:
+    ) -> Optional[Dict[str, Any]]:
         """Execute a locally registered tool when available."""
         tool_instance = self.tool_registry.get(tool_name)
         if tool_instance is None:
@@ -467,6 +508,7 @@ class ToolExecutor:
 
         result = await tool_instance.execute(**arguments)
         return await self._finalize_success(
+            trace_id=trace_id,
             tool_name=tool_name,
             arguments=arguments,
             result=result,
@@ -479,12 +521,13 @@ class ToolExecutor:
     async def _try_execute_mcp_tool(
         self,
         *,
+        trace_id: int,
         tool_name: str,
         arguments: Dict[str, Any],
         start_time: float,
         dangerous: bool,
         approval_granted: bool,
-    ) -> Optional[str]:
+    ) -> Optional[Dict[str, Any]]:
         """Execute an MCP tool when the remote registry contains it."""
         if not self.mcp_client:
             return None
@@ -501,6 +544,7 @@ class ToolExecutor:
 
         result = await self.mcp_client.call_tool(tool_name, arguments)
         return await self._finalize_success(
+            trace_id=trace_id,
             tool_name=tool_name,
             arguments=arguments,
             result=result,
@@ -510,14 +554,25 @@ class ToolExecutor:
             source_label="MCP",
         )
 
-    async def execute_tool(self, tool_name: str, arguments_json: str) -> str:
+    async def execute_tool(self, tool_name: str, arguments_json: str) -> Dict[str, Any]:
         """Execute a tool call from the LLM."""
         start_time = time.perf_counter()
+        trace_id = time.time_ns()
         try:
             arguments = json.loads(arguments_json)
         except json.JSONDecodeError as error:
             logger.error(f"Failed to parse tool arguments: {error}")
-            return f"Error: Invalid JSON arguments: {error}"
+            result = f"Error: Invalid JSON arguments: {error}"
+            return {
+                "result": result,
+                "trace_id": trace_id,
+                "context_message": self._build_tool_context_message(
+                    trace_id=trace_id,
+                    tool_name=tool_name,
+                    arguments={},
+                    result=result,
+                ),
+            }
 
         logger.info(f"Executing tool: {tool_name} with args: {arguments}")
 
@@ -543,6 +598,7 @@ class ToolExecutor:
                     "Do NOT retry this action."
                 )
                 await self.record_tool_trace(
+                    trace_id=trace_id,
                     tool_name=tool_name,
                     arguments=arguments,
                     result=result,
@@ -551,12 +607,22 @@ class ToolExecutor:
                     approval_required=True,
                     approved_by_user=False,
                 )
-                return result
+                return {
+                    "result": result,
+                    "trace_id": trace_id,
+                    "context_message": self._build_tool_context_message(
+                        trace_id=trace_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=result,
+                    ),
+                }
             logger.info(f"User approved dangerous action: {tool_name}")
             approval_granted = True
 
         try:
             result = await self._try_execute_registered_tool(
+                trace_id=trace_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 start_time=start_time,
@@ -567,6 +633,7 @@ class ToolExecutor:
                 return result
 
             result = await self._try_execute_mcp_tool(
+                trace_id=trace_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 start_time=start_time,
@@ -578,6 +645,7 @@ class ToolExecutor:
 
             result = f"Error: Tool not found: {tool_name}"
             await self.record_tool_trace(
+                trace_id=trace_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 result=result,
@@ -588,7 +656,16 @@ class ToolExecutor:
             )
             if approval_granted:
                 await self.notify_approved_action_finished(tool_name, result)
-            return result
+            return {
+                "result": result,
+                "trace_id": trace_id,
+                "context_message": self._build_tool_context_message(
+                    trace_id=trace_id,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    result=result,
+                ),
+            }
         except Exception as error:
             logger.error(
                 f"Tool execution raised exception after approval state="
@@ -596,6 +673,7 @@ class ToolExecutor:
                 exc_info=True,
             )
             await self.record_tool_trace(
+                trace_id=trace_id,
                 tool_name=tool_name,
                 arguments=arguments,
                 result=f"{type(error).__name__}: {error}",

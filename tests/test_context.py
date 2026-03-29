@@ -18,6 +18,9 @@ class TestMessage:
         msg = Message(role="user", text="Hello")
         assert msg.role == "user"
         assert msg.text == "Hello"
+        assert msg.message_type == "conversation"
+        assert msg.include_in_turn_count is True
+        assert msg.include_in_summary is True
 
     def test_message_to_dict(self):
         """Test converting message to dict."""
@@ -31,6 +34,19 @@ class TestMessage:
         msg = Message.from_dict(msg_dict)
         assert msg.role == "user"
         assert msg.text == "Test message"
+
+    def test_message_from_dict_with_metadata(self):
+        msg_dict = {
+            "role": "system",
+            "text": "[Tool Call]",
+            "message_type": "tool_call",
+            "include_in_turn_count": False,
+            "include_in_summary": False,
+        }
+        msg = Message.from_dict(msg_dict)
+        assert msg.message_type == "tool_call"
+        assert msg.include_in_turn_count is False
+        assert msg.include_in_summary is False
 
 
 class TestSummary:
@@ -154,6 +170,48 @@ class TestContextWindow:
         context_window.add_message("assistant", "Msg 2")
         context_window.add_message("user", "Msg 3")
         assert context_window.get_total_message_count() == 3
+
+    def test_tool_messages_do_not_count_toward_total_message_count(self, context_window):
+        context_window.add_message("user", "Msg 1")
+        context_window.add_message(
+            "system",
+            "[Tool Call]",
+            message_type="tool_call",
+            include_in_turn_count=False,
+            include_in_summary=False,
+        )
+        assert context_window.get_total_message_count() == 1
+
+    def test_get_messages_for_summary_skips_tool_messages(self, context_window):
+        context_window.add_message("user", "Msg 1")
+        context_window.add_message(
+            "system",
+            "[Tool Call]",
+            message_type="tool_call",
+            include_in_turn_count=False,
+            include_in_summary=False,
+        )
+        context_window.add_message("assistant", "Msg 2")
+
+        messages = context_window.get_messages_for_summary(2)
+        assert [m.text for m in messages] == ["Msg 1", "Msg 2"]
+
+    def test_remove_earliest_messages_removes_tool_messages_alongside_counted_messages(self, context_window):
+        context_window.add_message("user", "Msg 1")
+        context_window.add_message(
+            "system",
+            "[Tool Call]",
+            message_type="tool_call",
+            include_in_turn_count=False,
+            include_in_summary=False,
+        )
+        context_window.add_message("assistant", "Msg 2")
+
+        removed = context_window.remove_earliest_messages(1)
+        assert [m.text for m in removed] == ["Msg 1"]
+
+        removed = context_window.remove_earliest_messages(1)
+        assert [m.text for m in removed] == ["[Tool Call]", "Msg 2"]
 
     def test_get_context_as_messages(self, context_window):
         """Test getting context as list of message dicts."""
