@@ -43,11 +43,6 @@
             "short_term": ""
         }
     },
-    "memorable_events": [
-        {
-            "time": "",
-            "details": ""
-        }
-    ],
+    "memorable_events": {},
     "commands_and_agreements": []
 }

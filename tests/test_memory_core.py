@@ -135,6 +135,29 @@ class TestMemoryManagerLongTermMemory:
         assert success is True
         mock_update.assert_called_once()
 
+    def test_ensure_long_term_memory_schema_delegates_to_seele(self, mock_dependencies):
+        """Test schema bootstrap delegates to Seele normalizer."""
+        from memory.manager import MemoryManager
+
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            mock_ctx = Mock()
+            mock_ctx.get_recent_summary_ids = Mock(return_value=[])
+            mock_ctx.add_summary = Mock()
+            mock_ctx.add_message = Mock()
+            mock_ctx_class.return_value = mock_ctx
+
+            mm = MemoryManager(
+                db=mock_dependencies['db'],
+                embedding_client=mock_dependencies['embedding_client'],
+                reranker_client=mock_dependencies['reranker_client']
+            )
+
+        with patch.object(mm.seele, 'ensure_seele_schema_current', return_value=True) as mock_ensure:
+            result = mm.ensure_long_term_memory_schema()
+
+        assert result is True
+        mock_ensure.assert_called_once_with()
+
 
 class TestMemoryManagerCompleteFlows:
     """Test complete memory management flows"""

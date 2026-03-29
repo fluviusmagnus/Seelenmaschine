@@ -356,6 +356,10 @@ class MemoryManager:
     def get_long_term_memory(self) -> Dict[str, Any]:
         return self.seele.get_long_term_memory()
 
+    def ensure_long_term_memory_schema(self) -> bool:
+        """Ensure persisted long-term memory matches the latest schema."""
+        return self.seele.ensure_seele_schema_current()
+
     def get_context_messages(self) -> List[Dict[str, str]]:
         return self.recall.get_context_messages()
 

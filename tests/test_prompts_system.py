@@ -111,7 +111,14 @@ class TestBuildSystemPrompt:
                     "traits": ["analytical", "logical"]
                 }
             },
-            "user": {"name": "TestUser"}
+            "user": {"name": "TestUser"},
+            "memorable_events": {
+                "evt_20260329_project_commitment": {
+                    "date": "2026-03-29",
+                    "importance": 4,
+                    "details": "A major relationship milestone",
+                }
+            },
         }
         
         with patch('prompts.load_seele_json', return_value=mock_seele_data):
@@ -128,6 +135,8 @@ class TestBuildSystemPrompt:
                 assert "Summary 1" in result
                 assert "Summary 2" in result
                 assert "Markdown is allowed in normal replies" in result
+                assert "evt_20260329_project_commitment" in result
+                assert "importance=4" in result
 
 
 class TestJsonPatchConversion:

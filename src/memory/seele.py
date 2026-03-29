@@ -1,6 +1,8 @@
 """Seele profile loading, patching, and long-term memory updates."""
 
 import json
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -10,6 +12,178 @@ from memory.context import Message
 from utils.logger import get_logger
 
 logger = get_logger()
+
+MEMORABLE_EVENT_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
+MEMORABLE_EVENT_RETENTION_DAYS = {
+    1: 1,
+    2: 7,
+    3: 30,
+    4: 180,
+    5: None,
+}
+
+
+def _safe_event_slug(details: str) -> str:
+    """Build a safe memorable-event slug from free text."""
+    slug = re.sub(r"[^a-z0-9]+", "_", details.lower()).strip("_")
+    return slug[:40] or "event"
+
+
+def _parse_event_date(date_str: str) -> Optional[datetime]:
+    """Parse a memorable event date."""
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_event_id(date_str: str, details: str, used_ids: set[str]) -> str:
+    """Generate a stable-looking unique event id for migrations."""
+    date_part = (date_str or "unknown").replace("-", "")
+    base_id = f"evt_{date_part}_{_safe_event_slug(details)}"
+    candidate = base_id
+    suffix = 2
+    while candidate in used_ids:
+        candidate = f"{base_id}_{suffix}"
+        suffix += 1
+    used_ids.add(candidate)
+    return candidate
+
+
+def normalize_memorable_events(
+    memorable_events: Any,
+    *,
+    logger: Any,
+) -> tuple[Dict[str, Dict[str, Any]], bool]:
+    """Normalize memorable_events to the current id-keyed object schema."""
+    changed = False
+    normalized: Dict[str, Dict[str, Any]] = {}
+    used_ids: set[str] = set()
+
+    if memorable_events is None:
+        return {}, True
+
+    if isinstance(memorable_events, list):
+        changed = True
+        for entry in memorable_events:
+            if not isinstance(entry, dict):
+                logger.warning("Skipping non-object memorable event during migration")
+                continue
+            date_str = entry.get("date") or entry.get("time") or ""
+            details = str(entry.get("details", "")).strip()
+            if not details and not date_str:
+                continue
+            importance = entry.get("importance", 3)
+            if not isinstance(importance, int) or importance not in MEMORABLE_EVENT_RETENTION_DAYS:
+                importance = 3
+            event_id = entry.get("id")
+            if not isinstance(event_id, str) or not MEMORABLE_EVENT_ID_PATTERN.match(event_id):
+                event_id = _build_event_id(date_str, details, used_ids)
+            else:
+                event_id = event_id.lower()
+                if event_id in used_ids:
+                    event_id = _build_event_id(date_str, details, used_ids)
+                else:
+                    used_ids.add(event_id)
+            normalized[event_id] = {
+                "date": date_str,
+                "importance": importance,
+                "details": details,
+            }
+        return normalized, changed
+
+    if not isinstance(memorable_events, dict):
+        logger.warning("memorable_events has invalid type; resetting to empty object")
+        return {}, True
+
+    for raw_event_id, entry in memorable_events.items():
+        if not isinstance(entry, dict):
+            logger.warning(f"Skipping invalid memorable event payload for id {raw_event_id}")
+            changed = True
+            continue
+
+        event_id = str(raw_event_id).lower()
+        if not MEMORABLE_EVENT_ID_PATTERN.match(event_id):
+            date_str = entry.get("date") or entry.get("time") or ""
+            details = str(entry.get("details", "")).strip()
+            event_id = _build_event_id(date_str, details, used_ids)
+            changed = True
+        elif event_id in used_ids:
+            date_str = entry.get("date") or entry.get("time") or ""
+            details = str(entry.get("details", "")).strip()
+            event_id = _build_event_id(date_str, details, used_ids)
+            changed = True
+        else:
+            used_ids.add(event_id)
+
+        date_str = entry.get("date") or entry.get("time") or ""
+        details = str(entry.get("details", "")).strip()
+        importance = entry.get("importance", 3)
+        if not isinstance(importance, int) or importance not in MEMORABLE_EVENT_RETENTION_DAYS:
+            importance = 3
+            changed = True
+
+        normalized_entry = {
+            "date": date_str,
+            "importance": importance,
+            "details": details,
+        }
+        if entry != normalized_entry or raw_event_id != event_id:
+            changed = True
+        normalized[event_id] = normalized_entry
+
+    return normalized, changed
+
+
+def prune_expired_memorable_events(
+    memorable_events: Dict[str, Dict[str, Any]],
+    *,
+    today: Optional[datetime] = None,
+    logger: Any,
+) -> tuple[Dict[str, Dict[str, Any]], bool]:
+    """Remove expired memorable events according to importance retention."""
+    current_day = today or datetime.now()
+    normalized_today = datetime(current_day.year, current_day.month, current_day.day)
+    changed = False
+    pruned: Dict[str, Dict[str, Any]] = {}
+
+    for event_id, event in memorable_events.items():
+        importance = event.get("importance")
+        retention_days = MEMORABLE_EVENT_RETENTION_DAYS.get(importance)
+        if retention_days is None:
+            pruned[event_id] = event
+            continue
+
+        event_date = _parse_event_date(event.get("date", ""))
+        if event_date is None:
+            logger.warning(f"Memorable event {event_id} has invalid date; keeping it")
+            pruned[event_id] = event
+            continue
+
+        expire_after = event_date + timedelta(days=retention_days)
+        if normalized_today >= expire_after:
+            logger.info(f"Pruned expired memorable event: {event_id}")
+            changed = True
+            continue
+
+        pruned[event_id] = event
+
+    return pruned, changed
+
+
+def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
+    """Normalize current seele data to the latest schema."""
+    normalized_data = dict(data)
+    memorable_events, changed = normalize_memorable_events(
+        normalized_data.get("memorable_events", {}),
+        logger=logger,
+    )
+    pruned_events, pruned_changed = prune_expired_memorable_events(
+        memorable_events,
+        logger=logger,
+    )
+    normalized_data["memorable_events"] = pruned_events
+    return normalized_data, changed or pruned_changed
 
 
 def load_seele_json_from_disk(
@@ -59,6 +233,9 @@ def apply_seele_json_patch(
 ) -> tuple[bool, Dict[str, Any]]:
     """Apply a patch to cached seele.json and persist it."""
     working_cache = cache or load_from_disk()
+    working_cache, normalized = normalize_seele_data(working_cache, logger)
+    if normalized:
+        logger.info("Normalized seele.json before applying JSON Patch")
 
     try:
         if isinstance(patch_operations, dict):
@@ -71,6 +248,7 @@ def apply_seele_json_patch(
 
         patch = jsonpatch.JsonPatch(operations)
         updated_cache = patch.apply(working_cache)
+        updated_cache, _ = normalize_seele_data(updated_cache, logger)
 
         seele_path.parent.mkdir(parents=True, exist_ok=True)
         with open(seele_path, "w", encoding="utf-8") as file_obj:
@@ -543,16 +721,55 @@ class Seele:
                 logger.warning(f"Missing required field: {field}")
                 return False
 
-        if not isinstance(data["memorable_events"], list):
-            logger.warning("memorable_events is not an array")
+        if not isinstance(data["memorable_events"], dict):
+            logger.warning("memorable_events is not an object")
             return False
 
-        if len(data["memorable_events"]) > 20:
-            logger.warning(
-                f"memorable_events has {len(data['memorable_events'])} events (max 20), truncating..."
-            )
-            data["memorable_events"] = data["memorable_events"][-20:]
+        for event_id, event in data["memorable_events"].items():
+            if not isinstance(event_id, str) or not MEMORABLE_EVENT_ID_PATTERN.match(event_id):
+                logger.warning(f"Invalid memorable event id: {event_id}")
+                return False
+            if not isinstance(event, dict):
+                logger.warning(f"Memorable event payload is not an object: {event_id}")
+                return False
+            required_event_fields = ["date", "importance", "details"]
+            for field in required_event_fields:
+                if field not in event:
+                    logger.warning(f"Memorable event {event_id} missing field: {field}")
+                    return False
+            if _parse_event_date(event["date"]) is None:
+                logger.warning(f"Memorable event {event_id} has invalid date")
+                return False
+            if (
+                not isinstance(event["importance"], int)
+                or event["importance"] not in MEMORABLE_EVENT_RETENTION_DAYS
+            ):
+                logger.warning(f"Memorable event {event_id} has invalid importance")
+                return False
+            if not isinstance(event["details"], str):
+                logger.warning(f"Memorable event {event_id} has non-string details")
+                return False
 
+        return True
+
+    def ensure_seele_schema_current(self) -> bool:
+        """Normalize persisted seele.json to the latest schema and prune expired events."""
+        from core.config import Config
+        import prompts
+
+        config = Config()
+        current_data = self.get_long_term_memory()
+        normalized_data, changed = normalize_seele_data(current_data, logger)
+
+        if not changed:
+            return False
+
+        config.SEELE_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(config.SEELE_JSON_PATH, "w", encoding="utf-8") as file_obj:
+            json.dump(normalized_data, file_obj, indent=2, ensure_ascii=False)
+
+        prompts._seele_json_cache = normalized_data
+        logger.info("Normalized seele.json schema and pruned expired memorable events")
         return True
 
     def _write_complete_seele_json(self, complete_data: dict) -> None:
@@ -561,12 +778,13 @@ class Seele:
         import prompts
 
         config = Config()
+        complete_data, _ = normalize_seele_data(complete_data, logger)
         seele_path = config.SEELE_JSON_PATH
         seele_path.parent.mkdir(parents=True, exist_ok=True)
         with open(seele_path, "w", encoding="utf-8") as f:
             json.dump(complete_data, f, indent=2, ensure_ascii=False)
 
-        prompts._seele_json_cache = {}
+        prompts._seele_json_cache = complete_data
 
 
 

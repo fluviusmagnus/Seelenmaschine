@@ -71,7 +71,7 @@ class TestUpdateSeeeleJson:
         initial_data = {
             "bot": {"name": "Test"},
             "user": {"name": ""},
-            "memorable_events": [],
+            "memorable_events": {},
             "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
@@ -103,7 +103,7 @@ class TestUpdateSeeeleJson:
         initial_data = {
             "bot": {"name": "Test", "likes": []},
             "user": {"name": ""},
-            "memorable_events": [],
+            "memorable_events": {},
             "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
@@ -131,7 +131,7 @@ class TestUpdateSeeeleJson:
         initial_data = {
             "bot": {"name": "Test", "personality": {"mbti": ""}},
             "user": {"name": ""},
-            "memorable_events": [],
+            "memorable_events": {},
             "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
@@ -159,7 +159,7 @@ class TestUpdateSeeeleJson:
         initial_data = {
             "bot": {"name": "Test"},
             "user": {"name": ""},
-            "memorable_events": [],
+            "memorable_events": {},
             "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
@@ -188,7 +188,7 @@ class TestUpdateSeeeleJson:
         initial_data = {
             "bot": {"name": "Test"},
             "user": {"name": ""},
-            "memorable_events": [],
+            "memorable_events": {},
             "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(initial_data, indent=2))
@@ -259,7 +259,13 @@ class TestGetCacheableSystemPrompt:
                 },
                 "emotions_and_needs": {"long_term": "", "short_term": ""},
             },
-            "memorable_events": [],
+            "memorable_events": {
+                "evt_20260329_project_commitment": {
+                    "date": "2026-03-29",
+                    "importance": 4,
+                    "details": "Shared a long-term collaboration commitment",
+                }
+            },
             "commands_and_agreements": [],
         }
         seele_path.write_text(json.dumps(seele_data, indent=2))
@@ -282,6 +288,8 @@ class TestGetCacheableSystemPrompt:
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
+        assert "evt_20260329_project_commitment" in prompt
+        assert "importance=4" in prompt
 
 
 class TestGetSummaryPrompt:
@@ -321,7 +329,7 @@ class TestGetMemoryUpdatePrompt:
             {
                 "bot": {"name": "TestBot"},
                 "user": {"name": "TestUser"},
-                "memorable_events": [],
+                "memorable_events": {},
                 "commands_and_agreements": [],
             }
         )
@@ -334,6 +342,39 @@ class TestGetMemoryUpdatePrompt:
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
+        assert "stable event ids" in prompt
+        assert "Importance scores MAY change later" in prompt
+        assert "Memorable events are NOT the same as reminders" in prompt
+        assert "Prefer simple updates over complex rewrites" in prompt
+
+    def test_get_memory_update_prompt_includes_importance_examples(self):
+        """Test that importance examples and task boundary rules are present."""
+        prompt = get_memory_update_prompt("User: test", self._current_seele_json())
+
+        assert "User officially started a new job" in prompt
+        assert "Remind me tomorrow at 3pm to join a meeting" in prompt
+        assert "My old cat passed away today" in prompt
+
+    def test_get_complete_memory_json_prompt_includes_boundary_rules(self):
+        """Test that full-json prompt includes memorable-event boundary guidance."""
+        prompt = get_complete_memory_json_prompt(
+            "User: test",
+            self._current_seele_json(),
+            "patch failed",
+        )
+
+        assert "not ordinary tasks or reminders" in prompt
+        assert "Prefer simple, high-confidence updates" in prompt
+        assert "should not be written into seele.json" in prompt
+        assert "a memorable relationship event" in prompt
+
+    def test_get_memory_update_prompt_says_tasks_do_not_belong_in_seele(self):
+        """Test that memory update prompt clearly excludes tasks/reminders from seele.json."""
+        prompt = get_memory_update_prompt("User: test", self._current_seele_json())
+
+        assert "should NOT be stored in seele.json" in prompt
+        assert "Tasks and reminders should be handled by scheduling/task logic" in prompt
+        assert "A reminder/task should not be stored in seele.json" in prompt
 
     def test_get_memory_update_prompt_with_timestamps(self):
         """Test getting memory update prompt with timestamps."""
@@ -403,7 +444,7 @@ class TestPromptIntegration:
             {
                 "bot": {"name": "TestBot"},
                 "user": {"name": "TestUser"},
-                "memorable_events": [],
+                "memorable_events": {},
                 "commands_and_agreements": [],
             }
         )

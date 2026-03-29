@@ -1,9 +1,27 @@
 """System prompt builders."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from utils.time import format_current_time_str
+
+
+def _sorted_memorable_events(
+    memorable_events: Dict[str, Dict[str, Any]],
+) -> List[tuple[str, Dict[str, Any]]]:
+    """Return memorable events sorted by date and id."""
+
+    def sort_key(item: tuple[str, Dict[str, Any]]) -> tuple[datetime, str]:
+        event_id, event = item
+        raw_date = event.get("date", "")
+        try:
+            event_date = datetime.strptime(raw_date, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            event_date = datetime.min
+        return event_date, event_id
+
+    return sorted(memorable_events.items(), key=sort_key)
 
 
 def get_current_time_str(timezone: Any, logger: Any) -> str:
@@ -23,7 +41,7 @@ def build_cacheable_system_prompt(
     """Build the cacheable system prompt from profile data."""
     bot = seele_data.get("bot", {})
     user = seele_data.get("user", {})
-    memorable_events = seele_data.get("memorable_events", [])
+    memorable_events = seele_data.get("memorable_events", {})
     commands_and_agreements = seele_data.get("commands_and_agreements", [])
 
     bot_name = bot.get("name", "AI Assistant")
@@ -122,8 +140,12 @@ def build_cacheable_system_prompt(
 
     if memorable_events:
         events_text = "\n".join(
-            f"- [{event.get('time', '')}] {event.get('details', '')}"
-            for event in memorable_events
+            (
+                f"- [{event.get('date', '')}]"
+                f"[importance={event.get('importance', '')}]"
+                f"[{event_id}] {event.get('details', '')}"
+            )
+            for event_id, event in _sorted_memorable_events(memorable_events)
         )
         sections.append(
             f"""## Memorable Events

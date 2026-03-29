@@ -107,6 +107,35 @@ class TestMainTelegramInitialization:
                                             ("init_logger", None),
                                         ]
 
+    def test_main_initializes_core_bot_for_schema_bootstrap(self):
+        """Test that CoreBot is created during startup, enabling memory bootstrap."""
+        test_args = ["main_telegram.py", "test_profile"]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("main_telegram.init_config"):
+                with patch("main_telegram.init_logger"):
+                    with patch("main_telegram.CoreBot") as mock_core_bot:
+                        with patch("main_telegram.TelegramController") as mock_controller:
+                            with patch("main_telegram.TelegramAdapter") as mock_adapter:
+                                with patch("main_telegram.SchedulerRuntime") as mock_runtime:
+                                    with patch("main_telegram.register_stop_signal_handlers"):
+                                        core_bot_instance = Mock()
+                                        core_bot_instance.scheduler = Mock()
+                                        mock_core_bot.return_value = core_bot_instance
+                                        adapter_instance = Mock()
+                                        mock_adapter.return_value = adapter_instance
+                                        runtime_instance = Mock()
+                                        runtime_instance.build_post_init.return_value = Mock()
+                                        runtime_instance.build_post_shutdown.return_value = Mock()
+                                        mock_runtime.return_value = runtime_instance
+
+                                        import main_telegram
+
+                                        main_telegram.main()
+
+        mock_core_bot.assert_called_once_with()
+        mock_controller.assert_called_once_with(core_bot=core_bot_instance)
+
 
 class TestMainTelegramBotLifecycle:
     """Test TelegramAdapter lifecycle management"""
