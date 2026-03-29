@@ -249,6 +249,7 @@ def build_complete_memory_json_prompt(
     current_seele_json: str,
     error_message: str,
     timezone: Any,
+    previous_attempt: Optional[str] = None,
     first_timestamp: Optional[int] = None,
     last_timestamp: Optional[int] = None,
 ) -> str:
@@ -268,13 +269,27 @@ def build_complete_memory_json_prompt(
             "Use this temporal context when updating time-sensitive fields.\n</time_context>\n"
         )
 
+    previous_attempt_section = ""
+    if previous_attempt:
+        previous_attempt_section = f"""
+<previous_attempt>
+The previous complete seele.json generation attempt returned the following output.
+Analyze it carefully, preserve any valid parts only when appropriate, and fix the exact problems instead of repeating them verbatim:
+
+{previous_attempt}
+</previous_attempt>
+
+"""
+
     return f"""<complete_memory_json_task>
 <role>
 You are {bot_name}, an AI assistant.
 </role>
 
+{previous_attempt_section}
 <previous_error>
 The previous JSON Patch operation failed with this error:
+
 ERROR: {error_message}
 </previous_error>
 

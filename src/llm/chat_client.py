@@ -495,6 +495,7 @@ class LLMClient:
         messages: List[Dict[str, str]],
         current_seele_json: str,
         error_message: str,
+        previous_attempt: Optional[str] = None,
         first_timestamp: Optional[int] = None,
         last_timestamp: Optional[int] = None,
     ) -> str:
@@ -503,6 +504,7 @@ class LLMClient:
             messages=messages,
             current_seele_json=current_seele_json,
             error_message=error_message,
+            previous_attempt=previous_attempt,
             prompt_builder=get_complete_memory_json_prompt,
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,
@@ -513,6 +515,7 @@ class LLMClient:
         messages: List[Dict[str, str]],
         current_seele_json: str,
         error_message: str,
+        previous_attempt: Optional[str] = None,
         first_timestamp: Optional[int] = None,
         last_timestamp: Optional[int] = None,
     ) -> str:
@@ -521,6 +524,7 @@ class LLMClient:
             messages=messages,
             current_seele_json=current_seele_json,
             error_message=error_message,
+            previous_attempt=previous_attempt,
             prompt_builder=get_complete_memory_json_prompt,
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,

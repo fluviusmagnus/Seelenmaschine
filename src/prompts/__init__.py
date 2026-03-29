@@ -112,6 +112,7 @@ def get_complete_memory_json_prompt(
     messages: str,
     current_seele_json: str,
     error_message: str,
+    previous_attempt: str | None = None,
     first_timestamp: int | None = None,
     last_timestamp: int | None = None,
 ) -> str:
@@ -122,6 +123,7 @@ def get_complete_memory_json_prompt(
         current_seele_json=current_seele_json,
         error_message=error_message,
         timezone=config.TIMEZONE,
+        previous_attempt=previous_attempt,
         first_timestamp=first_timestamp,
         last_timestamp=last_timestamp,
     )

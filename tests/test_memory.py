@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -281,6 +283,48 @@ class TestMemoryManager:
         """Test update_long_term_memory returns False for invalid JSON."""
         result = memory_manager.update_long_term_memory(1, "not json")
         assert result is False
+
+    def test_fallback_retry_reuses_previous_failed_output(self, memory_manager):
+        """Retry should pass the raw failed generation output into the next attempt."""
+        memory_manager.seele.validate_seele_structure = Mock(return_value=True)
+        memory_manager.seele.clean_json_response = Mock(side_effect=lambda value: value)
+        memory_manager.seele._write_complete_seele_json = Mock()
+
+        messages = []
+        generate_complete_json = Mock(
+            side_effect=[
+                '{"bot": {oops}}',
+                '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
+            ]
+        )
+
+        result = memory_manager.seele._retry_complete_json_generation(
+            summary_id=1,
+            messages=messages,
+            error_message="patch failed",
+            generate_complete_json=generate_complete_json,
+            write_complete_json=memory_manager.seele._write_complete_seele_json,
+        )
+
+        assert result is True
+        assert generate_complete_json.call_args_list[0].args == (
+            messages,
+            "patch failed",
+            1,
+            None,
+        )
+        assert generate_complete_json.call_args_list[1].args == (
+            messages,
+            memory_manager.seele._build_parse_retry_message(
+                json.JSONDecodeError(
+                    "Expecting property name enclosed in double quotes",
+                    '{"bot": {oops}}',
+                    9,
+                )
+            ),
+            1,
+            '{"bot": {oops}}',
+        )
 
 
 

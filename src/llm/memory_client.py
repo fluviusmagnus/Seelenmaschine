@@ -187,8 +187,9 @@ class MemoryClient:
         messages: List[Dict[str, str]],
         current_seele_json: str,
         error_message: str,
+        previous_attempt: Optional[str],
         prompt_builder: Callable[
-            [str, str, str, Optional[int], Optional[int]], str
+            [str, str, str, Optional[str], Optional[int], Optional[int]], str
         ],
         first_timestamp: Optional[int] = None,
         last_timestamp: Optional[int] = None,
@@ -199,6 +200,7 @@ class MemoryClient:
             prompt_builder,
             current_seele_json,
             error_message,
+            previous_attempt,
             first_timestamp,
             last_timestamp,
         )
@@ -218,8 +220,9 @@ class MemoryClient:
         messages: List[Dict[str, str]],
         current_seele_json: str,
         error_message: str,
+        previous_attempt: Optional[str],
         prompt_builder: Callable[
-            [str, str, str, Optional[int], Optional[int]], str
+            [str, str, str, Optional[str], Optional[int], Optional[int]], str
         ],
         first_timestamp: Optional[int] = None,
         last_timestamp: Optional[int] = None,
@@ -230,6 +233,7 @@ class MemoryClient:
             prompt_builder,
             current_seele_json,
             error_message,
+            previous_attempt,
             first_timestamp,
             last_timestamp,
         )

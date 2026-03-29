@@ -459,7 +459,11 @@ class Seele:
         )
 
     def generate_complete_memory_json(
-        self, messages: List[Message], error_message: str, summary_id: int
+        self,
+        messages: List[Message],
+        error_message: str,
+        summary_id: int,
+        previous_attempt: Optional[str] = None,
     ) -> str:
         """Generate a full seele.json object when patching fails."""
         return self._generate_with_llm_client(
@@ -469,13 +473,18 @@ class Seele:
                 messages_dict,
                 current_seele_json,
                 error_message,
+                previous_attempt,
                 first_timestamp,
                 last_timestamp,
             ),
         )
 
     async def generate_complete_memory_json_async(
-        self, messages: List[Message], error_message: str, summary_id: int
+        self,
+        messages: List[Message],
+        error_message: str,
+        summary_id: int,
+        previous_attempt: Optional[str] = None,
     ) -> str:
         """Async version of generate_complete_memory_json."""
         return await self._generate_with_llm_client_async(
@@ -485,6 +494,7 @@ class Seele:
                 messages_dict,
                 current_seele_json,
                 error_message,
+                previous_attempt,
                 first_timestamp,
                 last_timestamp,
             ),
@@ -526,11 +536,12 @@ class Seele:
         summary_id: int,
         messages: List[Message],
         error_message: str,
-        generate_complete_json: Callable[[List[Message], str, int], Any],
+        generate_complete_json: Callable[[List[Message], str, int, Optional[str]], Any],
         write_complete_json: Callable[[dict], None],
     ) -> bool:
         """Retry full seele.json generation after patch failure."""
         max_retries = 2
+        previous_attempt: Optional[str] = None
 
         for attempt in range(max_retries):
             try:
@@ -538,8 +549,9 @@ class Seele:
                     f"Generating complete seele.json as fallback for summary {summary_id} (attempt {attempt + 1}/{max_retries})"
                 )
                 complete_json_str = generate_complete_json(
-                    messages, error_message, summary_id
+                    messages, error_message, summary_id, previous_attempt
                 )
+                previous_attempt = complete_json_str or previous_attempt
                 if not complete_json_str:
                     logger.error("Failed to generate complete JSON - empty response")
                     continue
@@ -581,11 +593,12 @@ class Seele:
         summary_id: int,
         messages: List[Message],
         error_message: str,
-        generate_complete_json: Callable[[List[Message], str, int], Any],
+        generate_complete_json: Callable[[List[Message], str, int, Optional[str]], Any],
         write_complete_json: Callable[[dict], None],
     ) -> bool:
         """Async retry wrapper for full seele.json regeneration."""
         max_retries = 2
+        previous_attempt: Optional[str] = None
 
         for attempt in range(max_retries):
             try:
@@ -593,8 +606,9 @@ class Seele:
                     f"Generating complete seele.json as fallback for summary {summary_id} (attempt {attempt + 1}/{max_retries})"
                 )
                 complete_json_str = await generate_complete_json(
-                    messages, error_message, summary_id
+                    messages, error_message, summary_id, previous_attempt
                 )
+                previous_attempt = complete_json_str or previous_attempt
                 if not complete_json_str:
                     logger.error("Failed to generate complete JSON - empty response")
                     continue

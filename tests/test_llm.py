@@ -235,6 +235,7 @@ class TestLLMClient:
             "patch failed",
             None,
             None,
+            None,
         )
 
     @patch("llm.chat_client.AsyncOpenAI")

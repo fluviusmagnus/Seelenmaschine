@@ -384,6 +384,18 @@ class TestGetMemoryUpdatePrompt:
         assert "<previous_error>" in prompt
         assert "<output_requirements>" in prompt
 
+    def test_get_complete_memory_json_prompt_includes_previous_attempt(self):
+        """Retry prompt should include the raw previous failed output when provided."""
+        prompt = get_complete_memory_json_prompt(
+            "User: test",
+            self._current_seele_json(),
+            "parse failed",
+            '{"bot": {oops}}',
+        )
+
+        assert "<previous_attempt>" in prompt
+        assert '{"bot": {oops}}' in prompt
+
     def test_get_memory_update_prompt_says_tasks_do_not_belong_in_seele(self):
         """Test that memory update prompt clearly excludes tasks/reminders from seele.json."""
         prompt = get_memory_update_prompt("User: test", self._current_seele_json())
