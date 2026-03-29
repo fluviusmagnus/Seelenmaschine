@@ -12,8 +12,9 @@ This directory contains Seelenmaschine's data migration tool for upgrading old d
 
 1.  **Automatic source file detection**: Automatically finds old data in `data/<profile>/` or `data/<profile>/backup/`.
 2.  **Text to JSON**: Uses LLM to convert old `persona_memory.txt` and `user_profile.txt` to the new `seele.json` format.
-3.  **Database migration**: Migrates old `chat_sessions.db` to the new `chatbot.db` and applies the current schema (including FTS5 and scheduled-task related upgrades).
-4.  **Automatic backup**: Automatically backs up existing data to the `migration_backup_YYYYMMDD_HHMMSS` directory before modification.
+3.  **Intelligent seele.json repair/migration**: If an existing `seele.json` uses an old structure, misses fields, has legacy `memorable_events`, or is even malformed JSON, it is repaired through the LLM instead of a mechanical conversion step.
+4.  **Database migration**: Migrates old `chat_sessions.db` to the new `chatbot.db` and applies the current schema (including FTS5 and scheduled-task related upgrades).
+5.  **Automatic backup**: Before making changes, existing data is automatically backed up to a `migration_backup_YYYYMMDD_HHMMSS` directory.
 
 ### How to Use
 

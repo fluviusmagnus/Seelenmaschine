@@ -22,7 +22,8 @@ import argparse
 root_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(root_dir / "src"))
 
-from config import Config, init_config
+from core.config import Config, init_config
+from memory.seele import Seele
 from utils.logger import get_logger
 from openai import AsyncOpenAI
 import struct
@@ -108,6 +109,7 @@ class DataMigrator:
         self.source_db: Optional[Path] = None
         self.source_persona: Optional[Path] = None
         self.source_user: Optional[Path] = None
+        self.seele = Seele(db=None)
 
     def _find_source_files(self):
         """Locate source files, preferring profile root, then backup/."""
@@ -194,6 +196,9 @@ class DataMigrator:
                 else:
                     logger.error("Template seele.json not found!")
 
+        if self.seele_json_path.exists():
+            self._repair_existing_seele_json()
+
         # Step 2: Database Migration
         self._create_new_database()
         if self.source_db:
@@ -208,6 +213,17 @@ class DataMigrator:
         self._cleanup_source_files()
 
         logger.info("Migration completed successfully!")
+
+    def _repair_existing_seele_json(self):
+        """Repair or migrate persisted seele.json through the shared LLM repair path."""
+        logger.info("Repairing/migrating seele.json via LLM...")
+        changed = self.seele.ensure_seele_schema_current(
+            repair_context=f"migration for profile '{self.profile}'"
+        )
+        if changed:
+            logger.info("seele.json was repaired or updated during migration")
+        else:
+            logger.info("seele.json already matched the current schema")
 
     def _convert_txt_to_json(self):
         logger.info("Converting old text files to seele.json...")

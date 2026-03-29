@@ -327,4 +327,38 @@ class TestMemoryManager:
         )
 
 
+def test_build_event_id_uses_short_slug_and_hash():
+    """Memorable event ids should be concise and include a stable short hash."""
+    from memory.seele import _build_event_id
+
+    event_id = _build_event_id(
+        "2026-03-30",
+        "Project commitment with Seele for a very long collaboration plan",
+        set(),
+    )
+
+    assert event_id.startswith("evt_20260330_project_commitme_")
+    assert len(event_id.split("_")) >= 4
+
+
+def test_build_event_id_falls_back_to_event_slug_for_non_ascii_details():
+    """When details have no ASCII slug content, ids should still be compact and valid."""
+    from memory.seele import _build_event_id
+
+    event_id = _build_event_id("2026-03-30", "！！！今天！！！", set())
+
+    assert event_id.startswith("evt_20260330_event_")
+
+
+def test_build_event_id_adds_suffix_on_collision():
+    """Colliding ids should receive numeric suffixes after the short hash form."""
+    from memory.seele import _build_event_id
+
+    used_ids: set[str] = set()
+    first_id = _build_event_id("2026-03-30", "same detail", used_ids)
+    second_id = _build_event_id("2026-03-30", "same detail", used_ids)
+
+    assert second_id == f"{first_id}_2"
+
+
 

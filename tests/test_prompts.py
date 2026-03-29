@@ -11,6 +11,7 @@ from prompts import (
     get_summary_prompt,
     get_memory_update_prompt,
     get_complete_memory_json_prompt,
+    get_seele_repair_prompt,
 )
 
 
@@ -353,6 +354,7 @@ class TestGetMemoryUpdatePrompt:
         assert isinstance(prompt, str)
         assert len(prompt) > 0
         assert "stable event ids" in prompt
+        assert "evt_20260329_project_commitment" in prompt
         assert "Importance scores MAY change later" in prompt
         assert "Memorable events are NOT the same as reminders" in prompt
         assert "Prefer simple updates over complex rewrites" in prompt
@@ -367,6 +369,14 @@ class TestGetMemoryUpdatePrompt:
         assert "User officially started a new job" in prompt
         assert "Remind me tomorrow at 3pm to join a meeting" in prompt
         assert "My old cat passed away today" in prompt
+
+    def test_get_memory_update_prompt_excludes_temporary_personal_facts(self):
+        """personal_facts guidance should exclude temporary user state."""
+        prompt = get_memory_update_prompt("User: test", self._current_seele_json())
+
+        assert "/user/personal_facts should contain relatively stable facts" in prompt
+        assert "Do NOT store temporary states" in prompt
+        assert "Store only durable, identity-relevant, or repeatedly confirmed facts" in prompt
 
     def test_get_complete_memory_json_prompt_includes_boundary_rules(self):
         """Test that full-json prompt includes memorable-event boundary guidance."""
@@ -396,6 +406,18 @@ class TestGetMemoryUpdatePrompt:
         assert "<previous_attempt>" in prompt
         assert '{"bot": {oops}}' in prompt
 
+    def test_get_complete_memory_json_prompt_excludes_temporary_personal_facts(self):
+        """Complete-memory prompt should exclude temporary personal facts."""
+        prompt = get_complete_memory_json_prompt(
+            "User: test",
+            self._current_seele_json(),
+            "patch failed",
+        )
+
+        assert "IMPORTANT UPDATE GUIDELINES for user.personal_facts" in prompt
+        assert "Store only relatively stable facts" in prompt
+        assert "Do NOT include temporary states" in prompt
+
     def test_get_memory_update_prompt_says_tasks_do_not_belong_in_seele(self):
         """Test that memory update prompt clearly excludes tasks/reminders from seele.json."""
         prompt = get_memory_update_prompt("User: test", self._current_seele_json())
@@ -415,8 +437,21 @@ class TestGetMemoryUpdatePrompt:
         )
 
         assert isinstance(prompt, str)
+
+    def test_get_seele_repair_prompt_contains_repair_rules(self):
+        """Repair prompt should explicitly frame seele.json fixing as an LLM repair task."""
+        prompt = get_seele_repair_prompt(
+            '{"bot": {oops}}',
+            self._current_seele_json(),
+            "Malformed JSON",
+            "migration",
+        )
+
+        assert "semantic migration/repair task" in prompt
+        assert "CURRENT / LEGACY / BROKEN seele.json CONTENT TO REPAIR" in prompt
+        assert "memorable_events MUST be an object keyed by stable ids" in prompt
         assert len(prompt) > 0
-        assert "<time_context>" in prompt
+        assert "Repair context: migration" in prompt
 
     def test_get_memory_update_prompt_without_timestamps(self):
         """Test getting memory update prompt without timestamps."""

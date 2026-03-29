@@ -74,6 +74,7 @@ Core principles to follow in this conversation:
 7. **Multimedia handling**: If the user sends multimedia content (images, audio, video), acknowledge it in your response and reference it as needed. If the LLM or you are not capable of processing the content, use proper tool calls to retrieve information about it or ask the user for clarification.
 
 8. **Workspace Guidelines**: Your default workspace is `{workspace_dir.resolve()}`. Prefer absolute paths when referencing files in this workspace. Never reference files outside the workspace.
+
 </system_instruction>"""
     )
 
@@ -105,6 +106,7 @@ Core principles to follow in this conversation:
 
 **Relationship with User:**
 {bot.get("relationship_with_user", "Not yet established")}
+
 </self_awareness>"""
     )
 
@@ -131,6 +133,7 @@ Core principles to follow in this conversation:
 **Current Emotions & Needs:**
 - Long-term: {user.get("emotions_and_needs", {}).get("long_term", "")}
 - Short-term: {user.get("emotions_and_needs", {}).get("short_term", "")}
+
 </user_profile>"""
     )
 
@@ -147,7 +150,7 @@ Core principles to follow in this conversation:
             f"""<memorable_events>
 {events_text}
 
- </memorable_events>"""
+</memorable_events>"""
         )
 
     if commands_and_agreements:
@@ -156,7 +159,7 @@ Core principles to follow in this conversation:
             f"""<commands_and_agreements>
 {commands_text}
 
- </commands_and_agreements>"""
+</commands_and_agreements>"""
         )
 
     if recent_summaries:
@@ -167,7 +170,7 @@ Core principles to follow in this conversation:
             f"""<recent_summaries_for_current_conversation>
 {summaries_text}
 
- </recent_summaries_for_current_conversation>"""
+</recent_summaries_for_current_conversation>"""
         )
 
     return "\n\n".join(sections)

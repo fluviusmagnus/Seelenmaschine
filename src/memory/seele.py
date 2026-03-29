@@ -1,5 +1,6 @@
 """Seele profile loading, patching, and long-term memory updates."""
 
+import hashlib
 import json
 import re
 from datetime import datetime, timedelta
@@ -13,7 +14,58 @@ from utils.logger import get_logger
 
 logger = get_logger()
 
+CURRENT_SEELE_TEMPLATE_FALLBACK = {
+    "bot": {
+        "name": "Seelenmaschine",
+        "gender": "neutral",
+        "birthday": "2025-02-15",
+        "role": "AI assistant",
+        "appearance": "",
+        "likes": [],
+        "dislikes": [],
+        "language_style": {
+            "description": "concise and helpful",
+            "examples": [
+                "How may I help you?",
+                "Yes. I think it's possible. Let me do it for you.",
+            ],
+        },
+        "personality": {
+            "mbti": "",
+            "description": "",
+            "worldview_and_values": "",
+        },
+        "emotions_and_needs": {
+            "long_term": "",
+            "short_term": "",
+        },
+        "relationship_with_user": "",
+    },
+    "user": {
+        "name": "",
+        "gender": "",
+        "birthday": "",
+        "personal_facts": [],
+        "abilities": [],
+        "likes": [],
+        "dislikes": [],
+        "personality": {
+            "mbti": "",
+            "description": "",
+            "worldview_and_values": "",
+        },
+        "emotions_and_needs": {
+            "long_term": "",
+            "short_term": "",
+        },
+    },
+    "memorable_events": {},
+    "commands_and_agreements": [],
+}
+
 MEMORABLE_EVENT_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
+MEMORABLE_EVENT_SLUG_MAX_LENGTH = 16
+MEMORABLE_EVENT_HASH_LENGTH = 4
 MEMORABLE_EVENT_RETENTION_DAYS = {
     1: 1,
     2: 7,
@@ -26,7 +78,15 @@ MEMORABLE_EVENT_RETENTION_DAYS = {
 def _safe_event_slug(details: str) -> str:
     """Build a safe memorable-event slug from free text."""
     slug = re.sub(r"[^a-z0-9]+", "_", details.lower()).strip("_")
-    return slug[:40] or "event"
+    return slug[:MEMORABLE_EVENT_SLUG_MAX_LENGTH] or "event"
+
+
+def _event_id_hash(date_str: str, details: str) -> str:
+    """Build a short stable hash suffix for memorable event ids."""
+    hash_input = f"{date_str}|{details.strip().lower()}"
+    return hashlib.sha1(hash_input.encode("utf-8")).hexdigest()[
+        :MEMORABLE_EVENT_HASH_LENGTH
+    ]
 
 
 def _parse_event_date(date_str: str) -> Optional[datetime]:
@@ -40,7 +100,9 @@ def _parse_event_date(date_str: str) -> Optional[datetime]:
 def _build_event_id(date_str: str, details: str, used_ids: set[str]) -> str:
     """Generate a stable-looking unique event id for migrations."""
     date_part = (date_str or "unknown").replace("-", "")
-    base_id = f"evt_{date_part}_{_safe_event_slug(details)}"
+    slug = _safe_event_slug(details)
+    short_hash = _event_id_hash(date_str, details)
+    base_id = f"evt_{date_part}_{slug}_{short_hash}"
     candidate = base_id
     suffix = 2
     while candidate in used_ids:
@@ -203,6 +265,48 @@ def load_seele_json_from_disk(
     except Exception as error:
         logger.error(f"Failed to load seele.json: {error}")
         return {}
+
+
+def load_seele_template(template_path: Path, logger: Any) -> Dict[str, Any]:
+    """Load the current seele.json template or fall back to a built-in schema."""
+    if template_path.exists():
+        try:
+            with open(template_path, "r", encoding="utf-8") as file_obj:
+                return json.load(file_obj)
+        except Exception as error:
+            logger.warning(f"Failed to load seele template from disk: {error}")
+    return json.loads(json.dumps(CURRENT_SEELE_TEMPLATE_FALLBACK))
+
+
+def _matches_template_shape(data: Any, template: Any) -> bool:
+    """Check whether data contains the required current template structure."""
+    if isinstance(template, dict):
+        if not isinstance(data, dict):
+            return False
+        for key, template_value in template.items():
+            if key not in data:
+                return False
+            if key == "memorable_events":
+                if not isinstance(data[key], dict):
+                    return False
+                continue
+            if not _matches_template_shape(data[key], template_value):
+                return False
+        return True
+
+    if isinstance(template, list):
+        return isinstance(data, list)
+
+    if isinstance(template, str):
+        return isinstance(data, str)
+
+    if isinstance(template, bool):
+        return isinstance(data, bool)
+
+    if isinstance(template, int):
+        return isinstance(data, int)
+
+    return True
 
 
 def dict_to_json_patch(
@@ -766,17 +870,156 @@ class Seele:
 
         return True
 
-    def ensure_seele_schema_current(self) -> bool:
-        """Normalize persisted seele.json to the latest schema and prune expired events."""
+    def _load_template_data(self) -> Dict[str, Any]:
+        """Load the current template used to validate repair completeness."""
+        return load_seele_template(Path.cwd() / "template" / "seele.json", logger)
+
+    def _collect_schema_issues(
+        self,
+        data: Dict[str, Any],
+        *,
+        template_data: Dict[str, Any],
+    ) -> List[str]:
+        """Collect human-readable reasons why persisted seele.json needs repair."""
+        issues: List[str] = []
+
+        if not _matches_template_shape(data, template_data):
+            issues.append(
+                "Missing required fields or field types do not match the current schema template"
+            )
+
+        memorable_events = data.get("memorable_events", {})
+        _, memorable_events_need_normalization = normalize_memorable_events(
+            memorable_events,
+            logger=logger,
+        )
+        if memorable_events_need_normalization:
+            issues.append("memorable_events uses a legacy or non-canonical structure")
+
+        if not self.validate_seele_structure(data):
+            issues.append("The file fails current seele.json structural validation")
+
+        return issues
+
+    def _repair_persisted_seele_json(
+        self,
+        *,
+        repair_context: str,
+        error_message: str,
+        current_content: Optional[str] = None,
+    ) -> bool:
+        """Repair persisted seele.json via LLM and persist the repaired result."""
+        from llm.chat_client import LLMClient
+
+        template_data = self._load_template_data()
+        template_str = json.dumps(template_data, ensure_ascii=False, indent=2)
+        previous_attempt: Optional[str] = None
+        max_retries = 2
+        client = LLMClient()
+
+        try:
+            if current_content is None:
+                from core.config import Config
+
+                config = Config()
+                if config.SEELE_JSON_PATH.exists():
+                    current_content = config.SEELE_JSON_PATH.read_text(encoding="utf-8")
+                else:
+                    current_content = "{}"
+
+            for attempt in range(max_retries):
+                try:
+                    logger.info(
+                        "Repairing seele.json with LLM "
+                        f"(attempt {attempt + 1}/{max_retries}, context={repair_context})"
+                    )
+                    repaired_json_str = client.generate_seele_repair(
+                        current_content=current_content,
+                        schema_template=template_str,
+                        error_message=error_message,
+                        repair_context=repair_context,
+                        previous_attempt=previous_attempt,
+                    )
+                    previous_attempt = repaired_json_str or previous_attempt
+
+                    if not repaired_json_str:
+                        error_message = "Repair attempt returned an empty response"
+                        continue
+
+                    repaired_data = self._parse_complete_json_response(repaired_json_str)
+                    if repaired_data is None:
+                        error_message = self._invalid_structure_retry_message()
+                        continue
+
+                    if not _matches_template_shape(repaired_data, template_data):
+                        logger.warning(
+                            "LLM repair output is missing fields from the current template"
+                        )
+                        error_message = (
+                            "Previous repair output did not include the full current "
+                            "schema structure. Ensure all template fields are present."
+                        )
+                        continue
+
+                    self._write_complete_seele_json(repaired_data)
+                    logger.info("Successfully repaired persisted seele.json with LLM")
+                    return True
+                except json.JSONDecodeError as error:
+                    logger.error(f"Failed to parse repaired seele.json: {error}")
+                    error_message = self._build_parse_retry_message(error)
+                except Exception as error:
+                    logger.error(f"LLM-based seele.json repair failed: {error}")
+                    error_message = str(error)
+        finally:
+            client.close()
+
+        return False
+
+    def ensure_seele_schema_current(self, repair_context: str = "runtime bootstrap") -> bool:
+        """Ensure persisted seele.json matches the current schema, using LLM for repairs."""
         from core.config import Config
         import prompts
 
         config = Config()
-        current_data = self.get_long_term_memory()
-        normalized_data, changed = normalize_seele_data(current_data, logger)
+        template_data = self._load_template_data()
+
+        if not config.SEELE_JSON_PATH.exists():
+            logger.info("seele.json missing; initializing from current template")
+            self._write_complete_seele_json(template_data)
+            return True
+
+        raw_content = config.SEELE_JSON_PATH.read_text(encoding="utf-8")
+
+        try:
+            current_data = json.loads(raw_content)
+        except json.JSONDecodeError as error:
+            return self._repair_persisted_seele_json(
+                repair_context=repair_context,
+                error_message=(
+                    "The persisted seele.json is malformed JSON. "
+                    f"Parse error at line {error.lineno}, column {error.colno}: {error.msg}"
+                ),
+                current_content=raw_content,
+            )
+
+        issues = self._collect_schema_issues(current_data, template_data=template_data)
+        if issues:
+            return self._repair_persisted_seele_json(
+                repair_context=repair_context,
+                error_message="\n".join(f"- {issue}" for issue in issues),
+                current_content=json.dumps(current_data, ensure_ascii=False, indent=2),
+            )
+
+        pruned_events, changed = prune_expired_memorable_events(
+            current_data.get("memorable_events", {}),
+            logger=logger,
+        )
 
         if not changed:
             return False
+
+        normalized_data = dict(current_data)
+        normalized_data["memorable_events"] = pruned_events
 
         config.SEELE_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(config.SEELE_JSON_PATH, "w", encoding="utf-8") as file_obj:

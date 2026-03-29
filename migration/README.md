@@ -12,8 +12,9 @@
 
 1.  **自动检测源文件**：自动在 `data/<profile>/` 或 `data/<profile>/backup/` 中查找旧数据。
 2.  **文本转 JSON**：利用 LLM 将旧的 `persona_memory.txt` 和 `user_profile.txt` 转换为新的 `seele.json` 格式。
-3.  **数据库迁移**：将旧的 `chat_sessions.db` 迁移到新的 `chatbot.db`，并应用当前最新 Schema（含 FTS5 与定时任务相关升级）。
-4.  **自动备份**：在修改前会自动将现有数据备份到 `migration_backup_YYYYMMDD_HHMMSS` 目录。
+3.  **seele.json 智能修复/迁移**：如果现有 `seele.json` 是旧结构、字段缺失、`memorable_events` 结构过时，甚至 JSON 已损坏，统一走 LLM 修复，而不是机械转换。
+4.  **数据库迁移**：将旧的 `chat_sessions.db` 迁移到新的 `chatbot.db`，并应用当前最新 Schema（含 FTS5 与定时任务相关升级）。
+5.  **自动备份**：在修改前会自动将现有数据备份到 `migration_backup_YYYYMMDD_HHMMSS` 目录。
 
 ### 如何使用
 

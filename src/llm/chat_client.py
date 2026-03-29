@@ -14,6 +14,7 @@ from prompts import (
     get_cacheable_system_prompt,
     get_current_time_str,
     get_memory_update_prompt,
+    get_seele_repair_prompt,
     get_summary_prompt,
     load_seele_json,
 )
@@ -528,6 +529,42 @@ class LLMClient:
             prompt_builder=get_complete_memory_json_prompt,
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,
+        )
+
+    def generate_seele_repair(
+        self,
+        current_content: str,
+        schema_template: str,
+        error_message: str,
+        repair_context: str,
+        previous_attempt: Optional[str] = None,
+    ) -> str:
+        """Synchronously repair or migrate a persisted seele.json document."""
+        return self._memory_client.generate_seele_repair(
+            current_content=current_content,
+            schema_template=schema_template,
+            error_message=error_message,
+            repair_context=repair_context,
+            previous_attempt=previous_attempt,
+            prompt_builder=get_seele_repair_prompt,
+        )
+
+    async def generate_seele_repair_async(
+        self,
+        current_content: str,
+        schema_template: str,
+        error_message: str,
+        repair_context: str,
+        previous_attempt: Optional[str] = None,
+    ) -> str:
+        """Asynchronously repair or migrate a persisted seele.json document."""
+        return await self._memory_client.generate_seele_repair_async(
+            current_content=current_content,
+            schema_template=schema_template,
+            error_message=error_message,
+            repair_context=repair_context,
+            previous_attempt=previous_attempt,
+            prompt_builder=get_seele_repair_prompt,
         )
 
     async def _async_close(self) -> None:

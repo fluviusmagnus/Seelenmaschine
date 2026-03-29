@@ -105,6 +105,9 @@ The seele.json structure:
 - user: Your understanding of the user
   - /user/name, /user/gender, /user/birthday (strings)
   - /user/personal_facts, /user/abilities, /user/likes, /user/dislikes (arrays of strings)
+  - /user/personal_facts should contain relatively stable facts about the user that are likely to remain true across time
+  - Do NOT store temporary states, short-term plans, one-off arrangements, today's mood, near-term schedules, or transient situation updates in /user/personal_facts
+  - If information is temporary, prefer short_term emotions/needs for emotional state, or do not store it in seele.json at all unless it later proves enduring
   - /user/personality: {{mbti: string, description: string, worldview_and_values: string}}
   - /user/emotions_and_needs: {{long_term: string, short_term: string}}
 - /memorable_events (object keyed by stable event ids)
@@ -175,6 +178,10 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
    - Preferences or facts are no longer relevant
    - Duplicate or contradictory entries exist in arrays
    - Re-score event importance when the event's lasting significance changes over time
+9a. **For /user/personal_facts specifically:**
+   - Store only durable, identity-relevant, or repeatedly confirmed facts
+   - Do NOT add temporary conditions like "is busy this week", "is preparing a report tomorrow", "felt tired today", or other short-lived context
+   - If an existing personal_facts entry is clearly temporary/outdated, prefer removing it
 10. **LANGUAGE REQUIREMENT: All text values in the JSON patch MUST use the SAME LANGUAGE as the main language used in the conversations**
     - If conversations are primarily in Chinese, all "value" fields should be in Chinese
     - If conversations are primarily in English, all "value" fields should be in English
@@ -345,8 +352,13 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
       "short_term": "string"
     }}
   }},
+  **IMPORTANT UPDATE GUIDELINES for user.personal_facts:**
+  - Store only relatively stable facts that are likely to remain true across time.
+  - Do NOT include temporary states, short-term plans, one-off arrangements, daily moods, near-term schedules, or transient context.
+  - Examples that do NOT belong in personal_facts: "User is busy this week", "User has a meeting tomorrow", "User felt sad today".
+  - If information is temporary, either place it in a more appropriate short-term field or omit it from seele.json.
   "memorable_events": {{
-    "evt_example_id": {{
+    "evt_20260329_project_commitment": {{
       "date": "YYYY-MM-DD",
       "importance": 3,
       "details": "string"
@@ -409,3 +421,83 @@ CRITICAL OUTPUT REQUIREMENTS:
 Complete seele.json (remember: pure JSON object only, starting with '{{' and ending with '}}'):
 </final_instruction>
 </complete_memory_json_task>"""
+
+
+def build_seele_repair_prompt(
+    current_content: str,
+    schema_template: str,
+    error_message: str,
+    repair_context: str,
+    previous_attempt: Optional[str] = None,
+) -> str:
+    """Build prompt for LLM-driven seele.json migration/repair."""
+    previous_attempt_section = ""
+    if previous_attempt:
+        previous_attempt_section = f"""
+<previous_attempt>
+The previous repair attempt returned the following output.
+Preserve valid parts only when appropriate, and fix the exact issues instead of repeating them:
+
+{previous_attempt}
+</previous_attempt>
+
+"""
+
+    return f"""<seele_repair_task>
+<role>
+You are a seele.json migration and repair expert.
+</role>
+
+<context>
+Repair context: {repair_context}
+</context>
+
+<repair_goal>
+Repair or migrate the provided seele.json content into the CURRENT schema.
+This is a semantic migration/repair task, not a mechanical field shuffle.
+</repair_goal>
+
+<requirements>
+1. Output a COMPLETE, VALID seele.json object that matches the current schema exactly.
+2. Preserve all valid, meaningful existing information whenever possible.
+3. Keep the original language of existing content whenever possible; do not translate unless necessary for consistency.
+4. If the source content is malformed JSON, partially broken, or uses an old schema, infer the intended meaning conservatively.
+5. Do NOT invent facts that are not supported by the source content.
+6. If legacy or malformed content contains reminders, todo items, meeting schedules, shopping lists, or temporary errands, do NOT preserve them as memorable events or long-term personal facts.
+7. Prefer minimal necessary repair: keep semantics, repair structure.
+8. memorable_events MUST be an object keyed by stable ids, not an array.
+9. Every memorable event value MUST contain exactly: date (YYYY-MM-DD string), importance (1-5 int), details (string).
+10. commands_and_agreements MUST be an array of strings.
+</requirements>
+
+<current_issues>
+The current file needs repair for the following reason(s):
+{error_message}
+</current_issues>
+
+{previous_attempt_section}<target_schema_template>
+CURRENT TARGET SCHEMA TEMPLATE:
+{schema_template}
+</target_schema_template>
+
+<source_content>
+CURRENT / LEGACY / BROKEN seele.json CONTENT TO REPAIR:
+{current_content}
+</source_content>
+
+<output_requirements>
+CRITICAL OUTPUT REQUIREMENTS:
+1. Output MUST be a complete JSON object only.
+2. Do NOT wrap the output in markdown or code fences.
+3. The first character MUST be '{{' and the last character MUST be '}}'.
+4. Include ALL required fields from the target schema.
+5. Preserve meaningful existing facts and relationship history whenever supported by the source.
+6. If some malformed legacy content cannot be trusted, omit it instead of inventing details.
+7. memorable_events must use stable lowercase ids with only letters, digits, and underscores.
+8. Do not output explanations before or after the JSON object.
+</output_requirements>
+
+<final_instruction>
+Repaired complete seele.json (pure JSON object only):
+</final_instruction>
+</seele_repair_task>"""

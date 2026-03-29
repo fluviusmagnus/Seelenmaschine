@@ -4,6 +4,7 @@ This module tests methods not covered by existing tests to increase coverage.
 """
 
 import sys
+import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 import pytest
@@ -254,7 +255,7 @@ class TestMemoryManagerJsonUtils:
         valid_data = {
             "bot": {"name": "TestBot"},
             "user": {"name": "TestUser"},
-            "memorable_events": [],
+            "memorable_events": {},
             "commands_and_agreements": [],
         }
 
@@ -265,6 +266,118 @@ class TestMemoryManagerJsonUtils:
         invalid_data = {}
 
         assert memory_manager._validate_seele_structure(invalid_data) is False
+
+
+class TestSeeleRepairPaths:
+    """Test LLM-driven persisted seele.json repair flows."""
+
+    def test_ensure_seele_schema_current_repairs_malformed_json(self, tmp_path, monkeypatch):
+        """Malformed persisted JSON should trigger the shared LLM repair path."""
+        from core.config import Config
+        from memory.seele import Seele
+
+        seele_path = tmp_path / "seele.json"
+        seele_path.write_text('{"bot": {oops}}', encoding="utf-8")
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+
+        seele = Seele(db=None)
+
+        with patch.object(seele, "_repair_persisted_seele_json", return_value=True) as mock_repair:
+            result = seele.ensure_seele_schema_current("test runtime repair")
+
+        assert result is True
+        mock_repair.assert_called_once()
+        assert "malformed JSON" in mock_repair.call_args.kwargs["error_message"]
+        assert mock_repair.call_args.kwargs["repair_context"] == "test runtime repair"
+
+    def test_ensure_seele_schema_current_repairs_legacy_structure(self, tmp_path, monkeypatch):
+        """Legacy list-based memorable_events should trigger LLM repair instead of mechanical migration."""
+        from core.config import Config
+        from memory.seele import Seele
+
+        seele_path = tmp_path / "seele.json"
+        seele_path.write_text(
+            '{"bot": {}, "user": {}, "memorable_events": [], "commands_and_agreements": []}',
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+
+        seele = Seele(db=None)
+
+        with patch.object(seele, "_repair_persisted_seele_json", return_value=True) as mock_repair:
+            result = seele.ensure_seele_schema_current("test migration repair")
+
+        assert result is True
+        mock_repair.assert_called_once()
+        assert "legacy or non-canonical structure" in mock_repair.call_args.kwargs["error_message"]
+
+    def test_repair_persisted_seele_json_writes_repaired_result(self, tmp_path, monkeypatch):
+        """LLM repair should persist the repaired complete seele.json output."""
+        from core.config import Config
+        from memory.seele import Seele
+
+        seele_path = tmp_path / "seele.json"
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+
+        repaired_output = json.dumps(
+            {
+                "bot": {
+                    "name": "TestBot",
+                    "gender": "neutral",
+                    "birthday": "2025-02-15",
+                    "role": "AI assistant",
+                    "appearance": "",
+                    "likes": [],
+                    "dislikes": [],
+                    "language_style": {"description": "", "examples": []},
+                    "personality": {
+                        "mbti": "",
+                        "description": "",
+                        "worldview_and_values": "",
+                    },
+                    "emotions_and_needs": {"long_term": "", "short_term": ""},
+                    "relationship_with_user": "",
+                },
+                "user": {
+                    "name": "TestUser",
+                    "gender": "",
+                    "birthday": "",
+                    "personal_facts": [],
+                    "abilities": [],
+                    "likes": [],
+                    "dislikes": [],
+                    "personality": {
+                        "mbti": "",
+                        "description": "",
+                        "worldview_and_values": "",
+                    },
+                    "emotions_and_needs": {"long_term": "", "short_term": ""},
+                },
+                "memorable_events": {},
+                "commands_and_agreements": [],
+            }
+        )
+
+        seele = Seele(db=None)
+
+        fake_client = Mock()
+        fake_client.generate_seele_repair.return_value = repaired_output
+        fake_client.close = Mock()
+
+        with patch("llm.chat_client.LLMClient", return_value=fake_client):
+            result = seele._repair_persisted_seele_json(
+                repair_context="unit test",
+                error_message="needs repair",
+                current_content='{"broken": true}',
+            )
+
+        assert result is True
+        assert seele_path.exists()
+        saved = json.loads(seele_path.read_text(encoding="utf-8"))
+        assert saved["bot"]["name"] == "TestBot"
+        assert saved["user"]["name"] == "TestUser"
 
 
 # Run tests if executed directly

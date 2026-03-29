@@ -249,3 +249,56 @@ class MemoryClient:
             debug_result_label="Complete memory JSON (async) result from tool_model",
         )
 
+    def generate_seele_repair(
+        self,
+        current_content: str,
+        schema_template: str,
+        error_message: str,
+        repair_context: str,
+        prompt_builder: Callable[[str, str, str, str, Optional[str]], str],
+        previous_attempt: Optional[str] = None,
+    ) -> str:
+        """Synchronous wrapper for persisted seele.json repair/migration."""
+        prompt = prompt_builder(
+            current_content,
+            schema_template,
+            error_message,
+            repair_context,
+            previous_attempt,
+        )
+        return self._run_sync_prompt_request(
+            prompt=prompt,
+            system_content="You repair and migrate complete seele.json objects.",
+            debug_prompt_label="Seele repair prompt sent to tool_model",
+            debug_result_label="Seele repair result from tool_model",
+            async_context_error=(
+                "generate_seele_repair() called from async context. "
+                "Use await generate_seele_repair_async() instead."
+            ),
+        )
+
+    async def generate_seele_repair_async(
+        self,
+        current_content: str,
+        schema_template: str,
+        error_message: str,
+        repair_context: str,
+        prompt_builder: Callable[[str, str, str, str, Optional[str]], str],
+        previous_attempt: Optional[str] = None,
+    ) -> str:
+        """Async version of persisted seele.json repair/migration."""
+        prompt = prompt_builder(
+            current_content,
+            schema_template,
+            error_message,
+            repair_context,
+            previous_attempt,
+        )
+
+        return await self._run_tool_model_prompt(
+            prompt=prompt,
+            system_content="You repair and migrate complete seele.json objects.",
+            debug_prompt_label="Seele repair (async) prompt sent to tool_model",
+            debug_result_label="Seele repair (async) result from tool_model",
+        )
+

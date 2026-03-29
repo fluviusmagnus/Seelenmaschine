@@ -10,6 +10,7 @@ from memory.seele import (
 from prompts.memory_prompts import (
     build_complete_memory_json_prompt,
     build_memory_update_prompt,
+    build_seele_repair_prompt,
     build_summary_prompt,
 )
 from prompts.system_prompt import (
@@ -129,12 +130,30 @@ def get_complete_memory_json_prompt(
     )
 
 
+def get_seele_repair_prompt(
+    current_content: str,
+    schema_template: str,
+    error_message: str,
+    repair_context: str,
+    previous_attempt: str | None = None,
+) -> str:
+    """Build the LLM prompt for repairing/migrating persisted seele.json."""
+    return build_seele_repair_prompt(
+        current_content=current_content,
+        schema_template=schema_template,
+        error_message=error_message,
+        repair_context=repair_context,
+        previous_attempt=previous_attempt,
+    )
+
+
 __all__ = [
     "get_cacheable_system_prompt",
     "get_current_time_str",
     "get_summary_prompt",
     "get_memory_update_prompt",
     "get_complete_memory_json_prompt",
+    "get_seele_repair_prompt",
     "load_seele_json",
     "update_seele_json",
 ]
