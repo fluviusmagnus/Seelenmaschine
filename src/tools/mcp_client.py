@@ -14,7 +14,6 @@ logger = get_logger()
 class MCPClient:
     """MCP client wrapper using fastmcp.Client"""
 
-    _MAX_TEXT_BLOCK_CHARS = 12000
     _BASE64_SEQUENCE_PATTERN = re.compile(r"[A-Za-z0-9+/=]{512,}")
 
     def __init__(
@@ -254,12 +253,12 @@ class MCPClient:
                 details=f"base64_length≈{len(base64_match)}",
             )
 
-        if len(text) <= self._MAX_TEXT_BLOCK_CHARS:
+        if len(text) <= Config.MCP_TEXT_BLOCK_MAX_CHARS:
             return text
 
-        omitted_chars = len(text) - self._MAX_TEXT_BLOCK_CHARS
-        head = text[:6000].rstrip()
-        tail = text[-2000:].lstrip()
+        omitted_chars = len(text) - Config.MCP_TEXT_BLOCK_MAX_CHARS
+        head = text[: Config.MCP_TEXT_BLOCK_TRUNCATE_HEAD_CHARS].rstrip()
+        tail = text[-Config.MCP_TEXT_BLOCK_TRUNCATE_TAIL_CHARS :].lstrip()
         return (
             f"{head}\n\n"
             f"[tool output truncated, omitted {omitted_chars} characters]\n\n"

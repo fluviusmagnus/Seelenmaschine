@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 from telegram import Update
 
+from core.config import Config
 from adapter.telegram.formatter import TelegramResponseFormatter
 from utils.logger import get_logger
 
@@ -59,7 +60,7 @@ class TelegramResponseSender:
         return self.formatter.format_response(text, debug_mode=self.config.DEBUG_MODE)
 
     def split_message_into_segments(
-        self, text: str, max_length: int = 4000
+        self, text: str, max_length: int = Config.TELEGRAM_MESSAGE_MAX_LENGTH
     ) -> list[str]:
         """Split formatted Telegram text into safe segments."""
         return self.formatter.split_message_into_segments(text, max_length=max_length)

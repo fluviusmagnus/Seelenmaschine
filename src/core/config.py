@@ -35,6 +35,24 @@ class Config:
     CONTEXT_WINDOW_TRIGGER_SUMMARY: int = 24
     RECENT_SUMMARIES_MAX: int = 3
 
+    # Tool/message length limit settings
+    TOOL_LLM_MAX_RESPONSE_CHARS: int = 10000
+    TOOL_LLM_TRUNCATE_HEAD_CHARS: int = 5000
+    TOOL_LLM_TRUNCATE_TAIL_CHARS: int = 3000
+    MCP_TEXT_BLOCK_MAX_CHARS: int = 10000
+    MCP_TEXT_BLOCK_TRUNCATE_HEAD_CHARS: int = 5000
+    MCP_TEXT_BLOCK_TRUNCATE_TAIL_CHARS: int = 3000
+    TOOL_TRACE_ARGUMENTS_PREVIEW_MAX: int = 300
+    TOOL_TRACE_ARGUMENTS_FULL_MAX: int = 1000
+    TOOL_TRACE_RESULT_PREVIEW_MAX: int = 1000
+    TOOL_TRACE_RESULT_FULL_MAX: int = 12000
+    TOOL_EXECUTION_NOTIFICATION_ARGUMENTS_MAX: int = 500
+    TELEGRAM_MESSAGE_MAX_LENGTH: int = 4000
+    SHELL_OUTPUT_MAX_CHARS: int = 12000
+    SHELL_OUTPUT_HEAD_CHARS: int = 7000
+    SHELL_OUTPUT_TAIL_CHARS: int = 4000
+    READ_FILE_TEXT_MAX_CHARS: int = 12000
+
     # Retrieval settings
     RECALL_SUMMARY_PER_QUERY: int = 3
     RECALL_CONV_PER_SUMMARY: int = 4
@@ -158,6 +176,44 @@ class Config:
             "CONTEXT_WINDOW_TRIGGER_SUMMARY", 24
         )
         cls.RECENT_SUMMARIES_MAX = cls._get_int("RECENT_SUMMARIES_MAX", 3)
+        cls.TOOL_LLM_MAX_RESPONSE_CHARS = cls._get_int(
+            "TOOL_LLM_MAX_RESPONSE_CHARS", 10000
+        )
+        cls.TOOL_LLM_TRUNCATE_HEAD_CHARS = cls._get_int(
+            "TOOL_LLM_TRUNCATE_HEAD_CHARS", 5000
+        )
+        cls.TOOL_LLM_TRUNCATE_TAIL_CHARS = cls._get_int(
+            "TOOL_LLM_TRUNCATE_TAIL_CHARS", 3000
+        )
+        cls.MCP_TEXT_BLOCK_MAX_CHARS = cls._get_int("MCP_TEXT_BLOCK_MAX_CHARS", 10000)
+        cls.MCP_TEXT_BLOCK_TRUNCATE_HEAD_CHARS = cls._get_int(
+            "MCP_TEXT_BLOCK_TRUNCATE_HEAD_CHARS", 5000
+        )
+        cls.MCP_TEXT_BLOCK_TRUNCATE_TAIL_CHARS = cls._get_int(
+            "MCP_TEXT_BLOCK_TRUNCATE_TAIL_CHARS", 3000
+        )
+        cls.TOOL_TRACE_ARGUMENTS_PREVIEW_MAX = cls._get_int(
+            "TOOL_TRACE_ARGUMENTS_PREVIEW_MAX", 300
+        )
+        cls.TOOL_TRACE_ARGUMENTS_FULL_MAX = cls._get_int(
+            "TOOL_TRACE_ARGUMENTS_FULL_MAX", 1000
+        )
+        cls.TOOL_TRACE_RESULT_PREVIEW_MAX = cls._get_int(
+            "TOOL_TRACE_RESULT_PREVIEW_MAX", 1000
+        )
+        cls.TOOL_TRACE_RESULT_FULL_MAX = cls._get_int(
+            "TOOL_TRACE_RESULT_FULL_MAX", 4000
+        )
+        cls.TOOL_EXECUTION_NOTIFICATION_ARGUMENTS_MAX = cls._get_int(
+            "TOOL_EXECUTION_NOTIFICATION_ARGUMENTS_MAX", 500
+        )
+        cls.TELEGRAM_MESSAGE_MAX_LENGTH = cls._get_int(
+            "TELEGRAM_MESSAGE_MAX_LENGTH", 4000
+        )
+        cls.SHELL_OUTPUT_MAX_CHARS = cls._get_int("SHELL_OUTPUT_MAX_CHARS", 12000)
+        cls.SHELL_OUTPUT_HEAD_CHARS = cls._get_int("SHELL_OUTPUT_HEAD_CHARS", 7000)
+        cls.SHELL_OUTPUT_TAIL_CHARS = cls._get_int("SHELL_OUTPUT_TAIL_CHARS", 4000)
+        cls.READ_FILE_TEXT_MAX_CHARS = cls._get_int("READ_FILE_TEXT_MAX_CHARS", 12000)
 
         # Retrieval settings
         cls.RECALL_SUMMARY_PER_QUERY = cls._get_int("RECALL_SUMMARY_PER_QUERY", 3)
@@ -190,13 +246,9 @@ class Config:
         cls.TELEGRAM_BOT_TOKEN = cls._get_str("TELEGRAM_BOT_TOKEN", "")
         cls.TELEGRAM_USER_ID = cls._get_int("TELEGRAM_USER_ID", 0)
         cls.TELEGRAM_USE_MARKDOWN = cls._get_bool("TELEGRAM_USE_MARKDOWN", True)
-        cls.TELEGRAM_CONNECT_TIMEOUT = cls._get_float(
-            "TELEGRAM_CONNECT_TIMEOUT", 15.0
-        )
+        cls.TELEGRAM_CONNECT_TIMEOUT = cls._get_float("TELEGRAM_CONNECT_TIMEOUT", 15.0)
         cls.TELEGRAM_READ_TIMEOUT = cls._get_float("TELEGRAM_READ_TIMEOUT", 30.0)
-        cls.TELEGRAM_WRITE_TIMEOUT = cls._get_float(
-            "TELEGRAM_WRITE_TIMEOUT", 30.0
-        )
+        cls.TELEGRAM_WRITE_TIMEOUT = cls._get_float("TELEGRAM_WRITE_TIMEOUT", 30.0)
         cls.TELEGRAM_POOL_TIMEOUT = cls._get_float("TELEGRAM_POOL_TIMEOUT", 15.0)
         cls.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = cls._get_float(
             "TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT", 5.0
@@ -210,9 +262,7 @@ class Config:
         cls.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = cls._get_float(
             "TELEGRAM_GET_UPDATES_POOL_TIMEOUT", 5.0
         )
-        cls.TELEGRAM_BOOTSTRAP_RETRIES = cls._get_int(
-            "TELEGRAM_BOOTSTRAP_RETRIES", 3
-        )
+        cls.TELEGRAM_BOOTSTRAP_RETRIES = cls._get_int("TELEGRAM_BOOTSTRAP_RETRIES", 3)
         cls.NEW_SESSION_COMMAND = cls._get_str("NEW_SESSION_COMMAND", "/new")
         cls.RESET_SESSION_COMMAND = cls._get_str("RESET_SESSION_COMMAND", "/reset")
 

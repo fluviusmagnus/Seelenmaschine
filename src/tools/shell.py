@@ -497,12 +497,16 @@ class ShellCommandTool:
                         stderr_str = stderr_suffix
 
             # Truncation helper to prevent LLM context explosion
-            def truncate_output(output: str, max_len: int = 15000) -> str:
+            def truncate_output(
+                output: str, max_len: int = Config.SHELL_OUTPUT_MAX_CHARS
+            ) -> str:
                 if len(output) <= max_len:
                     return output
-                head = output[:10000].rstrip()
-                tail = output[-4000:].lstrip()
-                omitted = len(output) - 14000  # 10000 + 4000
+                head = output[: Config.SHELL_OUTPUT_HEAD_CHARS].rstrip()
+                tail = output[-Config.SHELL_OUTPUT_TAIL_CHARS :].lstrip()
+                omitted = len(output) - (
+                    Config.SHELL_OUTPUT_HEAD_CHARS + Config.SHELL_OUTPUT_TAIL_CHARS
+                )
                 if omitted > 0:
                     return f"{head}\n\n...[truncated {omitted} chars]...\n\n{tail}"
                 return output

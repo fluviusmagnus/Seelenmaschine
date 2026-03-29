@@ -113,8 +113,11 @@ Use start_line/end_line to read a specific line range (output includes line numb
             )
 
             # Truncate if too long (optional simple logic)
-            if len(text) > 20000:
-                text = text[:20000] + "\n...[truncated due to length]..."
+            if len(text) > Config.READ_FILE_TEXT_MAX_CHARS:
+                text = (
+                    text[: Config.READ_FILE_TEXT_MAX_CHARS]
+                    + "\n...[truncated due to length]..."
+                )
 
             # Add continuation hint if partial read
             if e < total:

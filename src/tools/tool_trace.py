@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional
 
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -13,10 +14,10 @@ logger = get_logger()
 class ToolTraceStore:
     """Persist tool execution traces in a profile-local JSONL file."""
 
-    ARGUMENTS_PREVIEW_MAX = 300
-    ARGUMENTS_FULL_MAX = 1000
-    RESULT_PREVIEW_MAX = 500
-    RESULT_FULL_MAX = 4000
+    ARGUMENTS_PREVIEW_MAX = Config.TOOL_TRACE_ARGUMENTS_PREVIEW_MAX
+    ARGUMENTS_FULL_MAX = Config.TOOL_TRACE_ARGUMENTS_FULL_MAX
+    RESULT_PREVIEW_MAX = Config.TOOL_TRACE_RESULT_PREVIEW_MAX
+    RESULT_FULL_MAX = Config.TOOL_TRACE_RESULT_FULL_MAX
     MAX_RECORDS = 100
     _BASE64_SEQUENCE_PATTERN = re.compile(r"[A-Za-z0-9+/=]{512,}")
 
@@ -57,24 +58,28 @@ class ToolTraceStore:
             "approval_required": approval_required,
             "approved_by_user": approved_by_user,
             "arguments_preview": self._truncate_text(
-                arguments_text, self.ARGUMENTS_PREVIEW_MAX
+                arguments_text, Config.TOOL_TRACE_ARGUMENTS_PREVIEW_MAX
             ),
             "arguments_full": self._truncate_text(
-                arguments_text, self.ARGUMENTS_FULL_MAX
+                arguments_text, Config.TOOL_TRACE_ARGUMENTS_FULL_MAX
             ),
             "result_preview": self._sanitize_and_truncate_result(
-                result_text, self.RESULT_PREVIEW_MAX
+                result_text, Config.TOOL_TRACE_RESULT_PREVIEW_MAX
             ),
             "result_full": self._sanitize_and_truncate_result(
-                result_text, self.RESULT_FULL_MAX
+                result_text, Config.TOOL_TRACE_RESULT_FULL_MAX
             ),
             "original_result_length": len(result_text),
             "stored_full_length": len(
-                self._sanitize_and_truncate_result(result_text, self.RESULT_FULL_MAX)
+                self._sanitize_and_truncate_result(
+                    result_text, Config.TOOL_TRACE_RESULT_FULL_MAX
+                )
             ),
             "result_truncated": len(result_text)
             > len(
-                self._sanitize_and_truncate_result(result_text, self.RESULT_FULL_MAX)
+                self._sanitize_and_truncate_result(
+                    result_text, Config.TOOL_TRACE_RESULT_FULL_MAX
+                )
             ),
         }
 

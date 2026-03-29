@@ -4,6 +4,7 @@ import html
 import re
 from typing import List, Optional
 
+from core.config import Config
 from utils.text import strip_blockquotes
 
 
@@ -86,7 +87,7 @@ class TelegramResponseFormatter:
         )
 
     def split_message_into_segments(
-        self, text: str, max_length: int = 4000
+        self, text: str, max_length: int = Config.TELEGRAM_MESSAGE_MAX_LENGTH
     ) -> List[str]:
         """Split Telegram HTML text into safe message segments."""
         segments: List[str] = []

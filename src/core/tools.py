@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from core.config import Config
 from tools.file_io import (
     AppendFileTool,
     ReadFileTool,
@@ -369,8 +370,8 @@ class ToolRuntime:
 class ToolExecutor:
     """Execute registered tools with approval, tracing, and MCP fallback."""
 
-    _TOOL_CONTEXT_ARGUMENTS_PREVIEW_MAX = ToolTraceStore.ARGUMENTS_PREVIEW_MAX
-    _TOOL_CONTEXT_RESULT_PREVIEW_MAX = ToolTraceStore.RESULT_PREVIEW_MAX
+    _TOOL_CONTEXT_ARGUMENTS_PREVIEW_MAX = Config.TOOL_TRACE_ARGUMENTS_PREVIEW_MAX
+    _TOOL_CONTEXT_RESULT_PREVIEW_MAX = Config.TOOL_TRACE_RESULT_PREVIEW_MAX
 
     def __init__(
         self,
@@ -615,7 +616,11 @@ class ToolExecutor:
         if not dangerous and self.telegram_bot and self.config is not None:
             try:
                 msg = f"🔧 <b>Tool execution:</b> <code>{tool_name}</code>\n"
-                args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:500])
+                args_str = html.escape(
+                    json.dumps(arguments, ensure_ascii=False)[
+                        : Config.TOOL_EXECUTION_NOTIFICATION_ARGUMENTS_MAX
+                    ]
+                )
                 msg += f"<b>Arguments:</b> <pre>{args_str}</pre>"
                 self._fire_and_forget_status(msg)
             except Exception as error:

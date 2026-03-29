@@ -23,7 +23,6 @@ logger = get_logger()
 
 
 class LLMClient:
-    _MAX_TOOL_RESPONSE_CHARS = 12000
     _BASE64_SEQUENCE_PATTERN = re.compile(r"[A-Za-z0-9+/=]{512,}")
 
     def __init__(
@@ -179,12 +178,12 @@ class LLMClient:
                 f"of length ≈ {len(base64_match)}]"
             )
 
-        if len(text) <= self._MAX_TOOL_RESPONSE_CHARS:
+        if len(text) <= Config.TOOL_LLM_MAX_RESPONSE_CHARS:
             return text
 
-        omitted_chars = len(text) - self._MAX_TOOL_RESPONSE_CHARS
-        head = text[:6000].rstrip()
-        tail = text[-2000:].lstrip()
+        omitted_chars = len(text) - Config.TOOL_LLM_MAX_RESPONSE_CHARS
+        head = text[: Config.TOOL_LLM_TRUNCATE_HEAD_CHARS].rstrip()
+        tail = text[-Config.TOOL_LLM_TRUNCATE_TAIL_CHARS :].lstrip()
         return (
             f"{head}\n\n"
             f"[tool output truncated, omitted {omitted_chars} characters]\n\n"
