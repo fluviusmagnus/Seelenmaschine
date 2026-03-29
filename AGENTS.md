@@ -215,10 +215,10 @@ message = f"Processing {item_type} with ID {item_id}"
 - `src/` - All Python source code
 - `src/core/` - Application coordination (`approval.py`, `config.py`, `conversation.py`, `database.py`, `scheduler.py`, `tools.py`)
 - `src/memory/` - Memory subsystem (`manager.py`, `context.py`, `vector_retriever.py`, `recall.py`, `sessions.py`, `summaries.py`, `seele.py`)
-- `src/llm/` - LLM clients and orchestration helpers (`chat_client.py`, `memory_client.py`, `request_executor.py`, `tool_loop.py`, `message_builder.py`, `embedding.py`, `reranker.py`)
+- `src/llm/` - LLM clients and orchestration helpers (`chat_client.py`, `memory_client.py`, `request_executor.py`, `tool_loop.py`, `embedding.py`, `reranker.py`)
+- `src/prompts/` - Prompt builders and prompt-related helpers (`system_prompt.py`, `chat_prompt.py`, `memory_prompts.py`)
 - `src/adapter/telegram/` - Telegram adapter implementation
 - `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_tasks.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_file.py`, `tool_trace.py`)
-- `src/prompts/` - Prompt builders and prompt-related helpers
 - `src/utils/` - Utilities (`logger.py`, `time.py`, `text.py`)
 - `data/<profile>/` - Profile-specific data directory
 - `tests/` - Test files

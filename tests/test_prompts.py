@@ -290,7 +290,14 @@ class TestGetCacheableSystemPrompt:
         assert len(prompt) > 0
         assert "evt_20260329_project_commitment" in prompt
         assert "importance=4" in prompt
-
+        assert "<system_instruction>" in prompt
+        assert "<user_profile>" in prompt
+        assert "Use related memories only when helpful" in prompt
+        assert "Keep user-facing replies clean and lightweight" in prompt
+        assert "Lightweight Markdown is allowed" in prompt
+        assert "never wrap your final reply in tags such as" in prompt
+        assert "## Your Self-Awareness" not in prompt
+        assert "## User Profile" not in prompt
 
 class TestGetSummaryPrompt:
     """Test get_summary_prompt functionality."""
@@ -303,6 +310,8 @@ class TestGetSummaryPrompt:
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
+        assert "<summary_task>" in prompt
+        assert "<conversations_to_summarize>" in prompt
 
     def test_get_summary_prompt_with_existing(self):
         """Test getting summary prompt with existing summary."""
@@ -313,6 +322,7 @@ class TestGetSummaryPrompt:
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
+        assert "<previous_summary_context>" in prompt
 
     def test_get_summary_prompt_empty_conversations(self):
         """Test getting summary prompt with empty conversations."""
@@ -346,6 +356,9 @@ class TestGetMemoryUpdatePrompt:
         assert "Importance scores MAY change later" in prompt
         assert "Memorable events are NOT the same as reminders" in prompt
         assert "Prefer simple updates over complex rewrites" in prompt
+        assert "<memory_update_task>" in prompt
+        assert "<schema>" in prompt
+        assert "<output_requirements>" in prompt
 
     def test_get_memory_update_prompt_includes_importance_examples(self):
         """Test that importance examples and task boundary rules are present."""
@@ -367,6 +380,9 @@ class TestGetMemoryUpdatePrompt:
         assert "Prefer simple, high-confidence updates" in prompt
         assert "should not be written into seele.json" in prompt
         assert "a memorable relationship event" in prompt
+        assert "<complete_memory_json_task>" in prompt
+        assert "<previous_error>" in prompt
+        assert "<output_requirements>" in prompt
 
     def test_get_memory_update_prompt_says_tasks_do_not_belong_in_seele(self):
         """Test that memory update prompt clearly excludes tasks/reminders from seele.json."""
@@ -388,6 +404,7 @@ class TestGetMemoryUpdatePrompt:
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
+        assert "<time_context>" in prompt
 
     def test_get_memory_update_prompt_without_timestamps(self):
         """Test getting memory update prompt without timestamps."""

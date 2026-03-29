@@ -103,32 +103,27 @@ class TestLLMClient:
             current_context, retrieved_summaries, retrieved_conversations
         )
 
-        # Expected structure:
-        # 1. System prompt
-        # 2. Conversation start marker (system)
-        # 3. Previous message (user)
-        # 4. Conversation end marker (system)
-        # 5. Related summaries (system)
-        # 6. Related conversations (system)
-        # 7. Current time (system)
-        # 8. Current request (user)
-        assert len(messages) == 8
+        assert len(messages) == 6
         assert messages[0]["role"] == "system"
         assert "System prompt" in messages[0]["content"]
         assert messages[1]["role"] == "system"
-        assert "BEGINNING OF THE CURRENT CONVERSATION" in messages[1]["content"]
+        assert messages[1]["content"] == "<current_conversation>"
         assert messages[2]["role"] == "user"
         assert messages[2]["content"] == "Previous message"
         assert messages[3]["role"] == "system"
-        assert "END OF THE CURRENT CONVERSATION" in messages[3]["content"]
+        assert messages[3]["content"] == "</current_conversation>"
         assert messages[4]["role"] == "system"
+        assert "<extra_context>" in messages[4]["content"]
+        assert "<related_historical_summaries>" in messages[4]["content"]
         assert "Summary 1" in messages[4]["content"]
-        assert messages[5]["role"] == "system"
-        assert "Conversation 1" in messages[5]["content"]
-        assert messages[6]["role"] == "system"
-        assert "Current Time" in messages[6]["content"]
-        assert messages[7]["role"] == "user"
-        assert "Hello" in messages[7]["content"]
+        assert "<related_historical_conversations>" in messages[4]["content"]
+        assert "Conversation 1" in messages[4]["content"]
+        assert "<current_time>" in messages[4]["content"]
+        assert "2026-01-28 12:00:00" in messages[4]["content"]
+        assert messages[5]["role"] == "user"
+        assert "<current_request>" in messages[5]["content"]
+        assert "Now continue the current conversation" in messages[5]["content"]
+        assert "Hello" in messages[5]["content"]
 
     @patch("llm.chat_client.AsyncOpenAI")
     @patch(

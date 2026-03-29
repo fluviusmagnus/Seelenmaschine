@@ -254,7 +254,6 @@ Seelenmaschine/
 │   │   ├── chat_client.py        # 聊天客户端
 │   │   ├── embedding.py          # Embedding 客户端
 │   │   ├── memory_client.py      # 记忆相关模型调用
-│   │   ├── message_builder.py    # 消息构建
 │   │   ├── request_executor.py   # 请求执行器
 │   │   ├── reranker.py           # Rerank 客户端
 │   │   └── tool_loop.py          # 工具调用循环
@@ -276,6 +275,7 @@ Seelenmaschine/
 │   │   ├── shell.py              # Shell 命令执行工具
 │   │   └── tool_trace.py         # 工具调用追踪
 │   ├── prompts/                  # 提示词
+│   │   ├── chat_prompt.py        # Chat messages 组装
 │   │   ├── memory_prompts.py     # 记忆相关提示词
 │   │   └── system_prompt.py      # 系统提示词构造
 │   └── utils/                    # 工具函数

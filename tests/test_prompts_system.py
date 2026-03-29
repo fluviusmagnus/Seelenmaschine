@@ -134,10 +134,15 @@ class TestBuildSystemPrompt:
                 # Should contain summaries
                 assert "Summary 1" in result
                 assert "Summary 2" in result
-                assert "Markdown is allowed in normal replies" in result
+                assert "Use related memories only when helpful" in result
+                assert "Keep user-facing replies clean and lightweight" in result
+                assert "Lightweight Markdown is allowed" in result
+                assert "never wrap your final reply in tags such as" in result
                 assert "evt_20260329_project_commitment" in result
                 assert "importance=4" in result
-
+                assert "<system_instruction>" in result
+                assert "<self_awareness>" in result
+                assert "<recent_summaries_for_current_conversation>" in result
 
 class TestJsonPatchConversion:
     """Test JSON Patch conversion utilities"""

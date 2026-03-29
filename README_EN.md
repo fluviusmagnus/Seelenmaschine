@@ -254,7 +254,6 @@ Seelenmaschine/
 │   │   ├── chat_client.py        # Chat client
 │   │   ├── embedding.py          # Embedding client
 │   │   ├── memory_client.py      # Memory-oriented model calls
-│   │   ├── message_builder.py    # Message building
 │   │   ├── request_executor.py   # Request executor
 │   │   ├── reranker.py           # Rerank client
 │   │   └── tool_loop.py          # Tool-calling loop
@@ -276,6 +275,7 @@ Seelenmaschine/
 │   │   ├── shell.py              # Shell command execution tool
 │   │   └── tool_trace.py         # Tool invocation tracing
 │   ├── prompts/                  # Prompts
+│   │   ├── chat_prompt.py        # Chat message assembly
 │   │   ├── memory_prompts.py     # Memory prompts
 │   │   └── system_prompt.py      # System prompt builder
 │   └── utils/                    # Utility functions

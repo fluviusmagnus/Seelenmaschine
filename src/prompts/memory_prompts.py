@@ -15,14 +15,31 @@ def build_summary_prompt(
     bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
     user_name = seele_data.get("user", {}).get("name", "User")
 
-    return f"""You are a summarizer, summarizing a conversation between {bot_name} and {user_name}.
+    existing_summary_section = ""
+    if existing_summary:
+        existing_summary_section = f"""
+<previous_summary_context>
+This previous summary is provided only as background context about the summarization workflow.
+Do NOT merge it into the new output unless the same information is also present in the conversations below.
 
-**CRITICAL**: This is an INDEPENDENT summary for ONLY the specific conversations provided below. 
+{existing_summary}
+</previous_summary_context>
+"""
+
+    return f"""<summary_task>
+<role>
+You are a summarizer, summarizing a conversation between {bot_name} and {user_name}.
+</role>
+
+<scope_rules>
+**CRITICAL**: This is an INDEPENDENT summary for ONLY the specific conversations provided below.
 - Summarize ONLY the conversations shown in this prompt
 - Do NOT include content from any previous summaries or earlier conversations
 - This summary will be stored separately and retrieved by relevance later
 - Focus exclusively on the new information in the conversations below
-
+</scope_rules>
+{existing_summary_section}
+<requirements>
 Please summarize the core content of the following conversation, requiring:
 1. Within 300 words
 2. Include key information points
@@ -34,14 +51,16 @@ Please summarize the core content of the following conversation, requiring:
    - If the conversation is primarily in English, write summary in English
    - If mixed, use the language that appears most frequently
 7. Output only the summary itself, no additional text
+</requirements>
 
-Conversations to summarize (focus ONLY on these):
-
+<conversations_to_summarize>
 {new_conversations}
+</conversations_to_summarize>
 
----
-
-Summary:"""
+<final_instruction>
+Summary:
+</final_instruction>
+</summary_task>"""
 
 
 def build_memory_update_prompt(
@@ -63,11 +82,18 @@ def build_memory_update_prompt(
             last_timestamp,
             tz=timezone,
         )
-        time_info = f"\n**TIME CONTEXT**: These conversations occurred between {start_time} and {end_time}. Use this temporal context when updating time-sensitive fields like short_term emotions/needs or memorable_events.\n"
+        time_info = (
+            f"<time_context>\nThese conversations occurred between {start_time} and {end_time}. "
+            "Use this temporal context when updating time-sensitive fields like "
+            "short_term emotions/needs or memorable_events.\n</time_context>\n"
+        )
 
-    return f"""You are {bot_name}, an AI assistant. Based on the conversation history between {bot_name} and {user_name}, generate a JSON Patch (RFC 6902) to update seele.json.
-{time_info}
+    return f"""<memory_update_task>
+<role>
+You are {bot_name}, an AI assistant. Based on the conversation history between {bot_name} and {user_name}, generate a JSON Patch (RFC 6902) to update seele.json.
+</role>
 
+{time_info}<schema>
 The seele.json structure:
 - bot: Your personality and self-awareness
   - /bot/name, /bot/gender, /bot/birthday, /bot/role, /bot/appearance (strings)
@@ -123,12 +149,16 @@ The seele.json structure:
   - **Conciseness**: Keep event details brief but evocative.
   - **Prefer simple updates over complex rewrites**: when possible, either update one clearly matching existing event id or add one clearly new event id; avoid unnecessary large-scale restructuring
 - /commands_and_agreements (array of strings)
+</schema>
 
+<json_patch_rules>
 JSON Patch Operations (RFC 6902):
 - {{"op": "add", "path": "/path/to/field", "value": ...}} - Add new field or append to array (use "/-" for array append)
 - {{"op": "replace", "path": "/path/to/field", "value": ...}} - Replace existing field
 - {{"op": "remove", "path": "/path/to/field"}} - Remove a field (use this when information becomes outdated or irrelevant)
+</json_patch_rules>
 
+<output_requirements>
 CRITICAL OUTPUT FORMAT REQUIREMENTS:
 1. Output MUST be a JSON array of patch operations - no markdown, no code blocks, no explanations
 2. DO NOT wrap output in ```json ``` or any other formatting
@@ -149,7 +179,9 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
     - If conversations are primarily in Chinese, all "value" fields should be in Chinese
     - If conversations are primarily in English, all "value" fields should be in English
     - This applies to all text fields: descriptions, facts, events, etc.
+</output_requirements>
 
+<valid_examples>
 Valid examples (this is how your entire response should look):
 
 Example 1 - Adding new facts and events:
@@ -185,21 +217,31 @@ Example 5 - Updating event meaning over time:
 
 Example 6 - A reminder/task should not be stored in seele.json as a memorable event:
 []
+</valid_examples>
 
+<invalid_examples>
 Invalid examples (DO NOT output like these):
 ❌ ```json [{{"op": "add", ...}}]```
 ❌ Here is the JSON patch: [{{"op": "add", ...}}]
 ❌ {{"user": {{"name": "John"}}}} (this is not JSON Patch format)
 ❌ {{"op": "replace", "path": "/memorable_events/0/details", ...}} (never use numeric indexes for memorable_events)
 ❌ Any text before or after the JSON array
+</invalid_examples>
 
+<current_seele_json>
 CURRENT seele.json:
 {current_seele_json}
+</current_seele_json>
 
+<conversations>
 Conversations to analyze:
 {messages}
+</conversations>
 
-JSON Patch array (remember: pure JSON array only, starting with '[' and ending with ']'):"""
+<final_instruction>
+JSON Patch array (remember: pure JSON array only, starting with '[' and ending with ']'):
+</final_instruction>
+</memory_update_task>"""
 
 
 def build_complete_memory_json_prompt(
@@ -221,18 +263,30 @@ def build_complete_memory_json_prompt(
             last_timestamp,
             tz=timezone,
         )
-        time_info = f"\n**TIME CONTEXT**: These conversations occurred between {start_time} and {end_time}. Use this temporal context when updating time-sensitive fields.\n"
+        time_info = (
+            f"<time_context>\nThese conversations occurred between {start_time} and {end_time}. "
+            "Use this temporal context when updating time-sensitive fields.\n</time_context>\n"
+        )
 
-    return f"""You are {bot_name}, an AI assistant. The previous JSON Patch operation failed with this error:
+    return f"""<complete_memory_json_task>
+<role>
+You are {bot_name}, an AI assistant.
+</role>
 
+<previous_error>
+The previous JSON Patch operation failed with this error:
 ERROR: {error_message}
-{time_info}
+</previous_error>
+
+{time_info}<task>
 Instead of generating a JSON Patch, please output a COMPLETE, VALID seele.json that:
 1. Incorporates the insights from the conversations below
 2. Strictly follows the seele.json schema structure
 3. Maintains all existing valid data from the current seele.json
 4. Only adds/updates fields with meaningful changes from the conversations
+</task>
 
+<schema>
 SCHEMA STRUCTURE (you MUST follow this exactly):
 {{
   "bot": {{
@@ -304,13 +358,19 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
   - **Prefer simple, high-confidence updates** rather than complicated large-scale rewrites of many events.
   "commands_and_agreements": ["string"]
 }}
+</schema>
 
+<current_seele_json>
 CURRENT seele.json:
 {current_seele_json}
+</current_seele_json>
 
+<conversations>
 Conversations to analyze:
 {messages}
+</conversations>
 
+<output_requirements>
 CRITICAL OUTPUT REQUIREMENTS:
 1. Output MUST be a complete, valid JSON object (not a patch array)
 2. DO NOT wrap output in ```json ``` or any other formatting
@@ -328,5 +388,9 @@ CRITICAL OUTPUT REQUIREMENTS:
    - If conversations are primarily in English, all text fields should be in English
 7. Focus on ADJUSTING the content to conform to the schema rather than keeping invalid structures
 8. Preserve meaningful memorable events over time while still re-scoring or removing events that become outdated or less relevant.
+</output_requirements>
 
-Complete seele.json (remember: pure JSON object only, starting with '{{' and ending with '}}'):"""
+<final_instruction>
+Complete seele.json (remember: pure JSON object only, starting with '{{' and ending with '}}'):
+</final_instruction>
+</complete_memory_json_task>"""

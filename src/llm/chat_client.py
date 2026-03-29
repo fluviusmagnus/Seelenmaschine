@@ -6,9 +6,9 @@ from openai import AsyncOpenAI
 
 from core.config import Config
 from llm.memory_client import MemoryClient
-from llm.message_builder import ChatMessageBuilder
 from llm.request_executor import ChatRequestExecutor
 from llm.tool_loop import ToolLoop
+from prompts.chat_prompt import ChatMessageBuilder
 from prompts import (
     get_complete_memory_json_prompt,
     get_cacheable_system_prompt,
@@ -417,16 +417,12 @@ class LLMClient:
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
     ) -> List[Dict[str, str]]:
-        """Build messages with optimized structure for prompt caching.
+        """Build messages while preserving the native chat message structure.
 
-        Message order (for optimal implicit caching):
-        1. Main system prompt (static instructions + bot + user + events + commands + recent summaries)
-           → This forms a single large cacheable block
-        2. Current conversation history (user/assistant, excluding last user message)
-        3. Retrieved historical summaries (system, if any)
-        4. Retrieved historical conversations (system, if any)
-        5. Current time (system)
-        6. Current user input (user) - emphasized at the end
+        The cacheable system prompt remains the first system message. Retrieved
+        memories and runtime context are added as separate system messages with
+        XML-wrapped top-level sections, while the final user input remains a real
+        user-role message.
 
         Args:
             current_context: Current conversation messages (used if custom_user_message is None)
