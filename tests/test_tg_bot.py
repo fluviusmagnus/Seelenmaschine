@@ -10,8 +10,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from telegram import BotCommand, Message, Update, User
-from telegram.ext import Application, ContextTypes
+from telegram import Update
+from telegram.ext import Application
 
 # Add project root to path for absolute imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -166,7 +166,7 @@ class TestTelegramAdapterApplication:
                 )
                 mock_builder_instance.token.assert_called_once_with("test_token")
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
-                mock_builder_instance.get_updates_request.assert_called_once()
+                mock_builder_instance.get_updates_request.assert_not_called()
                 mock_builder_instance.connect_timeout.assert_called_once_with(15.0)
                 mock_builder_instance.read_timeout.assert_called_once_with(30.0)
                 mock_builder_instance.write_timeout.assert_called_once_with(30.0)
@@ -204,50 +204,33 @@ class TestTelegramAdapterApplication:
 
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
 
-    def test_create_application_sets_dedicated_get_updates_request_timeouts(
+    def test_create_application_uses_standard_builder_request_defaults(
         self, mock_config, mock_message_handler, mock_application
     ):
-        """get_updates should use its own shorter request config for shutdown cleanup."""
+        """Adapter should keep Telegram builder request behavior close to the known working path."""
         from adapter.telegram.adapter import TelegramAdapter
-
-        mock_config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
-        mock_config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
-        mock_config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
-        mock_config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
 
         with patch("adapter.telegram.adapter.Config", return_value=mock_config):
             with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
-                with patch("adapter.telegram.adapter.HTTPXRequest") as mock_request_cls:
-                    mock_builder_instance = mock_builder.return_value
-                    mock_builder_instance.token.return_value = mock_builder_instance
-                    mock_builder_instance.concurrent_updates.return_value = (
-                        mock_builder_instance
-                    )
-                    mock_builder_instance.get_updates_request.return_value = (
-                        mock_builder_instance
-                    )
-                    mock_builder_instance.connect_timeout.return_value = (
-                        mock_builder_instance
-                    )
-                    mock_builder_instance.read_timeout.return_value = mock_builder_instance
-                    mock_builder_instance.write_timeout.return_value = (
-                        mock_builder_instance
-                    )
-                    mock_builder_instance.pool_timeout.return_value = mock_builder_instance
-                    mock_builder_instance.build.return_value = mock_application
+                mock_builder_instance = mock_builder.return_value
+                mock_builder_instance.token.return_value = mock_builder_instance
+                mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
+                mock_builder_instance.build.return_value = mock_application
 
-                    adapter = TelegramAdapter(message_handler=mock_message_handler)
-                    adapter.create_application()
+                adapter = TelegramAdapter(message_handler=mock_message_handler)
+                adapter.create_application()
 
-                    mock_request_cls.assert_called_once_with(
-                        connect_timeout=5.0,
-                        read_timeout=5.0,
-                        write_timeout=5.0,
-                        pool_timeout=5.0,
-                    )
-                    mock_builder_instance.get_updates_request.assert_called_once_with(
-                        mock_request_cls.return_value
-                    )
+                mock_builder_instance.get_updates_request.assert_not_called()
 
     def test_run_uses_valid_allowed_updates(
         self, mock_config, mock_message_handler, mock_application
@@ -279,17 +262,23 @@ class TestTelegramAdapterApplication:
             fake_loop = Mock(spec=asyncio.AbstractEventLoop)
 
             with patch(
-                "adapter.telegram.adapter.asyncio.get_event_loop",
+                "adapter.telegram.adapter.asyncio.get_running_loop",
                 side_effect=RuntimeError,
             ):
                 with patch(
-                    "adapter.telegram.adapter.asyncio.new_event_loop",
-                    return_value=fake_loop,
-                ) as mock_new_event_loop:
+                    "adapter.telegram.adapter.asyncio.get_event_loop_policy"
+                ) as mock_get_event_loop_policy:
+                    mock_policy = mock_get_event_loop_policy.return_value
+                    mock_policy.get_event_loop.side_effect = RuntimeError
+
                     with patch(
-                        "adapter.telegram.adapter.asyncio.set_event_loop"
-                    ) as mock_set_event_loop:
-                        loop = adapter._ensure_event_loop()
+                        "adapter.telegram.adapter.asyncio.new_event_loop",
+                        return_value=fake_loop,
+                    ) as mock_new_event_loop:
+                        with patch(
+                            "adapter.telegram.adapter.asyncio.set_event_loop"
+                        ) as mock_set_event_loop:
+                            loop = adapter._ensure_event_loop()
 
             assert loop is fake_loop
             mock_new_event_loop.assert_called_once_with()

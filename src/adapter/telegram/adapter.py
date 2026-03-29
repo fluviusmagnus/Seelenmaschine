@@ -2,7 +2,7 @@ import asyncio
 from typing import Any, Callable, List, Optional
 
 from telegram import Update
-from telegram.request import HTTPXRequest
+from telegram.error import NetworkError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -63,10 +63,21 @@ class TelegramAdapter:
 
         logger.info("Starting Telegram adapter with scheduler...")
         self._ensure_event_loop()
-        self._application.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            bootstrap_retries=self.config.TELEGRAM_BOOTSTRAP_RETRIES,
-        )
+        try:
+            self._application.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                bootstrap_retries=self.config.TELEGRAM_BOOTSTRAP_RETRIES,
+            )
+        except NetworkError as exc:
+            logger.error(
+                "Failed to connect to Telegram API. Please verify DNS/network access "
+                "from the host environment and confirm the bot token is valid. "
+                f"Original error: {exc}"
+            )
+            raise RuntimeError(
+                "Telegram startup failed because the Telegram API could not be reached. "
+                "This is usually a DNS or outbound network issue in the runtime environment."
+            ) from exc
         logger.info("Adapter stopped")
 
     def stop(self) -> None:
@@ -79,7 +90,15 @@ class TelegramAdapter:
     def _ensure_event_loop() -> asyncio.AbstractEventLoop:
         """Ensure a current event loop exists for sync Telegram startup paths."""
         try:
-            return asyncio.get_event_loop()
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError
+            return loop
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -102,17 +121,10 @@ class TelegramApplicationSetup:
         post_shutdown: Optional[Callable[[Application], Any]] = None,
     ) -> Application:
         """Build and configure the Telegram application."""
-        get_updates_request = HTTPXRequest(
-            connect_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT,
-            read_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_READ_TIMEOUT,
-            write_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT,
-            pool_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT,
-        )
         builder = application_builder_factory().token(
             self.telegram_adapter.config.TELEGRAM_BOT_TOKEN
         )
         builder = builder.concurrent_updates(True)
-        builder = builder.get_updates_request(get_updates_request)
         builder = builder.connect_timeout(self.telegram_adapter.config.TELEGRAM_CONNECT_TIMEOUT)
         builder = builder.read_timeout(self.telegram_adapter.config.TELEGRAM_READ_TIMEOUT)
         builder = builder.write_timeout(self.telegram_adapter.config.TELEGRAM_WRITE_TIMEOUT)
