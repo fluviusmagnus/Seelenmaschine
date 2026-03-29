@@ -125,6 +125,18 @@ class TelegramApplicationSetup:
             self.telegram_adapter.config.TELEGRAM_BOT_TOKEN
         )
         builder = builder.concurrent_updates(True)
+        builder = builder.get_updates_connect_timeout(
+            self.telegram_adapter.config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT
+        )
+        builder = builder.get_updates_read_timeout(
+            self.telegram_adapter.config.TELEGRAM_GET_UPDATES_READ_TIMEOUT
+        )
+        builder = builder.get_updates_write_timeout(
+            self.telegram_adapter.config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT
+        )
+        builder = builder.get_updates_pool_timeout(
+            self.telegram_adapter.config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT
+        )
         builder = builder.connect_timeout(self.telegram_adapter.config.TELEGRAM_CONNECT_TIMEOUT)
         builder = builder.read_timeout(self.telegram_adapter.config.TELEGRAM_READ_TIMEOUT)
         builder = builder.write_timeout(self.telegram_adapter.config.TELEGRAM_WRITE_TIMEOUT)

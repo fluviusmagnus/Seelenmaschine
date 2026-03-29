@@ -32,6 +32,10 @@ class TestTelegramAdapterInitialization:
         config.TELEGRAM_READ_TIMEOUT = 30.0
         config.TELEGRAM_WRITE_TIMEOUT = 30.0
         config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
         config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
@@ -94,6 +98,10 @@ class TestTelegramAdapterApplication:
         config.TELEGRAM_READ_TIMEOUT = 30.0
         config.TELEGRAM_WRITE_TIMEOUT = 30.0
         config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
         config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
@@ -144,7 +152,16 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
-                mock_builder_instance.get_updates_request.return_value = (
+                mock_builder_instance.get_updates_connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_read_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_pool_timeout.return_value = (
                     mock_builder_instance
                 )
                 mock_builder_instance.connect_timeout.return_value = (
@@ -166,7 +183,18 @@ class TestTelegramAdapterApplication:
                 )
                 mock_builder_instance.token.assert_called_once_with("test_token")
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
-                mock_builder_instance.get_updates_request.assert_not_called()
+                mock_builder_instance.get_updates_connect_timeout.assert_called_once_with(
+                    5.0
+                )
+                mock_builder_instance.get_updates_read_timeout.assert_called_once_with(
+                    5.0
+                )
+                mock_builder_instance.get_updates_write_timeout.assert_called_once_with(
+                    5.0
+                )
+                mock_builder_instance.get_updates_pool_timeout.assert_called_once_with(
+                    5.0
+                )
                 mock_builder_instance.connect_timeout.assert_called_once_with(15.0)
                 mock_builder_instance.read_timeout.assert_called_once_with(30.0)
                 mock_builder_instance.write_timeout.assert_called_once_with(30.0)
@@ -186,7 +214,16 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
-                mock_builder_instance.get_updates_request.return_value = (
+                mock_builder_instance.get_updates_connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_read_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_pool_timeout.return_value = (
                     mock_builder_instance
                 )
                 mock_builder_instance.connect_timeout.return_value = (
@@ -204,17 +241,34 @@ class TestTelegramAdapterApplication:
 
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
 
-    def test_create_application_uses_standard_builder_request_defaults(
+    def test_create_application_sets_get_updates_specific_timeouts(
         self, mock_config, mock_message_handler, mock_application
     ):
-        """Adapter should keep Telegram builder request behavior close to the known working path."""
+        """Adapter should use shorter get_updates timeouts to reduce shutdown noise."""
         from adapter.telegram.adapter import TelegramAdapter
+
+        mock_config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
+        mock_config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
+        mock_config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
+        mock_config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
 
         with patch("adapter.telegram.adapter.Config", return_value=mock_config):
             with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_read_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_pool_timeout.return_value = (
                     mock_builder_instance
                 )
                 mock_builder_instance.connect_timeout.return_value = (
@@ -230,7 +284,18 @@ class TestTelegramAdapterApplication:
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
                 adapter.create_application()
 
-                mock_builder_instance.get_updates_request.assert_not_called()
+                mock_builder_instance.get_updates_connect_timeout.assert_called_once_with(
+                    5.0
+                )
+                mock_builder_instance.get_updates_read_timeout.assert_called_once_with(
+                    5.0
+                )
+                mock_builder_instance.get_updates_write_timeout.assert_called_once_with(
+                    5.0
+                )
+                mock_builder_instance.get_updates_pool_timeout.assert_called_once_with(
+                    5.0
+                )
 
     def test_run_uses_valid_allowed_updates(
         self, mock_config, mock_message_handler, mock_application
@@ -297,7 +362,16 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
-                mock_builder_instance.get_updates_request.return_value = (
+                mock_builder_instance.get_updates_connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_read_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_pool_timeout.return_value = (
                     mock_builder_instance
                 )
                 mock_builder_instance.connect_timeout.return_value = (
@@ -362,6 +436,10 @@ class TestTelegramAdapterScheduledMessages:
         config.TELEGRAM_READ_TIMEOUT = 30.0
         config.TELEGRAM_WRITE_TIMEOUT = 30.0
         config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
         config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
@@ -488,6 +566,10 @@ class TestTelegramAdapterMessageSegmentation:
         config.TELEGRAM_READ_TIMEOUT = 30.0
         config.TELEGRAM_WRITE_TIMEOUT = 30.0
         config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
+        config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
         config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
