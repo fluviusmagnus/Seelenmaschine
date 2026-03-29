@@ -28,7 +28,7 @@ class RetrievedConversation:
     score: float
 
 
-class MemoryRetriever:
+class VectorRetriever:
     def __init__(
         self,
         db: DatabaseManager,
@@ -56,7 +56,7 @@ class MemoryRetriever:
             last_bot_embedding: Optional pre-computed bot embedding
             exclude_summary_ids: Optional list of summary_ids to exclude
         """
-        from config import Config
+        from core.config import Config
 
         summaries_result = []
         conversations_result = []
@@ -197,7 +197,7 @@ class MemoryRetriever:
             last_bot_embedding: Optional pre-computed bot embedding
             exclude_summary_ids: Optional list of summary_ids to exclude
         """
-        from config import Config
+        from core.config import Config
 
         summaries_result = []
         conversations_result = []
@@ -328,7 +328,7 @@ class MemoryRetriever:
     ) -> List[str]:
         formatted = []
 
-        from config import Config
+        from core.config import Config
 
         for summary in summaries:
             start_time_str = timestamp_to_str(
@@ -349,8 +349,8 @@ class MemoryRetriever:
     ) -> List[str]:
         formatted = []
 
-        from config import Config
-        from prompts.system import load_seele_json
+        from core.config import Config
+        from prompts import load_seele_json
 
         seele_data = load_seele_json()
         bot_name = (
@@ -369,3 +369,4 @@ class MemoryRetriever:
             formatted.append(f"[{time_str}] {role_display}: {conv.text}")
 
         return formatted
+

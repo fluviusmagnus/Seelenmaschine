@@ -25,7 +25,7 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
 - 🛠️ **完整的会话管理**：
   - `/new` - 归档当前会话并创建新会话
   - `/reset` - 删除当前会话
-- 📱 **Telegram Bot 界面**：当前主要使用 HTML 格式发送消息，兼顾较稳定的富文本显示
+- 📱 **Telegram Bot 界面**：提供命令菜单、分段回复、文件上传/发送与定时主动消息
 - 🌐 **网络搜索**：Jina Deepsearch API 集成
 - 🔌 **MCP (Model Context Protocol) 支持**：
   - 动态连接外部工具和数据源
@@ -35,7 +35,7 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
   - 文件操作工具（读取、写入、编辑、追加）
   - 文件搜索工具（Grep内容搜索、Glob模式匹配）
   - Shell命令执行（带危险命令检测和人工批准）
-- 📤 **文件发送**：支持直接通过 Telegram 发送生成的文件
+- 📤 **文件发送**：支持将生成的文件直接发送给当前用户
 - 🤝 **人机协作(HITL)**：危险操作需要用户批准，避免意外修改
 
 ## 技术架构
@@ -140,10 +140,6 @@ JINA_API_KEY=
 # 工作空间配置（限制本地文件操作范围）
 WORKSPACE_DIR=          # 可选，工作空间根目录，默认是 data/<profile>/workspace
 MEDIA_DIR=              # 可选，媒体文件存储目录，默认是 WORKSPACE_DIR/media
-
-# Skills 配置
-ENABLE_SKILLS=true
-SKILLS_DIR=skills/
 ```
 
 ### 数据目录结构
@@ -220,7 +216,7 @@ start-telegram.bat hy
 3. **Memory Search** - 自我查询记忆
 4. **Web Search** - 网络搜索（需启用）
 5. **Scheduled Tasks** - 定时任务管理
-6. **File Send** - Telegram 文件发送
+6. **File Send** - 向当前用户发送文件
 
 通过配置文件控制各工具的启用状态。危险命令需要用户批准才能执行。
 
@@ -230,31 +226,54 @@ start-telegram.bat hy
 Seelenmaschine/
 ├── src/                          # 源代码目录
 │   ├── main_telegram.py          # Telegram Bot 入口
-│   ├── config.py                 # 配置管理
+│   ├── adapter/                  # 平台适配层
+│   │   └── telegram/
+│   │       ├── adapter.py        # Telegram 应用装配与生命周期
+│   │       ├── commands.py       # Telegram 命令处理
+│   │       ├── delivery.py       # Telegram 分段发送
+│   │       ├── files.py          # Telegram 文件收发
+│   │       ├── formatter.py      # Telegram 回复格式化
+│   │       ├── handlers.py       # Telegram 控制器/入口
+│   │       ├── messages.py       # 普通消息与文件消息流程
+│   │       ├── scheduled_sender.py # 定时消息发送桥接
+│   │       └── tool_bridge.py    # 审批与工具状态桥接
 │   ├── core/                     # 核心模块
+│   │   ├── approval.py           # 危险操作审批流程
+│   │   ├── bot.py                # CoreBot 运行时根对象
+│   │   ├── config.py             # 配置管理
+│   │   ├── conversation.py       # 对话编排
 │   │   ├── database.py           # 数据库管理（sqlite-vec）
-│   │   ├── memory.py             # 记忆系统
-│   │   ├── context.py            # Context Window 管理
-│   │   ├── retriever.py          # 记忆检索
-│   │   └── scheduler.py          # 定时任务调度器
+│   │   ├── scheduler.py          # 定时任务调度器
+│   │   ├── session_service.py    # 会话生命周期服务
+│   │   └── tools.py              # 工具运行时/注册/执行编排
 │   ├── llm/                      # LLM 模块
-│   │   ├── client.py             # LLM 客户端
+│   │   ├── chat_client.py        # 聊天客户端
 │   │   ├── embedding.py          # Embedding 客户端
-│   │   └── reranker.py           # Rerank 客户端
+│   │   ├── memory_client.py      # 记忆相关模型调用
+│   │   ├── message_builder.py    # 消息构建
+│   │   ├── request_executor.py   # 请求执行器
+│   │   ├── reranker.py           # Rerank 客户端
+│   │   └── tool_loop.py          # 工具调用循环
+│   ├── memory/                   # 记忆子系统
+│   │   ├── context.py            # Context Window 管理
+│   │   ├── manager.py            # 记忆总管理器
+│   │   ├── recall.py             # 记忆召回
+│   │   ├── seele.py              # 长期人格/档案更新
+│   │   ├── sessions.py           # 会话管理
+│   │   ├── summaries.py          # 摘要生成
+│   │   └── vector_retriever.py   # 向量检索
 │   ├── tools/                    # 工具系统
 │   │   ├── mcp_client.py         # MCP 客户端
 │   │   ├── memory_search.py      # 自我查询工具
-│   │   ├── scheduled_task_tool.py # 定时任务工具
-│   │   ├── send_telegram_file_tool.py # Telegram 文件发送工具
+│   │   ├── scheduled_tasks.py    # 定时任务工具
+│   │   ├── send_file.py          # 文件发送工具
 │   │   ├── file_io.py            # 文件操作工具
 │   │   ├── file_search.py        # 文件搜索工具
 │   │   ├── shell.py              # Shell 命令执行工具
 │   │   └── tool_trace.py         # 工具调用追踪
-│   ├── tg_bot/                   # Telegram Bot 界面
-│   │   ├── bot.py                # Bot 主逻辑
-│   │   └── handlers.py           # 消息处理器
 │   ├── prompts/                  # 提示词
-│   │   └── system.py             # 系统提示词及相关提示词构造
+│   │   ├── memory_prompts.py     # 记忆相关提示词
+│   │   └── system_prompt.py      # 系统提示词构造
 │   └── utils/                    # 工具函数
 │       ├── text.py               # 文本处理
 │       ├── time.py               # 时间处理
@@ -310,12 +329,21 @@ Seelenmaschine/
 - 每次生成新摘要时同步更新
 - 直接嵌入到系统提示词中
 
-## Debug 模式
+## 调试与运行说明
 
-在 debug 模式下，程序会：
+### Debug 模式
+
+在 Debug 模式下，程序会：
 - 记录发送给 LLM 的完整提示词（`DEBUG_SHOW_FULL_PROMPT=true`）
 - 记录数据库读写操作（`DEBUG_LOG_DATABASE_OPS=true`）
 - 将日志保存在外部文件中
+
+### 本地工具工作空间
+
+- 相对路径文件操作默认相对于 `WORKSPACE_DIR`
+- `WORKSPACE_DIR` 默认为 `data/<profile>/workspace`
+- `MEDIA_DIR` 默认为 `WORKSPACE_DIR/media`
+- 文件与 Shell 工具会限制在 `WORKSPACE_DIR` / `MEDIA_DIR` 范围内，越界操作需要审批或会被拒绝
 
 ## 运行测试
 

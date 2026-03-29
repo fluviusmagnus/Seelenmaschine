@@ -1,8 +1,7 @@
-import pytest
 from datetime import datetime
-from zoneinfo import ZoneInfo
-from unittest.mock import patch
 import time
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from utils.time import (
     get_current_timestamp,
@@ -10,8 +9,10 @@ from utils.time import (
     timestamp_to_datetime,
     timestamp_to_str,
     datetime_to_timestamp,
+    format_duration_seconds,
     format_relative_time,
     validate_timestamp,
+    parse_duration_to_seconds,
     parse_time_expression,
     format_timestamp,
 )
@@ -279,10 +280,32 @@ class TestParseTimeExpression:
 
     def test_whitespace_handling(self):
         """Test whitespace handling."""
-        current = get_current_timestamp()
         result1 = parse_time_expression("in 5 minutes")
         result2 = parse_time_expression("  in  5  minutes  ")
         assert result1 == result2
+
+
+class TestDurationHelpers:
+    """Test compact duration parsing and formatting helpers."""
+
+    def test_parse_duration_to_seconds(self):
+        assert parse_duration_to_seconds("30s") == 30
+        assert parse_duration_to_seconds("5m") == 300
+        assert parse_duration_to_seconds("2h") == 7200
+        assert parse_duration_to_seconds("1d") == 86400
+        assert parse_duration_to_seconds("1w") == 604800
+        assert parse_duration_to_seconds("90") == 90
+
+    def test_parse_duration_to_seconds_invalid(self):
+        assert parse_duration_to_seconds("invalid") is None
+        assert parse_duration_to_seconds("") is None
+
+    def test_format_duration_seconds(self):
+        assert format_duration_seconds(30) == "30s"
+        assert format_duration_seconds(60) == "1m"
+        assert format_duration_seconds(7200) == "2h"
+        assert format_duration_seconds(86400) == "1d"
+        assert format_duration_seconds(604800) == "1w"
 
 
 class TestFormatTimestamp:

@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Dict, Any
 import struct
 from contextlib import contextmanager
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -1193,3 +1193,4 @@ class DatabaseManager:
             except sqlite3.OperationalError as e:
                 logger.error(f"Summary search failed: {e}")
                 return []
+

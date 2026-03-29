@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
-import json
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -43,7 +42,7 @@ class TestMemoryManagerLongTermMemory:
     
     def test_update_long_term_memory_with_json_patch(self, mock_dependencies):
         """Test updating long-term memory with JSON Patch"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Create messages
         messages = [
@@ -53,9 +52,9 @@ class TestMemoryManagerLongTermMemory:
         
         mock_dependencies['db'].get_unsummarized_conversations.return_value = messages
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                     mock_ctx = Mock()
                     mock_ctx.add_summary = Mock()
                     mock_ctx.add_message = Mock()
@@ -73,13 +72,13 @@ class TestMemoryManagerLongTermMemory:
     
     def test_get_long_term_memory(self, mock_dependencies):
         """Test retrieving long-term memory"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         mock_dependencies['db'].get_unsummarized_conversations.return_value = []
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                     mock_ctx = Mock()
                     mock_ctx.get_recent_summary_ids = Mock(return_value=[])
                     mock_ctx_class.return_value = mock_ctx
@@ -117,14 +116,8 @@ class TestMemoryManagerSessionOperations:
             'reranker_client': reranker_client,
         }
     
-    @pytest.mark.skip(reason="Complex mocking required for session operations")
-    def test_new_session(self, mock_dependencies):
-        """Test creating new session"""
-        # This test requires complex mocking of session operations
-        # which involves summarization logic
-        pass
-
-
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+

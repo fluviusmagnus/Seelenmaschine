@@ -1,109 +1,100 @@
-"""Test for MessageHandler with message processing"""
+"""Test for TelegramController with message processing."""
 
 import sys
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
-from tg_bot.handlers import MessageHandler
+
+from adapter.telegram.controller import TelegramController
+from adapter.telegram.formatter import TelegramResponseFormatter
+from core.bot import CoreBot
 
 
 @pytest.fixture
 def mock_config(tmp_path):
     """Mock Config"""
-    with patch("tg_bot.handlers.Config") as mock:
-        config_instance = Mock()
-        config_instance.ENABLE_MCP = False
-        config_instance.TELEGRAM_USER_ID = 12345
-        config_instance.TELEGRAM_USE_MARKDOWN = True
-        config_instance.DATA_DIR = tmp_path
-        config_instance.WORKSPACE_DIR = tmp_path / "workspace"
-        config_instance.MEDIA_DIR = tmp_path / "workspace" / "media"
-        mock.return_value = config_instance
-        yield config_instance
+    config_instance = Mock()
+    config_instance.ENABLE_MCP = False
+    config_instance.TELEGRAM_USER_ID = 12345
+    config_instance.TELEGRAM_USE_MARKDOWN = True
+    config_instance.DEBUG_MODE = False
+    config_instance.DATA_DIR = tmp_path
+    config_instance.WORKSPACE_DIR = tmp_path / "workspace"
+    config_instance.MEDIA_DIR = tmp_path / "workspace" / "media"
+    return config_instance
 
 
 @pytest.fixture
 def mock_db():
     """Mock DatabaseManager"""
-    with patch("tg_bot.handlers.DatabaseManager") as mock:
-        db_instance = Mock()
-        db_instance.get_active_session.return_value = {"session_id": 1}
-        mock.return_value = db_instance
-        yield db_instance
+    db_instance = Mock()
+    db_instance.get_active_session.return_value = {"session_id": 1}
+    return db_instance
 
 
 @pytest.fixture
 def mock_embedding_client():
     """Mock EmbeddingClient"""
-    with patch("tg_bot.handlers.EmbeddingClient") as mock:
-        client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
-        mock.return_value = client
-        yield client
+    client = Mock()
+    client.get_embedding.return_value = [0.1] * 1536
+    return client
 
 
 @pytest.fixture
 def mock_reranker_client():
     """Mock RerankerClient"""
-    with patch("tg_bot.handlers.RerankerClient") as mock:
-        client = Mock()
-        client.is_enabled.return_value = False
-        mock.return_value = client
-        yield client
+    client = Mock()
+    client.is_enabled.return_value = False
+    return client
 
 
 @pytest.fixture
 def mock_memory():
     """Mock MemoryManager"""
-    with patch("tg_bot.handlers.MemoryManager") as mock:
-        memory = Mock()
-        memory.get_current_session_id.return_value = 1
-        memory.get_context_messages.return_value = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there!"},
-        ]
-        memory.get_recent_summaries.return_value = []
-        # Return async mock for async methods
-        memory.add_user_message_async = AsyncMock(return_value=(1, [0.1] * 1536))
-        memory.process_user_input_async = AsyncMock(return_value=([], []))
-        memory.add_assistant_message_async = AsyncMock(return_value=(1, None))
-        memory.new_session = Mock(return_value=2)
-        memory.reset_session = Mock()
-        mock.return_value = memory
-        yield memory
+    memory = Mock()
+    memory.get_current_session_id.return_value = 1
+    memory.get_context_messages.return_value = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+    ]
+    memory.get_recent_summaries.return_value = []
+    memory.add_user_message_async = AsyncMock(return_value=(1, [0.1] * 1536))
+    memory.process_user_input_async = AsyncMock(return_value=([], []))
+    memory.add_assistant_message_async = AsyncMock(return_value=(1, None))
+    memory.new_session = Mock(return_value=2)
+    memory.new_session_async = AsyncMock(return_value=2)
+    memory.reset_session = Mock()
+    return memory
 
 
 @pytest.fixture
 def mock_llm_client():
     """Mock LLMClient"""
-    with patch("tg_bot.handlers.LLMClient") as mock:
-        client = Mock()
-        client.chat_async_detailed = AsyncMock(
-            return_value={
-                "final_text": "This is a test response",
-                "assistant_messages": ["This is a test response"],
-            }
-        )
-        client.set_tools = Mock()
-        client.set_tool_executor = Mock()
-        mock.return_value = client
-        yield client
+    client = Mock()
+    client.chat_async_detailed = AsyncMock(
+        return_value={
+            "final_text": "This is a test response",
+            "assistant_messages": ["This is a test response"],
+        }
+    )
+    client.set_tools = Mock()
+    client.set_tool_executor = Mock()
+    return client
 
 
 @pytest.fixture
 def mock_scheduler():
     """Mock TaskScheduler"""
-    with patch("tg_bot.handlers.TaskScheduler") as mock:
-        scheduler = Mock()
-        mock.return_value = scheduler
-        yield scheduler
+    scheduler = Mock()
+    return scheduler
 
 
-def test_message_handler_initialization(
+@pytest.fixture
+def core_bot(
     mock_config,
     mock_db,
     mock_embedding_client,
@@ -112,57 +103,60 @@ def test_message_handler_initialization(
     mock_llm_client,
     mock_scheduler,
 ):
-    """Test MessageHandler initializes correctly"""
-    handler = MessageHandler()
+    return CoreBot(
+        config=mock_config,
+        db=mock_db,
+        embedding_client=mock_embedding_client,
+        reranker_client=mock_reranker_client,
+        memory=mock_memory,
+        scheduler=mock_scheduler,
+        llm_client=mock_llm_client,
+    )
 
-    assert handler.config is not None
-    assert handler.db is not None
-    assert handler.memory is not None
-    assert handler.llm_client is not None
-    assert handler.scheduler is not None
+
+def test_message_handler_initialization(
+    core_bot,
+):
+    """Test TelegramController initializes correctly"""
+    handler = TelegramController(core_bot=core_bot)
+
+    assert handler.core_bot.config is not None
+    assert handler.core_bot.db is not None
+    assert handler.core_bot.memory is not None
+    assert handler.core_bot.llm_client is not None
+    assert handler.core_bot.scheduler is not None
 
 
 @pytest.mark.asyncio
 async def test_process_message(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
+    core_bot,
 ):
-    """Test _process_message flow"""
-    handler = MessageHandler()
+    """Test message processing flow via the Telegram message service."""
+    handler = TelegramController(core_bot=core_bot)
 
-    # Test processing a message
-    response = await handler._process_message("Hello, how are you?")
+    response = await handler.messages.process_message("Hello, how are you?")
 
     # Verify the response
     assert response == "This is a test response"
 
     # Verify memory operations were called (async methods)
     # Note: handler.memory is the actual instance returned by mock_memory.return_value
-    handler.memory.add_user_message_async.assert_called_once_with("Hello, how are you?")
-    handler.memory.get_context_messages.assert_called_once()
-    handler.memory.process_user_input_async.assert_called_once()
-    handler.memory.add_assistant_message_async.assert_called_once_with(
+    handler.core_bot.memory.add_user_message_async.assert_called_once_with(
+        "Hello, how are you?"
+    )
+    handler.core_bot.memory.get_context_messages.assert_called_once()
+    handler.core_bot.memory.process_user_input_async.assert_called_once()
+    handler.core_bot.memory.add_assistant_message_async.assert_called_once_with(
         "This is a test response"
     )
 
 
 @pytest.mark.asyncio
 async def test_handle_message(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
+    core_bot,
 ):
     """Test handle_message with Telegram update"""
-    handler = MessageHandler()
+    handler = TelegramController(core_bot=core_bot)
 
     # Mock Telegram update with AsyncMock for async methods
     update = Mock()
@@ -184,16 +178,10 @@ async def test_handle_message(
 
 @pytest.mark.asyncio
 async def test_handle_new_session(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
+    core_bot,
 ):
     """Test /new command handler"""
-    handler = MessageHandler()
+    handler = TelegramController(core_bot=core_bot)
 
     # Mock Telegram update with AsyncMock
     update = Mock()
@@ -202,29 +190,18 @@ async def test_handle_new_session(
 
     context = Mock()
 
-    # Mock the async version of new_session
-    handler.memory.new_session_async = AsyncMock(return_value=2)
+    await handler.commands.handle_new_session(update, context)
 
-    # Handle new session command
-    await handler.handle_new_session(update, context)
-
-    # Verify new session was created (should call async version)
-    handler.memory.new_session_async.assert_called_once()
+    handler.core_bot.memory.new_session_async.assert_called_once()
     update.message.reply_text.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_handle_reset_session(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
+    core_bot,
 ):
     """Test /reset command handler"""
-    handler = MessageHandler()
+    handler = TelegramController(core_bot=core_bot)
 
     # Mock Telegram update with AsyncMock
     update = Mock()
@@ -233,41 +210,34 @@ async def test_handle_reset_session(
 
     context = Mock()
 
-    # Handle reset session command
-    await handler.handle_reset_session(update, context)
+    await handler.commands.handle_reset_session(update, context)
 
     # Verify session was reset
-    handler.memory.reset_session.assert_called_once()
+    handler.core_bot.memory.reset_session.assert_called_once()
     update.message.reply_text.assert_called_once()
 
 
 def test_execute_tool_memory_search(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
+    core_bot,
 ):
     """Test tool execution for memory search"""
-    handler = MessageHandler()
+    handler = TelegramController(core_bot=core_bot)
 
-    # Mock memory search tool and update the registry
-    handler.memory_search_tool = Mock()
-    handler.memory_search_tool.name = "search_memories"
-    handler.memory_search_tool.execute = AsyncMock(return_value="Found memories")
-    handler._tool_registry["search_memories"] = handler.memory_search_tool
+    memory_search_tool = Mock()
+    memory_search_tool.name = "search_memories"
+    memory_search_tool.execute = AsyncMock(return_value="Found memories")
+    handler.core_bot.tool_runtime_state.registry_service.register_named(
+        "search_memories", memory_search_tool
+    )
 
-    # Execute tool (should await the result)
     import asyncio
 
-    result = asyncio.run(handler._execute_tool("search_memories", '{"query": "test"}'))
+    result = asyncio.run(core_bot.execute_tool("search_memories", '{"query": "test"}'))
 
     assert result == "Found memories"
-    handler.memory_search_tool.execute.assert_called_once_with(query="test")
+    memory_search_tool.execute.assert_called_once_with(query="test")
 
-    trace_path = handler.config.DATA_DIR / "tool_traces.jsonl"
+    trace_path = handler.core_bot.config.DATA_DIR / "tool_traces.jsonl"
     assert trace_path.exists()
     records = [
         json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
@@ -278,25 +248,55 @@ def test_execute_tool_memory_search(
 
 
 def test_query_tool_history_is_not_self_logged(
-    mock_config,
-    mock_db,
-    mock_embedding_client,
-    mock_reranker_client,
-    mock_memory,
-    mock_llm_client,
-    mock_scheduler,
+    core_bot,
 ):
     """query_tool_history should not create recursive log entries."""
-    handler = MessageHandler()
+    handler = TelegramController(core_bot=core_bot)
 
     import asyncio
 
-    result = asyncio.run(handler._execute_tool("query_tool_history", "{}"))
+    result = asyncio.run(core_bot.execute_tool("query_tool_history", "{}"))
 
     assert "No tool history records found." in result
-    trace_path = handler.config.DATA_DIR / "tool_traces.jsonl"
+    trace_path = handler.core_bot.config.DATA_DIR / "tool_traces.jsonl"
     if trace_path.exists():
         assert trace_path.read_text(encoding="utf-8").strip() == ""
+
+
+@pytest.mark.asyncio
+async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
+    """Non-dangerous tool calls should proactively notify the Telegram user."""
+    handler = TelegramController(core_bot=core_bot)
+    handler.telegram_bot = Mock()
+    handler.telegram_bot.send_message = AsyncMock()
+
+    read_tool = Mock()
+    read_tool.name = "read_file"
+    read_tool.execute = AsyncMock(return_value="file content")
+    handler.core_bot.tool_runtime_state.registry_service.register_named(
+        "read_file", read_tool
+    )
+
+    result = await core_bot.execute_tool("read_file", '{"file_path": "notes.txt"}')
+    await __import__("asyncio").sleep(0)
+
+    assert result == "file content"
+    read_tool.execute.assert_awaited_once_with(file_path="notes.txt")
+    handler.telegram_bot.send_message.assert_awaited()
+
+    sent_texts = [
+        call.kwargs["text"]
+        for call in handler.telegram_bot.send_message.await_args_list
+    ]
+    assert any("Tool execution:" in text for text in sent_texts)
+    assert any("read_file" in text for text in sent_texts)
+
+
+def test_formatter_module_replaces_handler_format_wrapper():
+    """Formatting should now be tested through the formatter directly."""
+    formatter = TelegramResponseFormatter()
+
+    assert formatter.format_response("**hi**", debug_mode=True) == "<b>hi</b>"
 
 
 if __name__ == "__main__":

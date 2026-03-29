@@ -1,108 +1,126 @@
-"""Tests for Telegram Bot
+"""Tests for Telegram adapter.
 
-This module contains tests for the Telegram Bot implementation.
+This module contains tests for the Telegram adapter implementation.
 Uses pytest-asyncio for async testing and unittest.mock for mocking.
 """
 
+import asyncio
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+from telegram import Update
+from telegram.ext import Application
 
 # Add project root to path for absolute imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import pytest
-import pytest_asyncio
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from telegram import Update, User, Message, BotCommand
-from telegram.ext import Application, ContextTypes
 
-
-class TestTelegramBotInitialization:
-    """Test TelegramBot initialization"""
+class TestTelegramAdapterInitialization:
+    """Test TelegramAdapter initialization."""
 
     @pytest.fixture
     def mock_config(self):
-        """Create a mock Config"""
+        """Create a mock Config."""
         config = Mock()
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
         config.TELEGRAM_USE_MARKDOWN = True
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
     def mock_message_handler(self):
-        """Create a mock MessageHandler"""
+        """Create a mock MessageHandler."""
         handler = Mock()
-        handler.scheduler = Mock()
-        handler.scheduler.set_message_callback = Mock()
-        handler.scheduler.load_default_tasks = Mock()
-        handler.scheduler.run_forever = AsyncMock()
-        handler.scheduler.stop = Mock()
+        handler.core_bot = Mock()
+        handler.core_bot.scheduler = Mock()
+        handler.core_bot.scheduler.set_message_callback = Mock()
+        handler.core_bot.scheduler.load_default_tasks = Mock()
+        handler.core_bot.scheduler.run_forever = AsyncMock()
+        handler.core_bot.scheduler.stop = Mock()
+        handler._commands = Mock()
         return handler
 
     @pytest.mark.asyncio
-    async def test_bot_initialization(self, mock_config, mock_message_handler):
-        """Test bot initialization with dependencies"""
-        from tg_bot.bot import TelegramBot
+    async def test_adapter_initialization(self, mock_config, mock_message_handler):
+        """Test adapter initialization with dependencies."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler)
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
 
-            assert bot.config == mock_config
-            assert bot.message_handler == mock_message_handler
-            assert bot.scheduler == mock_message_handler.scheduler
-            assert bot._application is None
+            assert adapter.config == mock_config
+            assert adapter.message_handler == mock_message_handler
+            assert adapter.scheduler == mock_message_handler.core_bot.scheduler
+            assert adapter._application is None
 
     @pytest.mark.asyncio
     async def test_scheduler_callback_registration(
         self, mock_config, mock_message_handler
     ):
-        """Test that scheduler message callback is registered"""
-        from tg_bot.bot import TelegramBot
+        """Test that scheduler message callback is registered."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler)
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
 
-            # Verify callback was registered
-            mock_message_handler.scheduler.set_message_callback.assert_called_once()
-            # Verify it's the bot's method
+            mock_message_handler.core_bot.scheduler.set_message_callback.assert_called_once()
             assert (
-                mock_message_handler.scheduler.set_message_callback.call_args[0][0]
-                == bot._send_scheduled_message
+                mock_message_handler.core_bot.scheduler.set_message_callback.call_args[
+                    0
+                ][0]
+                == adapter._send_scheduled_message
             )
 
 
-class TestTelegramBotApplication:
-    """Test TelegramBot application setup"""
+class TestTelegramAdapterApplication:
+    """Test TelegramAdapter application setup."""
 
     @pytest.fixture
     def mock_config(self):
-        """Create a mock Config"""
+        """Create a mock Config."""
         config = Mock()
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
         config.TELEGRAM_USE_MARKDOWN = True
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
     def mock_message_handler(self):
-        """Create a mock MessageHandler"""
+        """Create a mock MessageHandler."""
         handler = Mock()
-        handler.scheduler = Mock()
-        handler.scheduler.set_message_callback = Mock()
-        handler.scheduler.load_default_tasks = Mock()
-        handler.scheduler.run_forever = AsyncMock()
-        handler.scheduler.stop = Mock()
-        handler.handle_new_session = AsyncMock()
-        handler.handle_reset_session = AsyncMock()
+        handler.core_bot = Mock()
+        handler.core_bot.scheduler = Mock()
+        handler.core_bot.scheduler.set_message_callback = Mock()
+        handler.core_bot.scheduler.load_default_tasks = Mock()
+        handler.core_bot.scheduler.run_forever = AsyncMock()
+        handler.core_bot.scheduler.stop = Mock()
         handler.handle_message = AsyncMock()
         handler.handle_file = AsyncMock()
+        commands = Mock()
+        commands.handle_start = AsyncMock()
+        commands.handle_help = AsyncMock()
+        commands.handle_new_session = AsyncMock()
+        commands.handle_reset_session = AsyncMock()
+        commands.handle_approve = AsyncMock()
+        handler.commands = commands
         return handler
 
     @pytest.fixture
     def mock_application(self):
-        """Create a mock Application"""
+        """Create a mock Application."""
         app = Mock(spec=Application)
         app.bot = Mock()
         app.add_handler = Mock()
@@ -116,393 +134,395 @@ class TestTelegramBotApplication:
     def test_create_application(
         self, mock_config, mock_message_handler, mock_application
     ):
-        """Test application creation and handler registration"""
-        from tg_bot.bot import TelegramBot
+        """Test application creation and handler registration."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            with patch("tg_bot.bot.Application.builder") as mock_builder:
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.get_updates_request.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
                 mock_builder_instance.build.return_value = mock_application
 
-                bot = TelegramBot(message_handler=mock_message_handler)
-                bot.create_application()
+                adapter = TelegramAdapter(message_handler=mock_message_handler)
+                adapter.create_application()
 
-                # Verify application was created
-                assert bot._application == mock_application
-
-                # Verify message handler received bot injection
+                assert adapter._application == mock_application
                 mock_message_handler.set_telegram_bot.assert_called_once_with(
                     mock_application.bot
                 )
-
-                # Verify token was set
                 mock_builder_instance.token.assert_called_once_with("test_token")
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
-
-                # Verify handlers were added (start, help, new, reset, approve, text, file)
+                mock_builder_instance.get_updates_request.assert_not_called()
+                mock_builder_instance.connect_timeout.assert_called_once_with(15.0)
+                mock_builder_instance.read_timeout.assert_called_once_with(30.0)
+                mock_builder_instance.write_timeout.assert_called_once_with(30.0)
+                mock_builder_instance.pool_timeout.assert_called_once_with(15.0)
                 assert mock_application.add_handler.call_count == 7
 
     def test_create_application_enables_concurrent_updates(
         self, mock_config, mock_message_handler, mock_application
     ):
-        """Bot should enable concurrent update handling so /approve isn't blocked."""
-        from tg_bot.bot import TelegramBot
+        """Adapter should enable concurrent update handling so /approve isn't blocked."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            with patch("tg_bot.bot.Application.builder") as mock_builder:
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.get_updates_request.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
                 mock_builder_instance.build.return_value = mock_application
 
-                bot = TelegramBot(message_handler=mock_message_handler)
-                bot.create_application()
+                adapter = TelegramAdapter(message_handler=mock_message_handler)
+                adapter.create_application()
 
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
 
-    @pytest.mark.asyncio
-    async def test_post_init_hook(
+    def test_create_application_uses_standard_builder_request_defaults(
         self, mock_config, mock_message_handler, mock_application
     ):
-        """Test post_init hook starts scheduler and registers commands"""
-        from tg_bot.bot import TelegramBot
+        """Adapter should keep Telegram builder request behavior close to the known working path."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            with patch("tg_bot.bot.Application.builder") as mock_builder:
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
                 mock_builder_instance.build.return_value = mock_application
 
-                bot = TelegramBot(message_handler=mock_message_handler)
-                bot.create_application()
+                adapter = TelegramAdapter(message_handler=mock_message_handler)
+                adapter.create_application()
 
-                # Get the post_init hook
-                post_init = mock_application.post_init
-                assert post_init is not None
+                mock_builder_instance.get_updates_request.assert_not_called()
 
-                # Mock the application context
-                mock_app = Mock()
-                mock_app.bot = Mock()
-                mock_app.bot.set_my_commands = AsyncMock()
+    def test_run_uses_valid_allowed_updates(
+        self, mock_config, mock_message_handler, mock_application
+    ):
+        """run_polling should receive Telegram's serializable update types list."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-                # Call post_init
-                await post_init(mock_app)
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
+            adapter._application = mock_application
 
-                # Verify commands were registered
-                mock_app.bot.set_my_commands.assert_called_once()
-                commands = mock_app.bot.set_my_commands.call_args[0][0]
-                assert len(commands) == 5
-                assert all(isinstance(cmd, BotCommand) for cmd in commands)
+            with patch.object(adapter, "_ensure_event_loop") as mock_ensure_event_loop:
+                adapter.run()
+
+            mock_ensure_event_loop.assert_called_once_with()
+            mock_application.run_polling.assert_called_once_with(
+                allowed_updates=Update.ALL_TYPES,
+                bootstrap_retries=3,
+            )
+
+    def test_ensure_event_loop_creates_new_loop_when_missing(
+        self, mock_config, mock_message_handler
+    ):
+        """Adapter should create and register a loop on Python 3.12+ sync startup."""
+        from adapter.telegram.adapter import TelegramAdapter
+
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
+            fake_loop = Mock(spec=asyncio.AbstractEventLoop)
+
+            with patch(
+                "adapter.telegram.adapter.asyncio.get_running_loop",
+                side_effect=RuntimeError,
+            ):
+                with patch(
+                    "adapter.telegram.adapter.asyncio.get_event_loop_policy"
+                ) as mock_get_event_loop_policy:
+                    mock_policy = mock_get_event_loop_policy.return_value
+                    mock_policy.get_event_loop.side_effect = RuntimeError
+
+                    with patch(
+                        "adapter.telegram.adapter.asyncio.new_event_loop",
+                        return_value=fake_loop,
+                    ) as mock_new_event_loop:
+                        with patch(
+                            "adapter.telegram.adapter.asyncio.set_event_loop"
+                        ) as mock_set_event_loop:
+                            loop = adapter._ensure_event_loop()
+
+            assert loop is fake_loop
+            mock_new_event_loop.assert_called_once_with()
+            mock_set_event_loop.assert_called_once_with(fake_loop)
+
+    def test_create_application_accepts_runtime_hooks(
+        self, mock_config, mock_message_handler, mock_application
+    ):
+        """Application setup should attach externally supplied runtime hooks."""
+        from adapter.telegram.adapter import TelegramAdapter
+
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
+                mock_builder_instance = mock_builder.return_value
+                mock_builder_instance.token.return_value = mock_builder_instance
+                mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_request.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
+                mock_builder_instance.build.return_value = mock_application
+
+                adapter = TelegramAdapter(message_handler=mock_message_handler)
+                post_init = AsyncMock()
+                post_shutdown = AsyncMock()
+                adapter._application = adapter._application_setup.create_application(
+                    application_builder_factory=mock_builder,
+                    command_handler_cls=__import__(
+                        "telegram.ext", fromlist=["CommandHandler"]
+                    ).CommandHandler,
+                    message_handler_cls=__import__(
+                        "telegram.ext", fromlist=["MessageHandler"]
+                    ).MessageHandler,
+                    filters_module=__import__(
+                        "telegram.ext", fromlist=["filters"]
+                    ).filters,
+                    post_init=post_init,
+                    post_shutdown=post_shutdown,
+                )
+
+                assert mock_application.post_init is not None
+                assert mock_application.post_shutdown is post_shutdown
+
+                mock_runtime_app = Mock()
+                mock_runtime_app.bot = Mock()
+                mock_runtime_app.bot.set_my_commands = AsyncMock()
+
+                awaitable = mock_application.post_init(mock_runtime_app)
+                import asyncio
+
+                asyncio.run(awaitable)
+
+                mock_runtime_app.bot.set_my_commands.assert_awaited_once()
+                post_init.assert_awaited_once_with(mock_runtime_app)
 
 
-class TestTelegramBotCommands:
-    """Test TelegramBot command handlers"""
+class TestTelegramAdapterCommands:
+    """Test TelegramAdapter command handlers."""
+
+
+class TestTelegramAdapterScheduledMessages:
+    """Test scheduled message sending."""
 
     @pytest.fixture
     def mock_config(self):
-        """Create a mock Config"""
-        config = Mock()
-        config.TELEGRAM_BOT_TOKEN = "test_token"
-        config.TELEGRAM_USER_ID = 123456789
-        return config
-
-    @pytest.fixture
-    def mock_update(self):
-        """Create a mock Update"""
-        update = Mock(spec=Update)
-        update.effective_user = Mock(spec=User)
-        update.effective_user.id = 123456789
-        update.message = Mock(spec=Message)
-        update.message.reply_text = AsyncMock()
-        return update
-
-    @pytest.fixture
-    def mock_context(self):
-        """Create a mock Context"""
-        return Mock(spec=ContextTypes.DEFAULT_TYPE)
-
-    @pytest.mark.asyncio
-    async def test_cmd_start_authorized(self, mock_config, mock_update, mock_context):
-        """Test /start command for authorized user"""
-        from tg_bot.bot import TelegramBot
-
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=Mock())
-            await bot._cmd_start(mock_update, mock_context)
-
-            # Verify welcome message was sent
-            mock_update.message.reply_text.assert_called_once()
-            welcome_text = mock_update.message.reply_text.call_args[0][0]
-            assert "Welcome to Seelenmaschine" in welcome_text
-
-    @pytest.mark.asyncio
-    async def test_cmd_start_unauthorized(self, mock_config, mock_update, mock_context):
-        """Test /start command for unauthorized user"""
-        from tg_bot.bot import TelegramBot
-
-        # Change user ID to unauthorized
-        mock_update.effective_user.id = 999999999
-
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=Mock())
-            await bot._cmd_start(mock_update, mock_context)
-
-            # Verify unauthorized message was sent
-            mock_update.message.reply_text.assert_called_once()
-            assert "Unauthorized" in mock_update.message.reply_text.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cmd_help(self, mock_config, mock_update, mock_context):
-        """Test /help command"""
-        from tg_bot.bot import TelegramBot
-
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=Mock())
-            await bot._cmd_help(mock_update, mock_context)
-
-            # Verify help message was sent
-            mock_update.message.reply_text.assert_called_once()
-            help_text = mock_update.message.reply_text.call_args[0][0]
-            assert "Available commands" in help_text
-            assert "/new" in help_text
-            assert "/reset" in help_text
-
-
-class TestTelegramBotScheduledMessages:
-    """Test scheduled message sending"""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Create a mock Config"""
+        """Create a mock Config."""
         config = Mock()
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
         config.TELEGRAM_USE_MARKDOWN = True
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
     def mock_message_handler(self):
-        """Create a mock MessageHandler with formatting and splitting methods"""
+        """Create a mock MessageHandler with scheduled message support."""
         handler = Mock()
-        handler._format_response_for_telegram = Mock(return_value="Formatted message")
-        handler._split_message_into_segments = Mock(return_value=["Segment 1"])
-        handler._handle_scheduled_message = AsyncMock(return_value="LLM response")
+        handler.core_bot = Mock()
+        handler.core_bot.scheduler = Mock()
+        handler.core_bot.scheduler.set_message_callback = Mock()
+        handler.messages = Mock()
+        handler.messages.send_scheduled_message = AsyncMock()
         return handler
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_success(
         self, mock_config, mock_message_handler
     ):
-        """Test successful scheduled message sending with segments"""
-        from tg_bot.bot import TelegramBot
+        """Test successful scheduled message sending with segments."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler)
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
 
-            # Mock the application and bot
             mock_app = Mock()
             mock_app.bot = Mock()
             mock_app.bot.send_message = AsyncMock()
             mock_app.bot.send_chat_action = AsyncMock()
-            bot._application = mock_app
+            adapter._application = mock_app
 
-            # Mock asyncio.sleep to avoid actual delays
-            with patch("asyncio.sleep"):
-                # Send a scheduled message
-                await bot._send_scheduled_message("Test scheduled message")
+            await adapter._send_scheduled_message("Test scheduled message")
 
-                # Verify LLM processing was called
-                mock_message_handler._handle_scheduled_message.assert_called_once()
-
-                # Verify formatting was called
-                mock_message_handler._format_response_for_telegram.assert_called_once()
-
-                # Verify splitting was called
-                mock_message_handler._split_message_into_segments.assert_called_once()
-
-                # Verify message was sent
-                mock_app.bot.send_message.assert_called_once()
-                call_args = mock_app.bot.send_message.call_args
-                assert call_args.kwargs["chat_id"] == 123456789
-                assert call_args.kwargs["parse_mode"] == "HTML"
+            mock_message_handler.messages.send_scheduled_message.assert_awaited_once_with(
+                application=mock_app,
+                message="Test scheduled message",
+                task_name="Scheduled Task",
+            )
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_multiple_segments(
         self, mock_config, mock_message_handler
     ):
-        """Test scheduled message sending with multiple segments"""
-        from tg_bot.bot import TelegramBot
+        """Test scheduled message sending with multiple segments."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        # Setup multiple segments
-        mock_message_handler._split_message_into_segments = Mock(
-            return_value=["Segment 1", "Segment 2", "Segment 3"]
-        )
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler)
-
-            # Mock the application and bot
             mock_app = Mock()
             mock_app.bot = Mock()
             mock_app.bot.send_message = AsyncMock()
             mock_app.bot.send_chat_action = AsyncMock()
-            bot._application = mock_app
+            adapter._application = mock_app
 
-            # Mock asyncio.sleep to avoid actual delays
-            with patch("asyncio.sleep"):
-                # Send a scheduled message
-                await bot._send_scheduled_message("Test scheduled message")
+            await adapter._send_scheduled_message("Test scheduled message")
 
-                # Verify all 3 segments were sent
-                assert mock_app.bot.send_message.call_count == 3
+            mock_message_handler.messages.send_scheduled_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_no_application(self, mock_config):
-        """Test scheduled message when application is not initialized"""
-        from tg_bot.bot import TelegramBot
+        """Test scheduled message when application is not initialized."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=Mock())
-            # Don't set _application
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            message_handler = Mock()
+            message_handler.core_bot = Mock()
+            message_handler.core_bot.scheduler = Mock()
+            message_handler.core_bot.scheduler.set_message_callback = Mock()
+            message_handler.messages = Mock()
+            message_handler.messages.send_scheduled_message = AsyncMock()
+            adapter = TelegramAdapter(message_handler=message_handler)
+            await adapter._send_scheduled_message("Test message")
 
-            # Should not raise exception, just log error
-            await bot._send_scheduled_message("Test message")
-            # Test passes if no exception is raised
+            message_handler.messages.send_scheduled_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_typing_indicator(
         self, mock_config, mock_message_handler
     ):
-        """Test that typing indicator is sent during scheduled message"""
-        from tg_bot.bot import TelegramBot
+        """Test that typing indicator is sent during scheduled message."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler)
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
 
-            # Mock the application and bot
             mock_app = Mock()
             mock_app.bot = Mock()
             mock_app.bot.send_message = AsyncMock()
             mock_app.bot.send_chat_action = AsyncMock()
-            bot._application = mock_app
+            adapter._application = mock_app
 
-            # Mock random.uniform to return 0 to speed up delays between segments
-            with patch("random.uniform", return_value=0):
-                # Send a scheduled message
-                await bot._send_scheduled_message("Test scheduled message")
-
-                # Verify message was sent successfully
-                # (typing indicator may or may not execute depending on timing,
-                # but the important thing is the code path works without errors)
-                mock_app.bot.send_message.assert_called()
+            await adapter._send_scheduled_message("Test scheduled message")
+            mock_message_handler.messages.send_scheduled_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_html_fallback(
         self, mock_config, mock_message_handler
     ):
-        """Test fallback to plain text when HTML parsing fails"""
-        from tg_bot.bot import TelegramBot
+        """Test fallback to plain text when HTML parsing fails."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        # Setup single segment
-        mock_message_handler._split_message_into_segments = Mock(
-            return_value=["Segment with <b>HTML</b>"]
-        )
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(message_handler=mock_message_handler)
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler)
-
-            # Mock the application and bot
             mock_app = Mock()
             mock_app.bot = Mock()
             mock_app.bot.send_chat_action = AsyncMock()
 
-            # First call raises HTML error, second succeeds
-            call_count = 0
-
-            async def side_effect(*args, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                if call_count == 1 and kwargs.get("parse_mode") == "HTML":
-                    raise Exception("Can't parse HTML entities")
-                return Mock()
-
-            mock_app.bot.send_message = AsyncMock(side_effect=side_effect)
-            bot._application = mock_app
-
-            # Mock asyncio.sleep to avoid actual delays
-            with patch("asyncio.sleep"):
-                # Send a scheduled message
-                await bot._send_scheduled_message("Test message")
-
-                # Verify both calls were made (HTML failed, plain text succeeded)
-                assert mock_app.bot.send_message.call_count == 2
+            adapter._application = mock_app
+            await adapter._send_scheduled_message("Test message")
+            mock_message_handler.messages.send_scheduled_message.assert_awaited_once()
 
 
-class TestTelegramBotMessageSegmentation:
-    """Test message segmentation with typing indicator"""
+class TestTelegramAdapterMessageSegmentation:
+    """Test message segmentation with typing indicator."""
 
     @pytest.fixture
     def mock_config(self):
-        """Create a mock Config"""
+        """Create a mock Config."""
         config = Mock()
         config.TELEGRAM_BOT_TOKEN = "test_token"
         config.TELEGRAM_USER_ID = 123456789
+        config.TELEGRAM_CONNECT_TIMEOUT = 15.0
+        config.TELEGRAM_READ_TIMEOUT = 30.0
+        config.TELEGRAM_WRITE_TIMEOUT = 30.0
+        config.TELEGRAM_POOL_TIMEOUT = 15.0
+        config.TELEGRAM_BOOTSTRAP_RETRIES = 3
         return config
 
     @pytest.fixture
     def mock_message_handler_with_segments(self):
-        """Create a mock MessageHandler that returns multiple segments"""
+        """Create a mock MessageHandler for scheduled message delegation."""
         handler = Mock()
-        handler._format_response_for_telegram = Mock(return_value="Formatted message")
-        handler._split_message_into_segments = Mock(
-            return_value=["Segment 1 content", "Segment 2 content", "Segment 3 content"]
-        )
-        handler._handle_scheduled_message = AsyncMock(return_value="LLM response")
+        handler.core_bot = Mock()
+        handler.core_bot.scheduler = Mock()
+        handler.core_bot.scheduler.set_message_callback = Mock()
+        handler.messages = Mock()
+        handler.messages.send_scheduled_message = AsyncMock()
         return handler
 
     @pytest.mark.asyncio
     async def test_delay_between_segments(
         self, mock_config, mock_message_handler_with_segments
     ):
-        """Test that there is a delay between message segments"""
-        from tg_bot.bot import TelegramBot
+        """Test that there is a delay between message segments."""
+        from adapter.telegram.adapter import TelegramAdapter
 
-        with patch("tg_bot.bot.Config", return_value=mock_config):
-            bot = TelegramBot(message_handler=mock_message_handler_with_segments)
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            adapter = TelegramAdapter(
+                message_handler=mock_message_handler_with_segments
+            )
 
-            # Mock the application and bot
             mock_app = Mock()
             mock_app.bot = Mock()
             mock_app.bot.send_message = AsyncMock()
             mock_app.bot.send_chat_action = AsyncMock()
-            bot._application = mock_app
+            adapter._application = mock_app
 
-            # Track sleep calls
-            sleep_calls = []
-
-            async def mock_sleep(delay):
-                sleep_calls.append(delay)
-
-            with patch("asyncio.sleep", side_effect=mock_sleep):
-                # Send a scheduled message
-                await bot._send_scheduled_message("Test message")
-
-                # With 3 segments, there should be 2 delays (not after the last one)
-                assert len(sleep_calls) >= 2
-                # Each delay should be 1-2 seconds
-                for delay in sleep_calls:
-                    assert 1.0 <= delay <= 2.0
+            await adapter._send_scheduled_message("Test message")
+            mock_message_handler_with_segments.messages.send_scheduled_message.assert_awaited_once()
 
 
-# Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

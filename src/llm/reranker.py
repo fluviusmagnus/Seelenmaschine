@@ -2,7 +2,7 @@ import asyncio
 from typing import List, Optional, Dict, Any
 import httpx
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -148,3 +148,4 @@ class RerankerClient:
         loop = self._get_event_loop()
         if not loop.is_closed():
             loop.run_until_complete(self._async_close())
+

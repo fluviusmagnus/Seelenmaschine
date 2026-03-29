@@ -5,7 +5,7 @@ from fastmcp import Client
 import asyncio
 import re
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -375,3 +375,4 @@ class MCPClient:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             return loop.run_until_complete(self.call_tool(tool_name, arguments))
+

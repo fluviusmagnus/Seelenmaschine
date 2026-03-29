@@ -1,13 +1,13 @@
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
-from llm.client import LLMClient
+from llm.chat_client import LLMClient
 
 
 @pytest.fixture
 def mock_config():
     """Mock configuration."""
-    with patch("llm.client.Config") as mock:
+    with patch("llm.chat_client.Config") as mock:
         mock.DEBUG_SHOW_FULL_PROMPT = False
         mock.OPENAI_API_KEY = "test-key"
         mock.OPENAI_API_BASE = "https://api.test.com/v1"
@@ -83,8 +83,8 @@ class TestLLMClient:
         assert "maximum context length exceeded" in message
         assert "code=400" in message
 
-    @patch("llm.client.get_cacheable_system_prompt", return_value="System prompt")
-    @patch("llm.client.get_current_time_str", return_value="2026-01-28 12:00:00")
+    @patch("llm.chat_client.get_cacheable_system_prompt", return_value="System prompt")
+    @patch("llm.chat_client.get_current_time_str", return_value="2026-01-28 12:00:00")
     def test_build_chat_messages(self, mock_time, mock_system_prompt, llm_client):
         """Test building chat messages."""
         current_context = [
@@ -125,12 +125,12 @@ class TestLLMClient:
         assert messages[7]["role"] == "user"
         assert "Hello" in messages[7]["content"]
 
-    @patch("llm.client.AsyncOpenAI")
+    @patch("llm.chat_client.AsyncOpenAI")
     @patch(
-        "llm.client.load_seele_json",
+        "llm.chat_client.load_seele_json",
         return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
     )
-    @patch("llm.client.get_summary_prompt", return_value="summary prompt")
+    @patch("llm.chat_client.get_summary_prompt", return_value="summary prompt")
     def test_generate_summary(
         self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
     ):
@@ -158,12 +158,12 @@ class TestLLMClient:
             None, "Alice: Message 1\nSeele: Response 1"
         )
 
-    @patch("llm.client.AsyncOpenAI")
+    @patch("llm.chat_client.AsyncOpenAI")
     @patch(
-        "llm.client.load_seele_json",
+        "llm.chat_client.load_seele_json",
         return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
     )
-    @patch("llm.client.get_memory_update_prompt", return_value="memory prompt")
+    @patch("llm.chat_client.get_memory_update_prompt", return_value="memory prompt")
     def test_generate_memory_update(
         self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
     ):
@@ -194,13 +194,13 @@ class TestLLMClient:
             None,
         )
 
-    @patch("llm.client.AsyncOpenAI")
+    @patch("llm.chat_client.AsyncOpenAI")
     @patch(
-        "llm.client.load_seele_json",
+        "llm.chat_client.load_seele_json",
         return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
     )
     @patch(
-        "llm.client.get_complete_memory_json_prompt",
+        "llm.chat_client.get_complete_memory_json_prompt",
         return_value="complete memory prompt",
     )
     def test_generate_complete_memory_json(
@@ -237,7 +237,7 @@ class TestLLMClient:
             None,
         )
 
-    @patch("llm.client.AsyncOpenAI")
+    @patch("llm.chat_client.AsyncOpenAI")
     def test_close(self, mock_openai, llm_client):
         """Test closing client."""
         mock_async_client = AsyncMock()
@@ -441,7 +441,7 @@ class TestLLMClient:
         }
 
     @pytest.mark.asyncio
-    @patch("llm.client.AsyncOpenAI")
+    @patch("llm.chat_client.AsyncOpenAI")
     async def test_async_chat_extracts_api_tool_calls(self, mock_openai, llm_client):
         """_async_chat should keep both execution and API tool call formats."""
         mock_tool_call = Mock()
@@ -491,7 +491,7 @@ class TestLLMClient:
         ]
 
     @pytest.mark.asyncio
-    @patch("llm.client.AsyncOpenAI")
+    @patch("llm.chat_client.AsyncOpenAI")
     async def test_async_chat_includes_tools_in_same_request(
         self, mock_openai, llm_client
     ):
@@ -532,3 +532,4 @@ class TestLLMClient:
         create_kwargs = mock_async_client.chat.completions.create.await_args.kwargs
         assert create_kwargs["tools"] == tools
         assert create_kwargs["messages"] == [{"role": "user", "content": "hello"}]
+

@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from config import Config
+from core.config import Config
 
 
 def setup_logger(

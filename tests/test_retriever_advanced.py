@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from typing import List, Dict, Any, Tuple
 
 
-class TestMemoryRetrieverDualQuery:
+class TestVectorRetrieverDualQuery:
     """Test dual-query retrieval with bot message"""
     
     @pytest.fixture
@@ -46,9 +46,9 @@ class TestMemoryRetrieverDualQuery:
     
     def test_retrieve_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that both user query and bot message are embedded and searched"""
-        from core.retriever import MemoryRetriever
+        from memory.vector_retriever import VectorRetriever
         
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=mock_db,
             embedding_client=mock_embedding_client,
             reranker_client=mock_reranker_client
@@ -77,9 +77,9 @@ class TestMemoryRetrieverDualQuery:
     
     def test_retrieve_without_bot_message_single_query(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that only user query is embedded when no bot message"""
-        from core.retriever import MemoryRetriever
+        from memory.vector_retriever import VectorRetriever
         
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=mock_db,
             embedding_client=mock_embedding_client,
             reranker_client=mock_reranker_client
@@ -101,7 +101,7 @@ class TestMemoryRetrieverDualQuery:
         assert mock_embedding_client.get_embedding.call_count == 1
 
 
-class TestMemoryRetrieverReranking:
+class TestVectorRetrieverReranking:
     """Test reranking logic"""
     
     @pytest.fixture
@@ -124,9 +124,9 @@ class TestMemoryRetrieverReranking:
     
     def test_reranking_applied_to_results(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that reranking is applied to search results"""
-        from core.retriever import MemoryRetriever
+        from memory.vector_retriever import VectorRetriever
         
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=mock_db,
             embedding_client=mock_embedding_client,
             reranker_client=mock_reranker_client
@@ -167,7 +167,7 @@ class TestMemoryRetrieverReranking:
         mock_reranker_client.rerank.assert_called()
 
 
-class TestMemoryRetrieverExclusion:
+class TestVectorRetrieverExclusion:
     """Test exclusion filters"""
     
     @pytest.fixture
@@ -192,9 +192,9 @@ class TestMemoryRetrieverExclusion:
     
     def test_exclude_recent_summaries_from_search(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that recent summary IDs are excluded from search"""
-        from core.retriever import MemoryRetriever
+        from memory.vector_retriever import VectorRetriever
         
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=mock_db,
             embedding_client=mock_embedding_client,
             reranker_client=mock_reranker_client
@@ -214,16 +214,16 @@ class TestMemoryRetrieverExclusion:
         assert 'exclude_ids' in str(call_args)
 
 
-class TestMemoryRetrieverFormatting:
+class TestVectorRetrieverFormatting:
     """Test result formatting"""
     
     def test_format_summaries_for_prompt(self):
         """Test that summaries are formatted correctly for prompts"""
-        from core.retriever import MemoryRetriever
-        from core.retriever import RetrievedSummary
+        from memory.vector_retriever import VectorRetriever
+        from memory.vector_retriever import RetrievedSummary
         from zoneinfo import ZoneInfo
 
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=Mock(),
             embedding_client=Mock(),
             reranker_client=Mock(),
@@ -238,7 +238,7 @@ class TestMemoryRetrieverFormatting:
             )
         ]
 
-        with patch("config.Config.TIMEZONE", ZoneInfo("UTC")):
+        with patch("core.config.Config.TIMEZONE", ZoneInfo("UTC")):
             formatted = retriever.format_summaries_for_prompt(summaries)
 
         assert len(formatted) == 1
@@ -247,10 +247,10 @@ class TestMemoryRetrieverFormatting:
     
     def test_format_conversations_for_prompt(self):
         """Test that conversations are formatted correctly for prompts"""
-        from core.retriever import MemoryRetriever, RetrievedConversation
+        from memory.vector_retriever import VectorRetriever, RetrievedConversation
         from zoneinfo import ZoneInfo
 
-        retriever = MemoryRetriever(
+        retriever = VectorRetriever(
             db=Mock(),
             embedding_client=Mock(),
             reranker_client=Mock(),
@@ -265,8 +265,8 @@ class TestMemoryRetrieverFormatting:
             )
         ]
 
-        with patch("config.Config.TIMEZONE", ZoneInfo("UTC")):
-            with patch("prompts.system.load_seele_json") as mock_load_seele_json:
+        with patch("core.config.Config.TIMEZONE", ZoneInfo("UTC")):
+            with patch("prompts.load_seele_json") as mock_load_seele_json:
                 mock_load_seele_json.return_value = {
                     "bot": {"name": "Seele"},
                     "user": {"name": "Anna"},
@@ -281,3 +281,6 @@ class TestMemoryRetrieverFormatting:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+

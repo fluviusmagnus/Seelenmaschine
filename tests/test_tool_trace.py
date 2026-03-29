@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -54,7 +53,7 @@ def test_tool_trace_store_can_return_full_result_by_trace_id(tmp_path):
     trace_id = store.append_trace(
         session_id=1,
         tool_name="read_file",
-        arguments={"file_path": "src/llm/client.py"},
+        arguments={"file_path": "src/llm/chat_client.py"},
         result="x" * 900,
         status="success",
         duration_ms=33,

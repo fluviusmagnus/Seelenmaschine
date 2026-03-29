@@ -11,9 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call, AsyncMock
-from typing import List, Dict, Any
 
 
 class TestMemoryManagerSessionManagement:
@@ -54,16 +54,16 @@ class TestMemoryManagerSessionManagement:
     async def test_ensure_active_session_creates_new(self, mock_db, mock_embedding_client, 
                                                       mock_reranker_client):
         """Test that new session is created when no active session exists"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Setup: no active session
         mock_db.get_active_session.return_value = None
         mock_db.create_session.return_value = 42
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
             mock_ctx_class.return_value = Mock()
             
-            mm = MemoryManager(
+            MemoryManager(
                 db=mock_db,
                 embedding_client=mock_embedding_client,
                 reranker_client=mock_reranker_client
@@ -76,7 +76,7 @@ class TestMemoryManagerSessionManagement:
     async def test_ensure_active_session_restores_existing(self, mock_db, mock_embedding_client,
                                                             mock_reranker_client):
         """Test that existing session context is restored"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Setup: existing active session with summaries
         mock_db.get_active_session.return_value = {"session_id": 42}
@@ -86,14 +86,14 @@ class TestMemoryManagerSessionManagement:
         ]
         mock_db.get_unsummarized_conversations.return_value = []
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
             mock_ctx = Mock()
             mock_ctx.add_summary = Mock()
             mock_ctx.add_message = Mock()
             mock_ctx.get_recent_summary_ids = Mock(return_value=[])
             mock_ctx_class.return_value = mock_ctx
             
-            mm = MemoryManager(
+            MemoryManager(
                 db=mock_db,
                 embedding_client=mock_embedding_client,
                 reranker_client=mock_reranker_client
@@ -143,42 +143,6 @@ class TestMemoryManagerSummarization:
         client.generate_memory_update_async = AsyncMock(return_value='{"user": {"name": "Test"}}')
         return client
     
-    @pytest.mark.skip(reason="Requires complex LLM mocking - needs proper async mock setup")
-    def test_summary_trigger_at_threshold(self, mock_db, mock_embedding_client, mock_reranker_client):
-        """Test summarization is triggered at threshold"""
-        from core.memory import MemoryManager
-        
-        # Create 24 conversations (at trigger threshold)
-        conversations = [
-            {"timestamp": 1000 + i, "role": "user" if i % 2 == 0 else "assistant", "text": f"Message {i}"}
-            for i in range(24)
-        ]
-        mock_db.get_unsummarized_conversations.return_value = conversations
-        
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config') as mock_config_class:
-                mock_config = Mock()
-                mock_config.CONTEXT_WINDOW_TRIGGER_SUMMARY = 24
-                mock_config.CONTEXT_WINDOW_KEEP_MIN = 12
-                mock_config.RECENT_SUMMARIES_MAX = 3
-                mock_config_class.return_value = mock_config
-                
-                mock_ctx = Mock()
-                mock_ctx.add_message = Mock()
-                mock_ctx.get_recent_summary_ids = Mock(return_value=[])
-                mock_ctx_class.return_value = mock_ctx
-                
-                mm = MemoryManager(
-                    db=mock_db,
-                    embedding_client=mock_embedding_client,
-                    reranker_client=mock_reranker_client
-                )
-                
-                # TODO: This test needs the _generate_summary method to be properly mocked
-                # The test verifies the condition is met for triggering summarization
-                assert len(conversations) >= 24
-
-
 class TestMemoryManagerRetrieval:
     """Test memory retrieval logic"""
     
@@ -205,14 +169,14 @@ class TestMemoryManagerRetrieval:
     
     def test_retrieve_excludes_recent_summaries(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that recent summaries in context window are excluded from search"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
         # Setup: no active session to avoid _restore_context_from_session
         mock_db.get_active_session.return_value = None
         mock_db.create_session.return_value = 42
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('core.memory.MemoryRetriever') as mock_retriever_class:
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('memory.manager.VectorRetriever') as mock_retriever_class:
                 mock_ctx = Mock()
                 mock_ctx.get_recent_summary_ids.return_value = [1, 2, 3]
                 mock_ctx_class.return_value = mock_ctx
@@ -240,3 +204,6 @@ class TestMemoryManagerRetrieval:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+

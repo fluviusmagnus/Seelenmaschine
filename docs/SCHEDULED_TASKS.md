@@ -8,7 +8,7 @@ Seelenmaschine 内置了强大的定时任务功能，支持：
 - ⏰ **智能任务触发**：触发后通过 LLM 生成个性化回复，而非直接发送固定消息
 - 🔄 **周期性任务**：按固定间隔重复执行
 - 📝 **任务管理**：列表、暂停、恢复、取消
-- 💬 **通过 Telegram 自动发送消息
+- 💬 **通过 Telegram 自动发送消息**
 
 ## 核心设计理念
 
@@ -32,13 +32,13 @@ AI 生成: "下午好！工作了一会儿了，记得站起来活动一下，
 
 ## 通过对话使用
 
-最简单的方式是直接告诉 AI 你的需求，它会调用 `scheduled_task` skill：
+最简单的方式是直接告诉 AI 你的需求，它会调用 `scheduled_task` 工具：
 
 ### 添加一次性提醒
 
 ```
 你: 提醒我明天下午 3 点开会
-AI: [调用 scheduled_task skill]
+AI: [调用 scheduled_task 工具]
     ✓ Task created (ID: abc123...)
     Name: Meeting Reminder
     Type: One-time
@@ -50,7 +50,7 @@ AI: [调用 scheduled_task skill]
 
 ```
 你: 每天早上 8 点提醒我喝水
-AI: [调用 scheduled_task skill]
+AI: [调用 scheduled_task 工具]
     ✓ Task created (ID: def456...)
     Name: Daily Water Reminder
     Type: Recurring
@@ -62,7 +62,7 @@ AI: [调用 scheduled_task skill]
 
 ```
 你: 列出我的所有定时任务
-AI: [调用 scheduled_task skill]
+AI: [调用 scheduled_task 工具]
     Active tasks (2):
     
     • Meeting Reminder (ID: abc123...)
@@ -81,15 +81,15 @@ AI: [调用 scheduled_task skill]
 
 ```
 你: 暂停任务 def456
-AI: [调用 scheduled_task skill]
+AI: [调用 scheduled_task 工具]
     ✓ Task paused: Daily Water Reminder
 
 你: 恢复任务 def456
-AI: [调用 scheduled_task skill]
+AI: [调用 scheduled_task 工具]
     ✓ Task resumed: Daily Water Reminder
 
 你: 取消任务 abc123
-AI: [调用 scheduled_task skill]
+AI: [调用 scheduled_task 工具]
     ✓ Task cancelled: Meeting Reminder
 ```
 
@@ -170,11 +170,11 @@ AI: [调用 scheduled_task skill]
 
 ### 数据保存策略
 
-| 数据 | 保存到数据库 | 计入上下文 | 说明 |
-|------|-------------|-----------|------|
-| 任务消息 (`message`) | ❌ 否 | ❌ 否 | 仅用于触发 LLM，不保存 |
-| 任务名称 (`name`) | ✅ 是 | ❌ 否 | 用于列出和管理任务 |
-| LLM 生成的回复 | ✅ 是 | ✅ 是 | 作为正常对话保存 |
+| 数据                 | 保存到数据库 | 计入上下文 | 说明                   |
+| -------------------- | ------------ | ---------- | ---------------------- |
+| 任务消息 (`message`) | ❌ 否         | ❌ 否       | 仅用于触发 LLM，不保存 |
+| 任务名称 (`name`)    | ✅ 是         | ❌ 否       | 用于列出和管理任务     |
+| LLM 生成的回复       | ✅ 是         | ✅ 是       | 作为正常对话保存       |
 
 ### 数据库表结构
 
@@ -259,7 +259,7 @@ scheduler.stop()
 运行单元测试：
 
 ```bash
-.venv/bin/python -m pytest tests/test_scheduler.py -v
+python -m pytest tests/test_scheduler.py -v
 ```
 
 测试覆盖：

@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, Union, Tuple, List
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 from tools.file_io import _resolve_file_path
 
@@ -377,3 +377,4 @@ class GlobSearchTool:
         if truncated:
             result += f"\n\n(Results truncated to match limit {_MAX_MATCHES}.)"
         return result
+

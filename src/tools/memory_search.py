@@ -1,15 +1,12 @@
 from typing import Dict, Any
+from datetime import datetime, timedelta
 
 from core.database import DatabaseManager
 from utils.time import timestamp_to_str
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
-
-
-
-
 
 class MemorySearchTool:
     """Tool for LLM to query its own memory using keyword search"""
@@ -111,6 +108,24 @@ Leave empty to search using only filters (role, time range).""",
     def is_disabled(self) -> bool:
         return self._disabled
 
+    @staticmethod
+    def _fts_syntax_error_message(details: str) -> str:
+        """Build a consistent user-facing FTS syntax error message."""
+        return (
+            f"FTS5 query syntax error: {details}\n\n"
+            'Valid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n'
+            "- (电影 OR 音乐) AND Anna"
+        )
+
+    @staticmethod
+    def _invalid_query_message(error_msg: str) -> str:
+        """Build a consistent validation error message for bad queries."""
+        return (
+            f"Invalid query syntax: {error_msg}\n\n"
+            'Valid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n'
+            "- (电影 OR 音乐) AND Anna"
+        )
+
     def _validate_fts_query(self, query: str) -> tuple[bool, str]:
         """Validate FTS5 query syntax and provide helpful error messages.
 
@@ -143,6 +158,104 @@ Leave empty to search using only filters (role, time range).""",
             return False, "; ".join(errors)
 
         return True, ""
+
+    @staticmethod
+    def _parse_date_filter(date_str: str, *, end_of_day: bool = False) -> int:
+        """Parse a date filter string into a timezone-aware timestamp."""
+        tz = Config.TIMEZONE
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            if end_of_day:
+                dt = dt.replace(hour=23, minute=59, second=59)
+
+        dt = dt.replace(tzinfo=tz)
+        return int(dt.timestamp())
+
+    @staticmethod
+    def _time_period_start_timestamp(time_period: str) -> int | None:
+        """Translate a named recent time period into a start timestamp."""
+        now = datetime.now(Config.TIMEZONE)
+        periods = {
+            "last_day": timedelta(days=1),
+            "last_week": timedelta(weeks=1),
+            "last_month": timedelta(days=30),
+            "last_year": timedelta(days=365),
+        }
+        delta = periods.get(time_period)
+        if delta is None:
+            return None
+        return int((now - delta).timestamp())
+
+    def _search_with_fts_guard(self, search_func, **kwargs):
+        """Run a DB search and convert FTS syntax failures into user-facing text."""
+        try:
+            return search_func(**kwargs)
+        except Exception as error:
+            error_text = str(error)
+            if "fts5" in error_text.lower() or "syntax" in error_text.lower():
+                return self._fts_syntax_error_message(error_text)
+            raise
+
+    @staticmethod
+    def _append_search_criteria(
+        result: list[str],
+        *,
+        query: str,
+        role: str,
+        time_period: str,
+        start_date: str,
+        end_date: str,
+    ) -> None:
+        """Append a one-line summary of active search filters."""
+        criteria = []
+        if query:
+            criteria.append(f"keywords: '{query}'")
+        if role:
+            criteria.append(f"role: {role}")
+        if time_period:
+            criteria.append(f"time: {time_period}")
+        elif start_date or end_date:
+            if start_date and end_date:
+                criteria.append(f"time: {start_date} to {end_date}")
+            elif start_date:
+                criteria.append(f"time: from {start_date}")
+            else:
+                criteria.append(f"time: until {end_date}")
+
+        if criteria:
+            result.append(f"Search criteria: {', '.join(criteria)}\n")
+
+    @staticmethod
+    def _append_summary_results(
+        result: list[str], summary_results: list[tuple[Any, ...]]
+    ) -> None:
+        """Append formatted summary matches to the output buffer."""
+        if not summary_results:
+            return
+
+        result.append("== Related Summaries ==")
+        for _summary_id, summary, _first_ts, last_ts, _rank in summary_results:
+            time_str = timestamp_to_str(last_ts, tz=Config.TIMEZONE)
+            result.append(f"[{time_str}] {summary}")
+
+    @staticmethod
+    def _append_conversation_results(
+        result: list[str], conversation_results: list[tuple[Any, ...]]
+    ) -> None:
+        """Append formatted conversation matches to the output buffer."""
+        if not conversation_results:
+            return
+
+        if result and not result[-1].startswith("=="):
+            result.append("")
+
+        result.append("== Related Conversations ==")
+        for _conv_id, timestamp, conv_role, text, _rank in conversation_results:
+            time_str = timestamp_to_str(timestamp, tz=Config.TIMEZONE)
+            role_display = "User" if conv_role == "user" else "Assistant"
+            result.append(f"[{time_str}] {role_display}: {text}")
 
     def _sanitize_query(self, query: str) -> str:
         """Sanitize query to prevent FTS5 syntax errors.
@@ -187,8 +300,6 @@ Leave empty to search using only filters (role, time range).""",
             return "Memory search is disabled during response generation to prevent recursion"
 
         try:
-            from datetime import datetime, timedelta
-
             # Sanitize query to fix FTS5 issues with dates
             if query:
                 query = self._sanitize_query(query)
@@ -198,7 +309,7 @@ Leave empty to search using only filters (role, time range).""",
                 is_valid, error_msg = self._validate_fts_query(query)
 
                 if not is_valid:
-                    return f'Invalid query syntax: {error_msg}\n\nValid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n- (电影 OR 音乐) AND Anna'
+                    return self._invalid_query_message(error_msg)
 
             # Parse time filters
             start_timestamp = None
@@ -206,43 +317,20 @@ Leave empty to search using only filters (role, time range).""",
 
             # Handle time_period presets
             if time_period:
-                tz = Config.TIMEZONE  # Already a ZoneInfo object
-                now = datetime.now(tz)
-
-                if time_period == "last_day":
-                    start_timestamp = int((now - timedelta(days=1)).timestamp())
-                elif time_period == "last_week":
-                    start_timestamp = int((now - timedelta(weeks=1)).timestamp())
-                elif time_period == "last_month":
-                    start_timestamp = int((now - timedelta(days=30)).timestamp())
-                elif time_period == "last_year":
-                    start_timestamp = int((now - timedelta(days=365)).timestamp())
+                start_timestamp = self._time_period_start_timestamp(time_period)
 
             # Handle explicit date ranges (override time_period if provided)
             if start_date:
                 try:
-                    tz = Config.TIMEZONE  # Already a ZoneInfo object
-                    # Try parsing with time first, then date only
-                    try:
-                        dt = datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        dt = datetime.strptime(start_date, "%Y-%m-%d")
-                    dt = dt.replace(tzinfo=tz)
-                    start_timestamp = int(dt.timestamp())
+                    start_timestamp = self._parse_date_filter(start_date)
                 except ValueError:
                     return f"Invalid start_date format: {start_date}. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
 
             if end_date:
                 try:
-                    tz = Config.TIMEZONE  # Already a ZoneInfo object
-                    try:
-                        dt = datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        dt = datetime.strptime(end_date, "%Y-%m-%d")
-                        # Set to end of day
-                        dt = dt.replace(hour=23, minute=59, second=59)
-                    dt = dt.replace(tzinfo=tz)
-                    end_timestamp = int(dt.timestamp())
+                    end_timestamp = self._parse_date_filter(
+                        end_date, end_of_day=True
+                    )
                 except ValueError:
                     return f"Invalid end_date format: {end_date}. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
 
@@ -251,69 +339,41 @@ Leave empty to search using only filters (role, time range).""",
                 return "Please provide at least one search criterion (query, role, or time filter)"
 
             # Search summaries by keyword (exclude current session)
-            try:
-                summary_results = self.db.search_summaries_by_keyword(
-                    query=query if query else None,
-                    limit=limit // 2,
-                    exclude_session_id=self.session_id,
-                    start_timestamp=start_timestamp,
-                    end_timestamp=end_timestamp,
-                )
-            except Exception as e:
-                if "fts5" in str(e).lower() or "syntax" in str(e).lower():
-                    return f'FTS5 query syntax error: {str(e)}\n\nValid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n- (电影 OR 音乐) AND Anna'
-                raise
+            summary_results = self._search_with_fts_guard(
+                self.db.search_summaries_by_keyword,
+                query=query if query else None,
+                limit=limit // 2,
+                exclude_session_id=self.session_id,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
+            if isinstance(summary_results, str):
+                return summary_results
 
             # Search conversations by keyword (exclude current session)
-            try:
-                conversation_results = self.db.search_conversations_by_keyword(
-                    query=query if query else None,
-                    limit=limit // 2,
-                    exclude_session_id=self.session_id,
-                    role=role,
-                    start_timestamp=start_timestamp,
-                    end_timestamp=end_timestamp,
-                )
-            except Exception as e:
-                if "fts5" in str(e).lower() or "syntax" in str(e).lower():
-                    return f'FTS5 query syntax error: {str(e)}\n\nValid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n- (电影 OR 音乐) AND Anna'
-                raise
+            conversation_results = self._search_with_fts_guard(
+                self.db.search_conversations_by_keyword,
+                query=query if query else None,
+                limit=limit // 2,
+                exclude_session_id=self.session_id,
+                role=role,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
+            if isinstance(conversation_results, str):
+                return conversation_results
 
             result = []
-
-            # Add search criteria summary
-            criteria = []
-            if query:
-                criteria.append(f"keywords: '{query}'")
-            if role:
-                criteria.append(f"role: {role}")
-            if time_period:
-                criteria.append(f"time: {time_period}")
-            elif start_date or end_date:
-                if start_date and end_date:
-                    criteria.append(f"time: {start_date} to {end_date}")
-                elif start_date:
-                    criteria.append(f"time: from {start_date}")
-                else:
-                    criteria.append(f"time: until {end_date}")
-
-            if criteria:
-                result.append(f"Search criteria: {', '.join(criteria)}\n")
-
-            if summary_results:
-                result.append("== Related Summaries ==")
-                for summary_id, summary, first_ts, last_ts, rank in summary_results:
-                    time_str = timestamp_to_str(last_ts, tz=Config.TIMEZONE)
-                    result.append(f"[{time_str}] {summary}")
-
-            if conversation_results:
-                if result and not result[-1].startswith("=="):
-                    result.append("")  # Empty line separator
-                result.append("== Related Conversations ==")
-                for conv_id, timestamp, conv_role, text, rank in conversation_results:
-                    time_str = timestamp_to_str(timestamp, tz=Config.TIMEZONE)
-                    role_display = "User" if conv_role == "user" else "Assistant"
-                    result.append(f"[{time_str}] {role_display}: {text}")
+            self._append_search_criteria(
+                result,
+                query=query,
+                role=role,
+                time_period=time_period,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            self._append_summary_results(result, summary_results)
+            self._append_conversation_results(result, conversation_results)
 
             if not summary_results and not conversation_results:
                 return "No relevant memories found matching the search criteria"
@@ -323,3 +383,4 @@ Leave empty to search using only filters (role, time range).""",
         except Exception as e:
             logger.error(f"Memory search failed: {e}", exc_info=True)
             return f"Memory search failed: {str(e)}"
+

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 import sys
-import signal
 from pathlib import Path
 
 # Add project root to path for absolute imports
 sys.path.insert(0, str(Path(__file__).parent.parent))  # project root
 
-from config import init_config
-from tg_bot.bot import TelegramBot
-from tg_bot.handlers import MessageHandler
-from utils.logger import get_logger
-
-logger = get_logger()
+from adapter.telegram.adapter import TelegramAdapter
+from adapter.telegram.controller import TelegramController
+from core.bot import CoreBot
+from core.config import init_config
+from core.runtime import SchedulerRuntime, register_stop_signal_handlers
 
 
 def main():
@@ -21,23 +19,16 @@ def main():
 
     profile = sys.argv[1]
     init_config(profile)
-
-    logger.info(f"Starting Seelenmaschine with profile: {profile}")
-
-    message_handler = MessageHandler()
-
-    bot = TelegramBot(message_handler=message_handler)
-    bot.create_application()
-
-    # Signal handlers use stop() method which is public API
-    signal.signal(
-        signal.SIGINT, lambda sig, frame: bot.stop() if hasattr(bot, "stop") else None
+    core_bot = CoreBot()
+    message_handler = TelegramController(core_bot=core_bot)
+    adapter = TelegramAdapter(message_handler=message_handler)
+    scheduler_runtime = SchedulerRuntime(core_bot.scheduler)
+    adapter.create_application(
+        post_init=scheduler_runtime.build_post_init(),
+        post_shutdown=scheduler_runtime.build_post_shutdown(),
     )
-    signal.signal(
-        signal.SIGTERM, lambda sig, frame: bot.stop() if hasattr(bot, "stop") else None
-    )
-
-    bot.run()
+    register_stop_signal_handlers(adapter.stop)
+    adapter.run()
 
 
 if __name__ == "__main__":

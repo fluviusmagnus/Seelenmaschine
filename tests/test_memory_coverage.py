@@ -5,9 +5,8 @@ This module tests methods not covered by existing tests to increase coverage.
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 import pytest
-import json
 
 # Add paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,11 +40,11 @@ class TestMemoryManagerSessionOperations:
     
     def test_reset_session(self, mock_dependencies):
         """Test reset_session method"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                     mock_ctx = Mock()
                     mock_ctx.get_recent_summary_ids = Mock(return_value=[])
                     mock_ctx.add_summary = Mock()
@@ -92,12 +91,12 @@ class TestMemoryManagerMessageOperations:
     
     def test_add_user_message(self, mock_dependencies):
         """Test add_user_message method"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('core.memory.MemoryRetriever'):
-                with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                    with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('memory.manager.VectorRetriever'):
+                with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                    with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                         mock_ctx = Mock()
                         mock_ctx.get_recent_summary_ids = Mock(return_value=[])
                         mock_ctx.add_message = Mock()
@@ -121,12 +120,12 @@ class TestMemoryManagerMessageOperations:
     
     def test_add_assistant_message(self, mock_dependencies):
         """Test add_assistant_message method"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('core.memory.MemoryRetriever'):
-                with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                    with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('memory.manager.VectorRetriever'):
+                with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                    with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                         mock_ctx = Mock()
                         mock_ctx.get_recent_summary_ids = Mock(return_value=[])
                         mock_ctx.add_message = Mock()
@@ -169,11 +168,11 @@ class TestMemoryManagerUtilityMethods:
     
     def test_get_context_messages(self, mock_dependencies):
         """Test get_context_messages method"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                     mock_ctx = Mock()
                     mock_ctx.get_recent_summary_ids = Mock(return_value=[])
                     mock_ctx.get_context_as_messages = Mock(return_value=[
@@ -197,11 +196,11 @@ class TestMemoryManagerUtilityMethods:
     
     def test_get_recent_summaries(self, mock_dependencies):
         """Test get_recent_summaries method"""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
         
-        with patch('core.memory.ContextWindow') as mock_ctx_class:
-            with patch('config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
-                with patch('config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
+        with patch('memory.manager.ContextWindow') as mock_ctx_class:
+            with patch('core.config.Config.CONTEXT_WINDOW_TRIGGER_SUMMARY', 24):
+                with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                     mock_ctx = Mock()
                     mock_ctx.get_recent_summary_ids = Mock(return_value=[])
                     mock_ctx.get_recent_summaries_as_text = Mock(return_value=[
@@ -230,7 +229,7 @@ class TestMemoryManagerJsonUtils:
     @pytest.fixture
     def memory_manager(self):
         """Create a minimal MemoryManager instance for utility-method tests."""
-        from core.memory import MemoryManager
+        from memory.manager import MemoryManager
 
         db = Mock()
         db.get_active_session.return_value = {"session_id": 1}
@@ -271,3 +270,6 @@ class TestMemoryManagerJsonUtils:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+

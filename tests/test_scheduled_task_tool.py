@@ -1,8 +1,7 @@
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from typing import Dict, Any, Optional
+from unittest.mock import Mock
 
-from tools.scheduled_task_tool import ScheduledTaskTool
+from tools.scheduled_tasks import ScheduledTaskTool
 
 
 @pytest.fixture

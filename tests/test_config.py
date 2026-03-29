@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch, Mock
 
-from config import Config, init_config
+from core.config import Config, init_config
 
 
 @pytest.fixture
@@ -424,3 +424,4 @@ class TestInitConfig:
         with patch.object(Config, "init") as mock_init:
             init_config("test_profile")
             mock_init.assert_called_once_with("test_profile")
+

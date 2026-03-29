@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-This directory contains Seelenmaschine's data migration tool for upgrading old version data (Legacy Database and Text Profiles) to the latest version 3.1.
+This directory contains Seelenmaschine's data migration tool for upgrading old data (legacy database and text profiles) to the current database schema version.
 
 ## Unified Migration Tool (`migrate.py`)
 
@@ -12,7 +12,7 @@ This directory contains Seelenmaschine's data migration tool for upgrading old v
 
 1.  **Automatic source file detection**: Automatically finds old data in `data/<profile>/` or `data/<profile>/backup/`.
 2.  **Text to JSON**: Uses LLM to convert old `persona_memory.txt` and `user_profile.txt` to the new `seele.json` format.
-3.  **Database migration**: Migrates old `chat_sessions.db` to the new `chatbot.db` and applies the latest version 3.1 Schema (supports FTS5 full-text search, etc.).
+3.  **Database migration**: Migrates old `chat_sessions.db` to the new `chatbot.db` and applies the current schema (including FTS5 and scheduled-task related upgrades).
 4.  **Automatic backup**: Automatically backs up existing data to the `migration_backup_YYYYMMDD_HHMMSS` directory before modification.
 
 ### How to Use
@@ -41,7 +41,7 @@ After migration is complete, you can verify with the following steps:
 1.  **Check database version**:
     ```bash
     sqlite3 data/<profile>/chatbot.db "SELECT value FROM meta WHERE key='schema_version';"
-    # Should output: 3.1
+    # Should output the current schema_version (for example, 3.1)
     ```
 
 2.  **Check full-text search tables**:
@@ -59,7 +59,7 @@ After migration is complete, you can verify with the following steps:
 
 Although the migration tool automatically creates backups, we still recommend manually backing up the `data/<profile>/` directory before operations. If migration fails, you can restore files from the generated backup directory.
 
-## Dropdown Menu (Old Document Reference)
+## Related Documents
 
-- [MIGRATION_GUIDE.md](../MIGRATION_GUIDE.md) (Deleted, content integrated here)
 - [README_EN.md](../README_EN.md) - Main project documentation
+- [docs/README_EN.md](../docs/README_EN.md) - Documentation index

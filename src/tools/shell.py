@@ -1,6 +1,7 @@
 import asyncio
 import locale
 import os
+import re as _re
 import signal
 import subprocess
 import sys
@@ -8,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from config import Config
+from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -30,9 +31,6 @@ def smart_decode(data: bytes) -> str:
     except Exception as e:
         return f"[Decode Error Occurred: {e}]"
     return decoded_str.strip("\n")
-
-
-import re as _re
 
 # Compiled regex patterns for dangerous shell command detection
 _DANGEROUS_PATTERNS: list[tuple[str, _re.Pattern]] = [
@@ -531,3 +529,4 @@ class ShellCommandTool:
 
         except Exception as e:
             return f"Error: Shell command execution failed due to \n{e}"
+

@@ -27,7 +27,7 @@ python -m ruff check src
 python -m ruff check --fix src
 
 # Check a specific file
-python -m ruff check src/tg_bot/handlers.py
+python -m ruff check src/adapter/telegram/handlers.py
 ```
 
 If you explicitly need the virtualenv executable path:
@@ -62,7 +62,7 @@ If you explicitly need the virtualenv executable path:
 
 ### Imports
 - Order: standard library -> third-party -> local modules
-- Use absolute imports for local modules (for example, `from config import Config`)
+- Use absolute imports for local modules (for example, `from core.config import Config`)
 - Group imports with blank lines between categories
 
 ```python
@@ -71,8 +71,8 @@ from datetime import datetime
 
 from openai import AsyncOpenAI
 
-from config import Config
-from core.memory import MemoryManager
+from core.config import Config
+from memory.manager import MemoryManager
 ```
 
 ### Type Hints
@@ -123,13 +123,13 @@ logger.error(f"Failed to retrieve data: {error}")
 ```
 
 ### Configuration
-- All runtime configuration goes through the `Config` class in [`src/config.py`](src/config.py)
+- All runtime configuration goes through the `Config` class in [`src/core/config.py`](src/core/config.py)
 - Use `Config.*` for accessing settings
 - Initialize config with `init_config(profile)` before constructing objects that depend on profile-specific paths or settings
 - Be careful with module-level imports that read `Config` values too early
 
 ```python
-from config import Config, init_config
+from core.config import Config, init_config
 
 init_config(profile)
 
@@ -173,12 +173,51 @@ message = f"Processing {item_type} with ID {item_id}"
 - Use `@staticmethod` only for methods that do not need instance state
 - Keep methods focused and single-purpose
 
+## Architecture Ownership and Refactor Style
+
+### Ownership Boundary
+- `adapter` is the transport / I/O boundary and should only own platform-specific ingress, egress, formatting, and delivery behavior
+- `core` owns system behavior, runtime wiring, approval flow, session flow, tool execution, and file-delivery policy
+- Practical rule: if code would still matter after removing Telegram, it belongs in `core`
+- If code depends on Telegram update/message/output semantics, it belongs in `adapter`
+
+### Where New Code Should Go
+- Move ownership to `core` before adding new adapter helpers
+- Do not let adapter-side code accumulate stateful workflow logic that is not inherently Telegram-specific
+- Keep Telegram controllers and adapter services thin: they should assemble boundary services and delegate to `core`
+- Prefer adding new behavior to existing core owners before introducing a new layer
+
+### Refactor Direction
+- Prefer deleting thin pass-through wrappers when they do not protect a real boundary
+- Prefer collapsing short-lived transitional seams after ownership has stabilized
+- Reduce duplicated `create_*`, `get_*`, and `attach_*` scaffolding when it adds ceremony more than clarity
+- Do not reintroduce adapter-side runtime/manager/host/bridge layers for core behavior
+- Do not introduce new façade/host/helper layers unless they clearly own distinct state, lifecycle, or policy
+
+### Runtime Shape
+- Keep `CoreBot` as the direct core runtime entry surface
+- Keep adapter controllers focused on boundary orchestration, not business ownership
+- Keep tool/runtime ownership inside `core`, especially in `core.tools` and `core.bot`
+
+### Refactor Style
+- Prefer small, low-risk simplification steps over speculative rewrites
+- Optimize for reducing redundant abstraction layers
+- Keep registrations and state access direct when extra indirection adds no ownership clarity
+- Avoid splitting modules only for cosmetic reasons; split only when ownership becomes clearer
+- Prefer deleting obsolete compatibility layers instead of preserving them indefinitely
+
+### Tests During Refactors
+- Update tests to target the real owner of behavior, not historical shells
+- For architecture cleanup, prefer focused regression coverage before broad rewrites
+- Keep the existing Telegram/Core regression set healthy when changing ownership boundaries
+
 ### File Structure
 - `src/` - All Python source code
-- `src/core/` - Core components (`database.py`, `memory.py`, `scheduler.py`, `retriever.py`, `context.py`)
-- `src/llm/` - LLM clients (`embedding.py`, `reranker.py`, `client.py`)
-- `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_task_tool.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_telegram_file_tool.py`, `tool_trace.py`)
-- `src/tg_bot/` - Telegram bot implementation
+- `src/core/` - Application coordination (`approval.py`, `config.py`, `conversation.py`, `database.py`, `scheduler.py`, `tools.py`)
+- `src/memory/` - Memory subsystem (`manager.py`, `context.py`, `vector_retriever.py`, `recall.py`, `sessions.py`, `summaries.py`, `seele.py`)
+- `src/llm/` - LLM clients and orchestration helpers (`chat_client.py`, `memory_client.py`, `request_executor.py`, `tool_loop.py`, `message_builder.py`, `embedding.py`, `reranker.py`)
+- `src/adapter/telegram/` - Telegram adapter implementation
+- `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_tasks.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_file.py`, `tool_trace.py`)
 - `src/prompts/` - Prompt builders and prompt-related helpers
 - `src/utils/` - Utilities (`logger.py`, `time.py`, `text.py`)
 - `data/<profile>/` - Profile-specific data directory
