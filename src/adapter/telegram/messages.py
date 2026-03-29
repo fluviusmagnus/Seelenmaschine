@@ -38,6 +38,16 @@ class TelegramMessages:
         self.format_exception_for_user = format_exception_for_user
         self.intermediate_callback = intermediate_callback
 
+    async def _safe_reply_text(self, reply_text: Any, text: str) -> None:
+        """Best-effort Telegram reply that never re-raises delivery failures."""
+        try:
+            await reply_text(text)
+        except Exception as send_error:
+            logger.error(
+                f"Failed to send Telegram reply message: {send_error}",
+                exc_info=True,
+            )
+
     async def send_scheduled_message(
         self,
         application: Any,
@@ -108,7 +118,9 @@ class TelegramMessages:
             pending_request = None
 
         if pending_request is not None:
-            await update.message.reply_text("❌ Pending action aborted.")
+            await self._safe_reply_text(
+                update.message.reply_text, "❌ Pending action aborted."
+            )
             return
 
         try:
@@ -136,9 +148,10 @@ class TelegramMessages:
                 )
         except Exception as error:
             logger.error(f"Error handling message: {error}", exc_info=True)
-            await update.message.reply_text(
+            await self._safe_reply_text(
+                update.message.reply_text,
                 "Sorry, an error occurred while processing your message.\n\n"
-                f"Details: {self.format_exception_for_user(error)}"
+                f"Details: {self.format_exception_for_user(error)}",
             )
 
     async def handle_file(

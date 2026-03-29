@@ -144,6 +144,9 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.get_updates_request.return_value = (
+                    mock_builder_instance
+                )
                 mock_builder_instance.connect_timeout.return_value = (
                     mock_builder_instance
                 )
@@ -163,6 +166,7 @@ class TestTelegramAdapterApplication:
                 )
                 mock_builder_instance.token.assert_called_once_with("test_token")
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
+                mock_builder_instance.get_updates_request.assert_called_once()
                 mock_builder_instance.connect_timeout.assert_called_once_with(15.0)
                 mock_builder_instance.read_timeout.assert_called_once_with(30.0)
                 mock_builder_instance.write_timeout.assert_called_once_with(30.0)
@@ -182,6 +186,9 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.concurrent_updates.return_value = (
                     mock_builder_instance
                 )
+                mock_builder_instance.get_updates_request.return_value = (
+                    mock_builder_instance
+                )
                 mock_builder_instance.connect_timeout.return_value = (
                     mock_builder_instance
                 )
@@ -196,6 +203,51 @@ class TestTelegramAdapterApplication:
                 adapter.create_application()
 
                 mock_builder_instance.concurrent_updates.assert_called_once_with(True)
+
+    def test_create_application_sets_dedicated_get_updates_request_timeouts(
+        self, mock_config, mock_message_handler, mock_application
+    ):
+        """get_updates should use its own shorter request config for shutdown cleanup."""
+        from adapter.telegram.adapter import TelegramAdapter
+
+        mock_config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = 5.0
+        mock_config.TELEGRAM_GET_UPDATES_READ_TIMEOUT = 5.0
+        mock_config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = 5.0
+        mock_config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = 5.0
+
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
+                with patch("adapter.telegram.adapter.HTTPXRequest") as mock_request_cls:
+                    mock_builder_instance = mock_builder.return_value
+                    mock_builder_instance.token.return_value = mock_builder_instance
+                    mock_builder_instance.concurrent_updates.return_value = (
+                        mock_builder_instance
+                    )
+                    mock_builder_instance.get_updates_request.return_value = (
+                        mock_builder_instance
+                    )
+                    mock_builder_instance.connect_timeout.return_value = (
+                        mock_builder_instance
+                    )
+                    mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                    mock_builder_instance.write_timeout.return_value = (
+                        mock_builder_instance
+                    )
+                    mock_builder_instance.pool_timeout.return_value = mock_builder_instance
+                    mock_builder_instance.build.return_value = mock_application
+
+                    adapter = TelegramAdapter(message_handler=mock_message_handler)
+                    adapter.create_application()
+
+                    mock_request_cls.assert_called_once_with(
+                        connect_timeout=5.0,
+                        read_timeout=5.0,
+                        write_timeout=5.0,
+                        pool_timeout=5.0,
+                    )
+                    mock_builder_instance.get_updates_request.assert_called_once_with(
+                        mock_request_cls.return_value
+                    )
 
     def test_run_uses_valid_allowed_updates(
         self, mock_config, mock_message_handler, mock_application
@@ -254,6 +306,9 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance = mock_builder.return_value
                 mock_builder_instance.token.return_value = mock_builder_instance
                 mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_request.return_value = (
                     mock_builder_instance
                 )
                 mock_builder_instance.connect_timeout.return_value = (

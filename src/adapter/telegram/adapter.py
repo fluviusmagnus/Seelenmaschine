@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Callable, List, Optional
 
 from telegram import Update
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -101,10 +102,17 @@ class TelegramApplicationSetup:
         post_shutdown: Optional[Callable[[Application], Any]] = None,
     ) -> Application:
         """Build and configure the Telegram application."""
+        get_updates_request = HTTPXRequest(
+            connect_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT,
+            read_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_READ_TIMEOUT,
+            write_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT,
+            pool_timeout=self.telegram_adapter.config.TELEGRAM_GET_UPDATES_POOL_TIMEOUT,
+        )
         builder = application_builder_factory().token(
             self.telegram_adapter.config.TELEGRAM_BOT_TOKEN
         )
         builder = builder.concurrent_updates(True)
+        builder = builder.get_updates_request(get_updates_request)
         builder = builder.connect_timeout(self.telegram_adapter.config.TELEGRAM_CONNECT_TIMEOUT)
         builder = builder.read_timeout(self.telegram_adapter.config.TELEGRAM_READ_TIMEOUT)
         builder = builder.write_timeout(self.telegram_adapter.config.TELEGRAM_WRITE_TIMEOUT)

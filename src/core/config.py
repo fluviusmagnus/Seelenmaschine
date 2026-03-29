@@ -68,6 +68,10 @@ class Config:
     TELEGRAM_READ_TIMEOUT: float = 30.0
     TELEGRAM_WRITE_TIMEOUT: float = 30.0
     TELEGRAM_POOL_TIMEOUT: float = 15.0
+    TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT: float = 5.0
+    TELEGRAM_GET_UPDATES_READ_TIMEOUT: float = 5.0
+    TELEGRAM_GET_UPDATES_WRITE_TIMEOUT: float = 5.0
+    TELEGRAM_GET_UPDATES_POOL_TIMEOUT: float = 5.0
     TELEGRAM_BOOTSTRAP_RETRIES: int = 3
     NEW_SESSION_COMMAND: str = "/new"
     RESET_SESSION_COMMAND: str = "/reset"
@@ -194,6 +198,18 @@ class Config:
             "TELEGRAM_WRITE_TIMEOUT", 30.0
         )
         cls.TELEGRAM_POOL_TIMEOUT = cls._get_float("TELEGRAM_POOL_TIMEOUT", 15.0)
+        cls.TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT = cls._get_float(
+            "TELEGRAM_GET_UPDATES_CONNECT_TIMEOUT", 5.0
+        )
+        cls.TELEGRAM_GET_UPDATES_READ_TIMEOUT = cls._get_float(
+            "TELEGRAM_GET_UPDATES_READ_TIMEOUT", 5.0
+        )
+        cls.TELEGRAM_GET_UPDATES_WRITE_TIMEOUT = cls._get_float(
+            "TELEGRAM_GET_UPDATES_WRITE_TIMEOUT", 5.0
+        )
+        cls.TELEGRAM_GET_UPDATES_POOL_TIMEOUT = cls._get_float(
+            "TELEGRAM_GET_UPDATES_POOL_TIMEOUT", 5.0
+        )
         cls.TELEGRAM_BOOTSTRAP_RETRIES = cls._get_int(
             "TELEGRAM_BOOTSTRAP_RETRIES", 3
         )

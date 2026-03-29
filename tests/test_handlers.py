@@ -336,6 +336,56 @@ class TestMessageProcessing:
         assert "maximum context length exceeded" in sent_text
 
     @pytest.mark.asyncio
+    async def test_handle_message_does_not_reraise_when_error_reply_fails(self):
+        """If Telegram is unreachable during error reporting, the handler should only log."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock(
+            side_effect=RuntimeError("Request timed out.")
+        )
+        handler._send_intermediate_response = AsyncMock()
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(
+                reject_unauthorized=AsyncMock(return_value=False),
+            ),
+            approval_service=None,
+            files=Mock(),
+            response_sender=Mock(),
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(
+            handler, Mock
+        )
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "你好"
+        update.message.reply_text = AsyncMock(
+            side_effect=RuntimeError("telegram send failed")
+        )
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        await handler.handle_message(update, context)
+
+        update.message.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
         """Dangerous shell actions should continue executing after /approve."""
         from adapter.telegram.commands import TelegramCommands
