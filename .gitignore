@@ -54,6 +54,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+.ruff_cache/
 
 # Migration backups (in data directories)
 data/*/backup_*/

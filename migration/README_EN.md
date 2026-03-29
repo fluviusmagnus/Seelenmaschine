@@ -41,7 +41,7 @@ After migration is complete, you can verify with the following steps:
 1.  **Check database version**:
     ```bash
     sqlite3 data/<profile>/chatbot.db "SELECT value FROM meta WHERE key='schema_version';"
-    # Should output the current schema_version (for example, 3.1)
+    # Should output the current schema_version (for example, 3.2)
     ```
 
 2.  **Check full-text search tables**:

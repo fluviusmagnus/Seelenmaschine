@@ -130,30 +130,15 @@ Simple interval expressions:
     - ❌ "Remember to drink water" (too vague, AI cannot provide context)
     - ❌ "Check something" (too ambiguous)
 
-## Preset Task Configuration
+## Current Implementation Notes
 
-Configure tasks to auto-load at startup in `data/{profile}/scheduled_tasks.json`:
+In the current version, tasks are persisted in the `scheduled_tasks` database table, and the Telegram runtime starts the scheduler as a background coroutine.
 
-```json
-[
-  {
-    "name": "Morning Check-in",
-    "trigger_type": "interval",
-    "trigger_config": {
-      "interval": 86400
-    },
-    "message": "Ask user how they slept and what their focus is for today"
-  },
-  {
-    "name": "Project Deadline Alert",
-    "trigger_type": "once",
-    "trigger_config": {
-      "timestamp": 1738051200
-    },
-    "message": "Remind user that the quarterly report is due today and offer to help review it"
-  }
-]
-```
+That means:
+
+- Existing tasks are restored automatically after restart
+- The current codebase does **not** auto-load preset tasks from `data/{profile}/scheduled_tasks.json`
+- If you want pre-created tasks, create them through the `scheduled_task` tool or call `scheduler.add_task(...)` explicitly in code
 
 ## Technical Details
 
@@ -188,7 +173,7 @@ CREATE TABLE scheduled_tasks (
     created_at INTEGER NOT NULL,
     next_run_at INTEGER NOT NULL,
     last_run_at INTEGER,
-    status TEXT CHECK(status IN ('active', 'paused', 'completed')) DEFAULT 'active'
+    status TEXT CHECK(status IN ('active', 'paused', 'completed', 'running')) DEFAULT 'active'
 );
 ```
 
@@ -217,6 +202,8 @@ All timestamps are stored in UTC and converted to the configured timezone (`TIME
 If you need to use the scheduler directly in code:
 
 ```python
+import asyncio
+
 from core.database import DatabaseManager
 from core.scheduler import TaskScheduler
 
@@ -232,7 +219,8 @@ def my_callback(message: str, task_name: str):
 scheduler.set_message_callback(my_callback)
 
 # Start scheduler
-scheduler.start()
+# Run it as a background coroutine
+task = asyncio.create_task(scheduler.run_forever())
 
 # Add one-time task
 task_id = scheduler.add_task(
@@ -252,7 +240,10 @@ task_id = scheduler.add_task(
 
 # Stop scheduler (on program exit)
 scheduler.stop()
+await task
 ```
+
+The snippet above requires importing `asyncio` and running inside an async context.
 
 ## Testing
 
@@ -272,7 +263,7 @@ Test coverage:
 ## Limitations and Notes
 
 1. **Single-user mode**: Currently only supports single user (`TELEGRAM_USER_ID`)
-2. **Precision**: Scheduler checks every 10 seconds, accuracy is ±10 seconds
+2. **Precision**: Scheduler checks every 10 seconds, so trigger accuracy is about ±10 seconds
 3. **Persistence**: Tasks are stored in the database and automatically restored after restart
 4. **Timezone**: Ensure `TIMEZONE` in `.env` is set correctly
 5. **Tool restriction**: When processing scheduled tasks, LLM **cannot** use `scheduled_task` tool to create new tasks (to avoid loops)

@@ -130,30 +130,15 @@ AI: [调用 scheduled_task 工具]
     - ❌ "记得喝水" (太笼统，AI 无法提供上下文)
     - ❌ "Check something" (太模糊)
 
-## 预设任务配置
+## 当前实现说明
 
-在 `data/{profile}/scheduled_tasks.json` 中配置启动时自动加载的任务：
+当前版本的任务由数据库 `scheduled_tasks` 表持久化管理，Telegram 适配器启动后会把调度器作为后台任务运行。
 
-```json
-[
-  {
-    "name": "Morning Check-in",
-    "trigger_type": "interval",
-    "trigger_config": {
-      "interval": 86400
-    },
-    "message": "Ask user how they slept and what their focus is for today"
-  },
-  {
-    "name": "Project Deadline Alert",
-    "trigger_type": "once",
-    "trigger_config": {
-      "timestamp": 1738051200
-    },
-    "message": "Remind user that the quarterly report is due today and offer to help review it"
-  }
-]
-```
+也就是说：
+
+- 已创建的任务会在重启后自动恢复
+- 当前代码库**没有**从 `data/{profile}/scheduled_tasks.json` 自动加载预设任务的机制
+- 如需预置任务，建议通过对话调用 `scheduled_task` 工具创建，或在代码中显式调用 `scheduler.add_task(...)`
 
 ## 技术细节
 
@@ -188,7 +173,7 @@ CREATE TABLE scheduled_tasks (
     created_at INTEGER NOT NULL,
     next_run_at INTEGER NOT NULL,
     last_run_at INTEGER,
-    status TEXT CHECK(status IN ('active', 'paused', 'completed')) DEFAULT 'active'
+    status TEXT CHECK(status IN ('active', 'paused', 'completed', 'running')) DEFAULT 'active'
 );
 ```
 
@@ -217,6 +202,8 @@ CREATE TABLE scheduled_tasks (
 如果需要在代码中直接使用调度器：
 
 ```python
+import asyncio
+
 from core.database import DatabaseManager
 from core.scheduler import TaskScheduler
 
@@ -232,7 +219,8 @@ def my_callback(message: str, task_name: str):
 scheduler.set_message_callback(my_callback)
 
 # 启动调度器
-scheduler.start()
+# 直接作为后台协程运行
+task = asyncio.create_task(scheduler.run_forever())
 
 # 添加一次性任务
 task_id = scheduler.add_task(
@@ -252,7 +240,10 @@ task_id = scheduler.add_task(
 
 # 停止调度器（程序退出时）
 scheduler.stop()
+await task
 ```
+
+上面的代码片段需要先导入 `asyncio`，并在异步上下文中运行。
 
 ## 测试
 
@@ -272,7 +263,7 @@ python -m pytest tests/test_scheduler.py -v
 ## 限制和注意事项
 
 1. **单用户模式**: 目前仅支持单用户（`TELEGRAM_USER_ID`）
-2. **精度**: 调度器每 10 秒检查一次，精度为 ±10 秒
+2. **精度**: 调度器每 10 秒检查一次，触发精度约为 ±10 秒
 3. **持久化**: 任务存储在数据库中，重启后自动恢复
 4. **时区**: 确保 `.env` 中的 `TIMEZONE` 设置正确
 5. **工具限制**: 处理计划任务时，LLM **不能使用** `scheduled_task` 工具创建新任务（避免循环）

@@ -31,6 +31,7 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
    - Dynamically connect external tools and data sources
    - Support multiple transport methods (stdio, HTTP, SSE)
 - ⏰ **Scheduled Tasks**: Support for one-time and interval tasks
+- 🧾 **Tool Trace Logging**: Records tool execution history and exposes `query_tool_history`
 - 🛡️ **Built-in Local Tools**:
   - File operations (read, write, edit, append)
   - File search (Grep content search, Glob pattern matching)
@@ -217,6 +218,7 @@ The system integrates the following tool capabilities:
 4. **Web Search** - Web search (requires enabling)
 5. **Scheduled Tasks** - Task management
 6. **File Send** - Send files to the current user
+7. **Tool Trace Query** - Query recent tool execution history
 
 Control the enabling status of each tool through configuration files. Dangerous commands require user approval before execution.
 
@@ -230,19 +232,19 @@ Seelenmaschine/
 │   │   └── telegram/
 │   │       ├── adapter.py        # Telegram app setup and lifecycle
 │   │       ├── commands.py       # Telegram command handlers
+│   │       ├── controller.py     # Telegram controller and service wiring
 │   │       ├── delivery.py       # Segmented Telegram delivery
 │   │       ├── files.py          # Telegram file ingress/egress
 │   │       ├── formatter.py      # Telegram response formatting
-│   │       ├── handlers.py       # Telegram controller/entry surface
 │   │       ├── messages.py       # Text/file message flows
-│   │       ├── scheduled_sender.py # Scheduled message bridge
-│   │       └── tool_bridge.py    # Approval and tool-status bridge
 │   ├── core/                     # Core modules
 │   │   ├── approval.py           # Dangerous action approval flow
 │   │   ├── bot.py                # CoreBot runtime root
 │   │   ├── config.py             # Configuration management
 │   │   ├── conversation.py       # Conversation orchestration
 │   │   ├── database.py           # Database management (sqlite-vec)
+│   │   ├── file_delivery_service.py # File delivery policy and validation
+│   │   ├── runtime.py            # Runtime lifecycle helpers
 │   │   ├── scheduler.py          # Task scheduler
 │   │   ├── session_service.py    # Session lifecycle service
 │   │   └── tools.py              # Tool runtime/registry/execution orchestration
@@ -372,6 +374,13 @@ The migration tool will:
 3. Execute migration and verify results
 
 See [Migration Guide](migration/README.md) for details.
+
+## Documentation Index
+
+- [docs/README_EN.md](docs/README_EN.md) - Documentation overview
+- [docs/SCHEDULED_TASKS_EN.md](docs/SCHEDULED_TASKS_EN.md) - Scheduled tasks guide
+- [docs/SEARCH_EXAMPLES.md](docs/SEARCH_EXAMPLES.md) - Search examples
+- [migration/README_EN.md](migration/README_EN.md) - Migration guide
 
 ## License
 

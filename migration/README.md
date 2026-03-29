@@ -41,7 +41,7 @@ migrate.bat test
 1.  **检查数据库版本**：
     ```bash
     sqlite3 data/<profile>/chatbot.db "SELECT value FROM meta WHERE key='schema_version';"
-    # 应输出当前 schema_version（例如 3.1）
+    # 应输出当前 schema_version（例如 3.2）
     ```
 
 2.  **检查全文搜索表**：

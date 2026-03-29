@@ -39,11 +39,6 @@
   - 构建和测试命令
   - 开发工作流程
 
-- **[ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)** - 当前架构重构计划
-  - core / adapter 边界
-  - 当前重构进展
-  - 后续清理步骤
-
 ## 📖 按主题浏览
 
 ### 入门指南
@@ -62,7 +57,7 @@
 
 - **AI 开发**: [AGENTS.md](../AGENTS.md)
 - **数据迁移**: [migration/README.md](../migration/README.md)
-- **架构参考**: [ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)
+- **核心运行时参考**: 见 [../README.md](../README.md) 中的项目结构部分
 
 ## 🔄 文档更新
 
@@ -79,6 +74,6 @@
 
 ## 📞 获取帮助
 
-- 查看 [README.md](../README.md) 的常见问题部分
+- 查看 [README.md](../README.md) 的项目说明与运行方式
 - 查看相关功能的详细文档
 - 提交 Issue 描述你的问题

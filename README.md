@@ -31,6 +31,7 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
   - 动态连接外部工具和数据源
   - 支持多种传输方式（stdio、HTTP、SSE）
 - ⏰ **定时任务**：支持一次性任务和间隔任务
+- 🧾 **工具调用追踪**：记录工具执行历史，并支持 `query_tool_history` 查询
 - 🛡️ **内置本地工具集**：
   - 文件操作工具（读取、写入、编辑、追加）
   - 文件搜索工具（Grep内容搜索、Glob模式匹配）
@@ -217,6 +218,7 @@ start-telegram.bat hy
 4. **Web Search** - 网络搜索（需启用）
 5. **Scheduled Tasks** - 定时任务管理
 6. **File Send** - 向当前用户发送文件
+7. **Tool Trace Query** - 查询最近的工具执行历史
 
 通过配置文件控制各工具的启用状态。危险命令需要用户批准才能执行。
 
@@ -230,19 +232,19 @@ Seelenmaschine/
 │   │   └── telegram/
 │   │       ├── adapter.py        # Telegram 应用装配与生命周期
 │   │       ├── commands.py       # Telegram 命令处理
+│   │       ├── controller.py     # Telegram 控制器与服务装配
 │   │       ├── delivery.py       # Telegram 分段发送
 │   │       ├── files.py          # Telegram 文件收发
 │   │       ├── formatter.py      # Telegram 回复格式化
-│   │       ├── handlers.py       # Telegram 控制器/入口
 │   │       ├── messages.py       # 普通消息与文件消息流程
-│   │       ├── scheduled_sender.py # 定时消息发送桥接
-│   │       └── tool_bridge.py    # 审批与工具状态桥接
 │   ├── core/                     # 核心模块
 │   │   ├── approval.py           # 危险操作审批流程
 │   │   ├── bot.py                # CoreBot 运行时根对象
 │   │   ├── config.py             # 配置管理
 │   │   ├── conversation.py       # 对话编排
 │   │   ├── database.py           # 数据库管理（sqlite-vec）
+│   │   ├── file_delivery_service.py # 文件发送策略与校验
+│   │   ├── runtime.py            # 运行时生命周期辅助
 │   │   ├── scheduler.py          # 定时任务调度器
 │   │   ├── session_service.py    # 会话生命周期服务
 │   │   └── tools.py              # 工具运行时/注册/执行编排
@@ -372,6 +374,13 @@ migrate.bat <profile>                 # Windows
 3. 执行迁移并验证结果
 
 详见 [迁移指南](migration/README.md)。
+
+## 文档索引
+
+- [docs/README.md](docs/README.md) - 文档总览
+- [docs/SCHEDULED_TASKS.md](docs/SCHEDULED_TASKS.md) - 定时任务说明
+- [docs/SEARCH_EXAMPLES.md](docs/SEARCH_EXAMPLES.md) - 搜索示例
+- [migration/README.md](migration/README.md) - 数据迁移说明
 
 ## 许可证
 

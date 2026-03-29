@@ -29,11 +29,6 @@ These documents are located in the project root or adjacent directories:
   - Project structure
   - Usage instructions
 
-- **[ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)** - Current architecture refactor plan
-  - Core/adapter boundary
-  - Refactor status
-  - Next cleanup steps
-
 - **[../migration/README_EN.md](../migration/README_EN.md)** - Migration tool technical documentation
   - Migration tool architecture
   - Developer guide
@@ -62,6 +57,7 @@ These documents are located in the project root or adjacent directories:
 
 - **AI Development**: [AGENTS.md](../AGENTS.md)
 - **Data Migration**: [migration/README_EN.md](../migration/README_EN.md)
+- **Core runtime reference**: see the project structure section in [README_EN.md](../README_EN.md)
 
 ## 🔄 Documentation Updates
 
@@ -78,6 +74,6 @@ When improving documentation, please follow these principles:
 
 ## 📞 Getting Help
 
-- Check the FAQ section in [README_EN.md](../README_EN.md)
+- Check the project overview and runtime instructions in [README_EN.md](../README_EN.md)
 - Check detailed documentation for relevant features
 - Submit an Issue describing your problem
