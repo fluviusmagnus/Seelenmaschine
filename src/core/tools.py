@@ -369,6 +369,9 @@ class ToolRuntime:
 class ToolExecutor:
     """Execute registered tools with approval, tracing, and MCP fallback."""
 
+    _TOOL_CONTEXT_ARGUMENTS_PREVIEW_MAX = ToolTraceStore.ARGUMENTS_PREVIEW_MAX
+    _TOOL_CONTEXT_RESULT_PREVIEW_MAX = ToolTraceStore.RESULT_PREVIEW_MAX
+
     def __init__(
         self,
         *,
@@ -407,10 +410,36 @@ class ToolExecutor:
         except Exception:
             return str(value)
 
+    @staticmethod
+    def _truncate_preview_text(text: str, max_length: int) -> str:
+        if len(text) <= max_length:
+            return text
+        omitted = len(text) - max_length
+        return f"{text[:max_length]}...[truncated {omitted} chars]"
+
+    def _build_arguments_preview(self, arguments: Dict[str, Any]) -> str:
+        return self._truncate_preview_text(
+            self._to_json_text(arguments),
+            self._TOOL_CONTEXT_ARGUMENTS_PREVIEW_MAX,
+        )
+
+    def _build_result_preview(self, result: Any) -> str:
+        if self.record_tool_trace.__self__.store is not None:
+            store = self.record_tool_trace.__self__.store
+            return store._sanitize_and_truncate_result(  # type: ignore[attr-defined]
+                str(result),
+                self._TOOL_CONTEXT_RESULT_PREVIEW_MAX,
+            )
+        return self._truncate_preview_text(
+            str(result),
+            self._TOOL_CONTEXT_RESULT_PREVIEW_MAX,
+        )
+
     def _build_tool_context_message(
         self,
         *,
         trace_id: int,
+        status: str,
         tool_name: str,
         arguments: Dict[str, Any],
         result: Any,
@@ -418,9 +447,10 @@ class ToolExecutor:
         return (
             "[Tool Call]\n"
             f"trace_id: {trace_id}\n"
-            f'tool: "{tool_name}"\n'
-            f"arguments: {self._to_json_text(arguments)}\n"
-            f'result preview: "{self.preview_text(str(result))}"'
+            f'status: "{status}"\n'
+            f'tool_name: "{tool_name}"\n'
+            f"arguments_preview: {self._build_arguments_preview(arguments)}\n"
+            f'result_preview: "{self._build_result_preview(result)}"'
         )
 
     @staticmethod
@@ -480,11 +510,13 @@ class ToolExecutor:
         if approval_granted:
             await self.notify_approved_action_finished(tool_name, result)
         effective_trace_id = stored_trace_id or trace_id
+        status = self.infer_tool_trace_status(result)
         return {
             "result": result,
             "trace_id": effective_trace_id,
             "context_message": self._build_tool_context_message(
                 trace_id=effective_trace_id,
+                status=status,
                 tool_name=tool_name,
                 arguments=arguments,
                 result=result,
@@ -568,6 +600,7 @@ class ToolExecutor:
                 "trace_id": trace_id,
                 "context_message": self._build_tool_context_message(
                     trace_id=trace_id,
+                    status="error",
                     tool_name=tool_name,
                     arguments={},
                     result=result,
@@ -612,6 +645,7 @@ class ToolExecutor:
                     "trace_id": trace_id,
                     "context_message": self._build_tool_context_message(
                         trace_id=trace_id,
+                        status="rejected",
                         tool_name=tool_name,
                         arguments=arguments,
                         result=result,
@@ -661,6 +695,7 @@ class ToolExecutor:
                 "trace_id": trace_id,
                 "context_message": self._build_tool_context_message(
                     trace_id=trace_id,
+                    status="error",
                     tool_name=tool_name,
                     arguments=arguments,
                     result=result,

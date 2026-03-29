@@ -237,6 +237,10 @@ def test_execute_tool_memory_search(
 
     assert result["result"] == "Found memories"
     assert "[Tool Call]" in result["context_message"]
+    assert 'status: "success"' in result["context_message"]
+    assert 'tool_name: "search_memories"' in result["context_message"]
+    assert "arguments_preview:" in result["context_message"]
+    assert "result_preview:" in result["context_message"]
     memory_search_tool.execute.assert_called_once_with(query="test")
 
     trace_path = handler.core_bot.config.DATA_DIR / "tool_traces.jsonl"
@@ -284,6 +288,7 @@ async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
 
     assert result["result"] == "file content"
     assert "trace_id:" in result["context_message"]
+    assert 'tool_name: "read_file"' in result["context_message"]
     read_tool.execute.assert_awaited_once_with(file_path="notes.txt")
     handler.telegram_bot.send_message.assert_awaited()
 

@@ -233,7 +233,7 @@ class TestMessageProcessing:
                 "final_text": "最终答复",
                 "assistant_messages": ["我先查一下", "最终答复"],
                 "tool_context_messages": [
-                    '[Tool Call]\ntrace_id: 1\ntool: "search_memories"\narguments: {"query": "test"}\nresult preview: "ok"'
+                    '[Tool Call]\ntrace_id: 1\nstatus: "success"\ntool_name: "search_memories"\narguments_preview: {"query": "test"}\nresult_preview: "ok"'
                 ],
             }
         )
@@ -280,7 +280,7 @@ class TestMessageProcessing:
                 "final_text": "别忘了喝水。",
                 "assistant_messages": ["我提醒你一下", "别忘了喝水。"],
                 "tool_context_messages": [
-                    '[Tool Call]\ntrace_id: 2\ntool: "scheduled_task"\narguments: {"message": "提醒喝水"}\nresult preview: "ok"'
+                    '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"'
                 ],
             }
         )
