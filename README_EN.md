@@ -26,7 +26,6 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
   - `/new` - Archive current session and create new session
   - `/reset` - Delete current session
 - 📱 **Telegram Bot Interface**: Command menu, segmented replies, file upload/sending, and proactive scheduled messages
-- 🌐 **Web Search**: Jina Deepsearch API integration
 - 🔌 **MCP (Model Context Protocol) Support**:
    - Dynamically connect external tools and data sources
    - Support multiple transport methods (stdio, HTTP, SSE)
@@ -91,7 +90,11 @@ Seelenmaschine supports multi-environment configuration. You can use different c
 ```ini
 # Basic Configuration
 DEBUG_MODE=false
-DEBUG_LOG_LEVEL=INFO
+# Leave empty to auto-resolve from DEBUG_MODE:
+# - DEBUG_MODE=true  => DEBUG
+# - DEBUG_MODE=false => INFO
+# Only set this explicitly when you want to override the default behavior.
+DEBUG_LOG_LEVEL=
 DEBUG_SHOW_FULL_PROMPT=false
 DEBUG_LOG_DATABASE_OPS=false
 TIMEZONE=Asia/Shanghai
@@ -134,14 +137,14 @@ TELEGRAM_USER_ID=your_user_id
 ENABLE_MCP=false
 MCP_CONFIG_PATH=mcp_servers.json
 
-# Web Search Configuration
-ENABLE_WEB_SEARCH=false
-JINA_API_KEY=
-
 # Workspace Configuration (Restricts local file operations)
-WORKSPACE_DIR=          # Optional, workspace root directory, defaults to data/<profile>/workspace
-MEDIA_DIR=              # Optional, media file storage directory, defaults to WORKSPACE_DIR/media
+# Optional, workspace root directory, defaults to data/<profile>/workspace
+WORKSPACE_DIR=
+# Optional, media file storage directory, defaults to WORKSPACE_DIR/media
+MEDIA_DIR=
 ```
+
+Note: the current config format **does not use inline `#` comments**. If you need comments, put them on separate lines so they are not parsed as part of the value.
 
 ### Data Directory Structure
 
@@ -215,10 +218,9 @@ The system integrates the following tool capabilities:
    - Shell command execution (with danger detection and human approval)
 2. **MCP (Model Context Protocol)** - External tools and data sources
 3. **Memory Search** - Self-query memory
-4. **Web Search** - Web search (requires enabling)
-5. **Scheduled Tasks** - Task management
-6. **File Send** - Send files to the current user
-7. **Tool Trace Query** - Query recent tool execution history
+4. **Scheduled Tasks** - Task management
+5. **File Send** - Send files to the current user
+6. **Tool Trace Query** - Query recent tool execution history
 
 Control the enabling status of each tool through configuration files. Dangerous commands require user approval before execution.
 
@@ -339,6 +341,13 @@ In debug mode, the program will:
 - Log complete prompts sent to LLM (`DEBUG_SHOW_FULL_PROMPT=true`)
 - Log database read/write operations (`DEBUG_LOG_DATABASE_OPS=true`)
 - Save logs to external files
+
+Log level rules:
+- If `DEBUG_MODE=true` and `DEBUG_LOG_LEVEL` is empty, the effective level defaults to `DEBUG`
+- If `DEBUG_MODE=false` and `DEBUG_LOG_LEVEL` is empty, the effective level defaults to `INFO`
+- If `DEBUG_LOG_LEVEL` is explicitly set, that value takes precedence
+
+Recommended usage: treat `DEBUG_MODE` as the main switch, and use `DEBUG_LOG_LEVEL` only when you need to override the default behavior.
 
 ### Local tool workspace
 

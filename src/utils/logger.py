@@ -6,6 +6,15 @@ from typing import Optional
 from core.config import Config
 
 
+def _resolve_log_level() -> str:
+    """Resolve effective log level from debug settings."""
+    configured_level = (Config.DEBUG_LOG_LEVEL or "").strip().upper()
+    if configured_level:
+        return configured_level
+
+    return "DEBUG" if Config.DEBUG_MODE else "INFO"
+
+
 def setup_logger(
     log_level: str = "INFO",
     log_file: Optional[str] = None,
@@ -42,7 +51,7 @@ def setup_logger(
 
 
 def init_logger() -> None:
-    log_level = Config.DEBUG_LOG_LEVEL
+    log_level = _resolve_log_level()
     log_file = "debug.log" if Config.DEBUG_MODE else None
     
     setup_logger(

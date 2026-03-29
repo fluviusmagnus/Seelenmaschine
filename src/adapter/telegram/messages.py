@@ -85,7 +85,7 @@ class TelegramMessages:
                     preview_text=self.preview_text,
                     debug_prefix="Sent scheduled segment",
                 )
-                logger.info(
+                logger.debug(
                     "Scheduled task response sent: " f"{self.preview_text(response)}"
                 )
         except Exception as error:
@@ -109,7 +109,7 @@ class TelegramMessages:
             return
 
         user_message = update.message.text
-        logger.info(f"Received message: {user_message[:50]}...")
+        logger.debug(f"Received message: {user_message[:50]}...")
 
         approval_service = self.approval_service
         if isinstance(approval_service, ApprovalService):
@@ -131,7 +131,7 @@ class TelegramMessages:
                 "Typing indicator failed",
             ):
                 response = await self.process_message(user_message)
-                logger.info(
+                logger.debug(
                     "Prepared final text for Telegram reply: "
                     f"{self.preview_text(response)}"
                 )

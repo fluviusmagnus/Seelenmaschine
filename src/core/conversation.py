@@ -178,7 +178,7 @@ class ConversationService:
             tool_context_messages = llm_result.get("tool_context_messages", [])
             response = llm_result.get("final_text", "")
 
-            logger.info(
+            logger.debug(
                 "LLM detailed result for current message: "
                 f"assistant_messages={len(assistant_messages)}, "
                 f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
@@ -199,7 +199,7 @@ class ConversationService:
                 context_label="message processing",
             )
 
-            logger.info(
+            logger.debug(
                 "Message processing complete, returning combined response: "
                 f"{self.preview_text(response)}"
             )
@@ -254,7 +254,7 @@ class ConversationService:
             tool_context_messages = llm_result.get("tool_context_messages", [])
             response_text = llm_result.get("final_text", "")
 
-            logger.info(
+            logger.debug(
                 "LLM detailed result for scheduled task: "
                 f"assistant_messages={len(assistant_messages)}, "
                 f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
@@ -276,7 +276,7 @@ class ConversationService:
                 context_label="scheduled task processing",
             )
 
-            logger.info(
+            logger.debug(
                 "Scheduled task processing complete, returning combined response: "
                 f"{self.preview_text(response_text)}"
             )

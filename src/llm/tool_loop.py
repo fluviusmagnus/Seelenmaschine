@@ -27,13 +27,13 @@ class ToolLoop:
         )
 
         while result["tool_calls"]:
-            logger.info(
+            logger.debug(
                 f"LLM tool loop iteration {iteration}: received {len(result['tool_calls'])} tool call(s)"
             )
             assistant_text = self.llm_client._extract_assistant_text_from_result(result)
             if assistant_text:
                 assistant_messages.append(assistant_text)
-                logger.info(
+                logger.debug(
                     "LLM emitted intermediate assistant text before tool execution: "
                     f"{self.llm_client._preview_text(assistant_text)}"
                 )
@@ -46,7 +46,7 @@ class ToolLoop:
 
             tool_responses = []
             for call in result["tool_calls"]:
-                logger.info(f"Executing tool: {call['name']}")
+                logger.debug(f"Executing tool: {call['name']}")
                 try:
                     response = self.llm_client._tool_executor(
                         call["name"], call["arguments"]
@@ -59,7 +59,7 @@ class ToolLoop:
                     sanitized_response = (
                         self.llm_client._sanitize_tool_response_for_prompt(response_text)
                     )
-                    logger.info(
+                    logger.debug(
                         f"Tool '{call['name']}' completed with response preview: "
                         f"{self.llm_client._preview_text(sanitized_response)}"
                     )
@@ -98,7 +98,7 @@ class ToolLoop:
         if final_text:
             assistant_messages.append(final_text)
 
-        logger.info(
+        logger.debug(
             "LLM tool loop finished: "
             f"assistant_messages={len(assistant_messages)}, "
             f"final_text={self.llm_client._preview_text(final_text)}"

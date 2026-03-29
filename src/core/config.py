@@ -22,7 +22,7 @@ class Config:
 
     # Debug settings
     DEBUG_MODE: bool = False
-    DEBUG_LOG_LEVEL: str = "INFO"
+    DEBUG_LOG_LEVEL: str = ""
     DEBUG_SHOW_FULL_PROMPT: bool = False
     DEBUG_LOG_DATABASE_OPS: bool = False
 
@@ -94,17 +94,9 @@ class Config:
     NEW_SESSION_COMMAND: str = "/new"
     RESET_SESSION_COMMAND: str = "/reset"
 
-    # Skills settings
-    ENABLE_SKILLS: bool = True
-    SKILLS_DIR: str = "skills/"
-
     # MCP settings
     ENABLE_MCP: bool = False
     MCP_CONFIG_PATH: Path = Path.cwd() / "mcp_servers.json"
-
-    # Web search settings
-    ENABLE_WEB_SEARCH: bool = False
-    JINA_API_KEY: str = ""
 
     @classmethod
     def init(cls, profile: str) -> None:
@@ -161,7 +153,7 @@ class Config:
 
         # Debug settings
         cls.DEBUG_MODE = cls._get_bool("DEBUG_MODE", False)
-        cls.DEBUG_LOG_LEVEL = cls._get_str("DEBUG_LOG_LEVEL", "INFO")
+        cls.DEBUG_LOG_LEVEL = cls._get_str("DEBUG_LOG_LEVEL", "")
         cls.DEBUG_SHOW_FULL_PROMPT = cls._get_bool("DEBUG_SHOW_FULL_PROMPT", False)
         cls.DEBUG_LOG_DATABASE_OPS = cls._get_bool("DEBUG_LOG_DATABASE_OPS", False)
 
@@ -266,20 +258,12 @@ class Config:
         cls.NEW_SESSION_COMMAND = cls._get_str("NEW_SESSION_COMMAND", "/new")
         cls.RESET_SESSION_COMMAND = cls._get_str("RESET_SESSION_COMMAND", "/reset")
 
-        # Skills settings
-        cls.ENABLE_SKILLS = cls._get_bool("ENABLE_SKILLS", True)
-        cls.SKILLS_DIR = cls._get_str("SKILLS_DIR", "skills/")
-
         # MCP settings
         cls.ENABLE_MCP = cls._get_bool("ENABLE_MCP", False)
         mcp_config_path_str = (
             cls._get_str("MCP_CONFIG_PATH", "mcp_servers.json") or "mcp_servers.json"
         )
         cls.MCP_CONFIG_PATH = Path.cwd() / mcp_config_path_str
-
-        # Web search settings
-        cls.ENABLE_WEB_SEARCH = cls._get_bool("ENABLE_WEB_SEARCH", False)
-        cls.JINA_API_KEY = cls._get_str("JINA_API_KEY", "")
 
     @classmethod
     def _ensure_dirs_exist(cls) -> None:

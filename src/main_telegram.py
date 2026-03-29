@@ -10,6 +10,7 @@ from adapter.telegram.controller import TelegramController
 from core.bot import CoreBot
 from core.config import init_config
 from core.runtime import SchedulerRuntime, register_stop_signal_handlers
+from utils.logger import init_logger
 
 
 def main():
@@ -19,6 +20,7 @@ def main():
 
     profile = sys.argv[1]
     init_config(profile)
+    init_logger()
     core_bot = CoreBot()
     message_handler = TelegramController(core_bot=core_bot)
     adapter = TelegramAdapter(message_handler=message_handler)

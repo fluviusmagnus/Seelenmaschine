@@ -55,6 +55,58 @@ class TestMainTelegramInitialization:
         }
         return mocks
 
+    def test_main_initializes_logger_after_config(self):
+        """Test that logger initialization is wired into the entry point."""
+        test_args = ["main_telegram.py", "test_profile"]
+        call_order = []
+
+        with patch.object(sys, "argv", test_args):
+            with patch("main_telegram.init_config") as mock_init_config:
+                with patch("main_telegram.init_logger") as mock_init_logger:
+                    with patch("main_telegram.CoreBot") as mock_core_bot:
+                        with patch(
+                            "main_telegram.TelegramController"
+                        ) as mock_controller:
+                            with patch(
+                                "main_telegram.TelegramAdapter"
+                            ) as mock_adapter:
+                                with patch(
+                                    "main_telegram.SchedulerRuntime"
+                                ) as mock_runtime:
+                                    with patch(
+                                        "main_telegram.register_stop_signal_handlers"
+                                    ):
+                                        adapter_instance = Mock()
+                                        mock_adapter.return_value = adapter_instance
+                                        core_bot_instance = Mock()
+                                        core_bot_instance.scheduler = Mock()
+                                        mock_core_bot.return_value = core_bot_instance
+                                        runtime_instance = Mock()
+                                        runtime_instance.build_post_init.return_value = Mock()
+                                        runtime_instance.build_post_shutdown.return_value = Mock()
+                                        mock_runtime.return_value = runtime_instance
+                                        mock_init_config.side_effect = (
+                                            lambda profile: call_order.append(
+                                                ("init_config", profile)
+                                            )
+                                        )
+                                        mock_init_logger.side_effect = lambda: call_order.append(
+                                            ("init_logger", None)
+                                        )
+
+                                        import main_telegram
+
+                                        main_telegram.main()
+
+                                        mock_init_config.assert_called_once_with(
+                                            "test_profile"
+                                        )
+                                        mock_init_logger.assert_called_once_with()
+                                        assert call_order == [
+                                            ("init_config", "test_profile"),
+                                            ("init_logger", None),
+                                        ]
+
 
 class TestMainTelegramBotLifecycle:
     """Test TelegramAdapter lifecycle management"""

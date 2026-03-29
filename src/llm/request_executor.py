@@ -93,11 +93,11 @@ class ChatRequestExecutor:
         """Emit consistent logs for the normalized response."""
         if result["tool_calls"]:
             tool_names = [call["name"] for call in result["tool_calls"]]
-            logger.info(
+            logger.debug(
                 f"LLM response contains {len(tool_names)} tool call(s): {tool_names}"
             )
         else:
-            logger.info("LLM response contains no tool calls")
+            logger.debug("LLM response contains no tool calls")
 
         if result["content"]:
             logger.debug(

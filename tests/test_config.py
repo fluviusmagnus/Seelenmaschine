@@ -46,10 +46,7 @@ def temp_env_file(reset_config):
         f.write("TELEGRAM_BOT_TOKEN=test-token\n")
         f.write("TELEGRAM_USER_ID=999999\n")
         f.write("TELEGRAM_USE_MARKDOWN=false\n")
-        f.write("ENABLE_SKILLS=false\n")
         f.write("ENABLE_MCP=true\n")
-        f.write("ENABLE_WEB_SEARCH=true\n")
-        f.write("JINA_API_KEY=jina-test-key\n")
     yield filename
     if temp_path.exists():
         temp_path.unlink()
@@ -67,7 +64,7 @@ class TestConfig:
             Config.MEDIA_DIR == Path.cwd() / "data" / "default" / "workspace" / "media"
         )
         assert Config.DEBUG_MODE is False
-        assert Config.DEBUG_LOG_LEVEL == "INFO"
+        assert Config.DEBUG_LOG_LEVEL == ""
         assert Config.TIMEZONE_STR == "Asia/Shanghai"
         assert Config.CHAT_MODEL == "gpt-4o"
         assert Config.TOOL_MODEL == "gpt-4o"
@@ -383,22 +380,16 @@ class TestConfig:
 
         del os.environ["MEDIA_DIR"]
 
-    def test_load_all_settings_skills_mcp(self, reset_config):
-        """Test loading skills and MCP settings."""
+    def test_load_all_settings_mcp(self, reset_config):
+        """Test loading MCP settings."""
         Config._profile = "test"
-        os.environ["ENABLE_SKILLS"] = "false"
         os.environ["ENABLE_MCP"] = "true"
-        os.environ["ENABLE_WEB_SEARCH"] = "true"
-        os.environ["JINA_API_KEY"] = "jina-key"
 
         Config._load_all_settings()
 
-        assert Config.ENABLE_SKILLS is False
         assert Config.ENABLE_MCP is True
-        assert Config.ENABLE_WEB_SEARCH is True
-        assert Config.JINA_API_KEY == "jina-key"
 
-        for key in ["ENABLE_SKILLS", "ENABLE_MCP", "ENABLE_WEB_SEARCH", "JINA_API_KEY"]:
+        for key in ["ENABLE_MCP"]:
             if key in os.environ:
                 del os.environ[key]
 
@@ -424,4 +415,32 @@ class TestInitConfig:
         with patch.object(Config, "init") as mock_init:
             init_config("test_profile")
             mock_init.assert_called_once_with("test_profile")
+
+
+class TestLoggerLevelResolution:
+    """Test effective logger level resolution from debug settings."""
+
+    def test_debug_mode_defaults_to_debug_level(self, reset_config):
+        from utils.logger import _resolve_log_level
+
+        Config.DEBUG_MODE = True
+        Config.DEBUG_LOG_LEVEL = ""
+
+        assert _resolve_log_level() == "DEBUG"
+
+    def test_non_debug_mode_defaults_to_info_level(self, reset_config):
+        from utils.logger import _resolve_log_level
+
+        Config.DEBUG_MODE = False
+        Config.DEBUG_LOG_LEVEL = ""
+
+        assert _resolve_log_level() == "INFO"
+
+    def test_explicit_log_level_overrides_debug_mode(self, reset_config):
+        from utils.logger import _resolve_log_level
+
+        Config.DEBUG_MODE = False
+        Config.DEBUG_LOG_LEVEL = "warning"
+
+        assert _resolve_log_level() == "WARNING"
 
