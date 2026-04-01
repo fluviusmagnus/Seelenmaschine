@@ -66,7 +66,7 @@ class ConversationService:
             f"name: {task_name}\n"
             f"trigger_time: {trigger_time_str}\n"
             f"message: {task_message}\n\n"
-            f"Finish the request in the task message and then continue the current conversation."
+            f"This is a trigger message. Now execute the task described above and then continue the current conversation."
         )
 
     async def _persist_scheduled_task_trigger_message(

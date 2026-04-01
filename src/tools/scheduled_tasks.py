@@ -152,9 +152,9 @@ TIME FORMATS:
             # Format response
             if trigger_type == "once":
                 time_str = format_timestamp(trigger_config["timestamp"])
-                return f"✓ Task created (ID: {task_id})\nName: {name}\nType: One-time\nTrigger at: {time_str}\nMessage: {message}"
+                return f"✓ Task created (Task ID: {task_id})\nName: {name}\nType: One-time\nTrigger at: {time_str}\nMessage: {message}"
             else:
-                return f"✓ Task created (ID: {task_id})\nName: {name}\nType: Recurring\nInterval: {time_expr}\nMessage: {message}"
+                return f"✓ Task created (Task ID: {task_id})\nName: {name}\nType: Recurring\nInterval: {time_expr}\nMessage: {message}"
 
         except Exception as e:
             logger.error(f"Error adding task: {e}")
@@ -176,7 +176,7 @@ TIME FORMATS:
                     trigger_config = json.loads(trigger_config)
 
                 result += f"• {task['name']}\n"
-                result += f"  ID: {task['task_id']}\n"
+                result += f"  Task ID: {task['task_id']}\n"
                 result += f"  Type: {task['trigger_type']}\n"
 
                 if task["trigger_type"] == "once":
@@ -211,8 +211,8 @@ TIME FORMATS:
             if isinstance(trigger_config, str):
                 trigger_config = json.loads(trigger_config)
 
-            result = f"Task: {task['name']}\n"
-            result += f"ID: {task['task_id']}\n"
+            result = f"Name: {task['name']}\n"
+            result += f"Task ID: {task['task_id']}\n"
             result += f"Type: {task['trigger_type']}\n"
             result += f"Status: {task['status']}\n"
 
