@@ -144,10 +144,19 @@ if Config.DEBUG_MODE:
 - Parameterize all queries to prevent SQL injection
 
 ### Async/Sync
-- The project mixes synchronous and asynchronous code
+- The project is now **async-first** in `core / memory / llm / tools`
+- Core business logic should keep only one main implementation, and that implementation should be async
+- Sync APIs should exist only as thin compatibility wrappers around async implementations
+- Do not maintain long-term parallel sync/async business logic bodies for the same workflow
+- Use the shared async wrapper helpers in `src/utils/async_utils.py`
+- Standard wrapper expectations:
+  - use `ensure_not_in_async_context(...)` before entering sync wrappers
+  - use `run_sync(...)` instead of handwritten `run_until_complete` logic
+- Sync wrappers should have consistent event-loop and error behavior across modules
 - Telegram bot handlers, scheduler callbacks, MCP access, shell/file tools, and several LLM paths are async
-- `LLMClient` provides both sync and async entry points; use the async ones inside async contexts
-- Event loops are managed in `LLMClient._get_event_loop()` for sync wrappers
+- Use async entry points inside async contexts; sync wrappers must clearly reject being called from an async context
+- Do not introduce new module-local event-loop helper implementations when the shared helper can be used
+- This async-first refactor does **not** imply converting the SQLite layer itself to async
 
 ### Docstrings
 - Use concise docstrings for public classes and methods
@@ -205,11 +214,18 @@ message = f"Processing {item_type} with ID {item_id}"
 - Keep registrations and state access direct when extra indirection adds no ownership clarity
 - Avoid splitting modules only for cosmetic reasons; split only when ownership becomes clearer
 - Prefer deleting obsolete compatibility layers instead of preserving them indefinitely
+- For sync/async cleanup, first collapse duplicate logic into the async path, then leave sync as a thin wrapper before deciding whether removal is safe
+- When compatibility is still needed, prefer deprecated shims over keeping two full implementations alive
 
 ### Tests During Refactors
 - Update tests to target the real owner of behavior, not historical shells
 - For architecture cleanup, prefer focused regression coverage before broad rewrites
 - Keep the existing Telegram/Core regression set healthy when changing ownership boundaries
+- Add regression coverage when collapsing duplicated sync/async flows so behavior does not diverge again
+- For wrapper APIs, test both:
+  - sync calls from normal synchronous contexts succeed
+  - sync calls from async contexts fail with clear errors
+- For fallback-heavy areas such as `src/memory/seele.py`, prefer adding focused regression tests before further compression
 
 ### File Structure
 - `src/` - All Python source code
@@ -219,11 +235,22 @@ message = f"Processing {item_type} with ID {item_id}"
 - `src/prompts/` - Prompt builders and prompt-related helpers (`system_prompt.py`, `chat_prompt.py`, `memory_prompts.py`)
 - `src/adapter/telegram/` - Telegram adapter implementation
 - `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_tasks.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_file.py`, `tool_trace.py`)
-- `src/utils/` - Utilities (`logger.py`, `time.py`, `text.py`)
+- `src/utils/` - Utilities (`async_utils.py`, `logger.py`, `time.py`, `text.py`)
 - `data/<profile>/` - Profile-specific data directory
 - `tests/` - Test files
 - `migration/` - Database migration scripts
 - `<profile>.env` - Profile config file in the repository root
+
+### Async-First Refactor Notes
+- The current architectural direction is: **async-first + thin sync wrapper**
+- New code should follow that direction by default
+- Avoid adding new dual-track sync/async implementations in `memory`, `llm`, and `tools`
+- Prefer shared helpers and common internal async flows for:
+  - session handling
+  - retrieval/rerank pipelines
+  - long-term memory patch/fallback/retry flows
+  - client close / tool-call wrapper behavior
+- Audit sync APIs before expanding them; if a sync API has no meaningful external need, prefer reducing it to an internal compatibility interface or removing it when safe
 
 ### Memory System Patterns
 - Use `MemoryManager` for memory operations
