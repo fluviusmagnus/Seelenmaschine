@@ -134,12 +134,12 @@ class TestVectorRetrieverReranking:
         
         # Mock search results
         mock_db.search_summaries.return_value = [
-            (1, "Summary 1", 1000, 2000, 0.8),
-            (2, "Summary 2", 1100, 2100, 0.7)
+            (1, 11, "Summary 1", 1000, 2000, 0.8),
+            (2, 12, "Summary 2", 1100, 2100, 0.7)
         ]
         mock_db.get_conversations_by_time_range.return_value = [
-            (10, 1500, "user", "Hello"),
-            (11, 1600, "assistant", "Hi there")
+            (10, 11, 1500, "user", "Hello"),
+            (11, 11, 1600, "assistant", "Hi there")
         ]
         
         # Mock reranker to return results in different order
@@ -147,8 +147,8 @@ class TestVectorRetrieverReranking:
         # For summaries: text, summary_id, first_timestamp, last_timestamp
         # For conversations: text, conversation_id, timestamp, role
         mock_reranker_client.rerank.return_value = [
-            {"text": "Summary 2", "summary_id": 2, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.95},
-            {"text": "Summary 1", "summary_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.85}
+            {"text": "Summary 2", "summary_id": 2, "session_id": 12, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.95},
+            {"text": "Summary 1", "summary_id": 1, "session_id": 11, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.85}
         ]
         
         # Also mock the conversations rerank since both are called
@@ -231,6 +231,7 @@ class TestVectorRetrieverFormatting:
         summaries = [
             RetrievedSummary(
                 summary_id=1,
+                session_id=11,
                 summary="Important summary",
                 first_timestamp=1000,
                 last_timestamp=1000,
@@ -244,6 +245,7 @@ class TestVectorRetrieverFormatting:
         assert len(formatted) == 1
         assert "Important summary" in formatted[0]
         assert formatted[0].startswith("[")
+        assert "[session_id=11]" in formatted[0]
     
     def test_format_conversations_for_prompt(self):
         """Test that conversations are formatted correctly for prompts"""
@@ -258,6 +260,7 @@ class TestVectorRetrieverFormatting:
         conversations = [
             RetrievedConversation(
                 conversation_id=1,
+                session_id=22,
                 timestamp=1000,
                 role="assistant",
                 text="Hello there",
@@ -276,6 +279,7 @@ class TestVectorRetrieverFormatting:
         assert len(formatted) == 1
         assert "Seele: Hello there" in formatted[0]
         assert formatted[0].startswith("[")
+        assert "[session_id=22]" in formatted[0]
 
 
 # Run tests if executed directly

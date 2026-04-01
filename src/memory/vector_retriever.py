@@ -14,6 +14,7 @@ logger = get_logger()
 @dataclass
 class RetrievedSummary:
     summary_id: int
+    session_id: int
     summary: str
     first_timestamp: int
     last_timestamp: int
@@ -23,6 +24,7 @@ class RetrievedSummary:
 @dataclass
 class RetrievedConversation:
     conversation_id: int
+    session_id: int
     timestamp: int
     role: str
     text: str
@@ -57,12 +59,13 @@ class VectorRetriever:
         return [
             RetrievedSummary(
                 summary_id=summary_id,
+                session_id=session_id,
                 summary=summary,
                 first_timestamp=first_ts,
                 last_timestamp=last_ts,
                 score=distance,
             )
-            for summary_id, summary, first_ts, last_ts, distance in rows
+            for summary_id, session_id, summary, first_ts, last_ts, distance in rows
         ]
 
     def _collect_conversations_for_summaries(
@@ -76,10 +79,11 @@ class VectorRetriever:
                 end_timestamp=summary.last_timestamp,
                 limit=limit,
             )
-            for conversation_id, timestamp, role, text in conv_results:
+            for conversation_id, session_id, timestamp, role, text in conv_results:
                 conversations.append(
                     RetrievedConversation(
                         conversation_id=conversation_id,
+                        session_id=session_id,
                         timestamp=timestamp,
                         role=role,
                         text=text,
@@ -94,6 +98,7 @@ class VectorRetriever:
             {
                 "text": s.summary,
                 "summary_id": s.summary_id,
+                "session_id": s.session_id,
                 "first_timestamp": s.first_timestamp,
                 "last_timestamp": s.last_timestamp,
             }
@@ -106,6 +111,7 @@ class VectorRetriever:
             {
                 "text": c.text,
                 "conversation_id": c.conversation_id,
+                "session_id": c.session_id,
                 "timestamp": c.timestamp,
                 "role": c.role,
             }
@@ -117,6 +123,7 @@ class VectorRetriever:
         return [
             RetrievedSummary(
                 summary_id=doc["summary_id"],
+                session_id=doc["session_id"],
                 summary=doc["text"],
                 first_timestamp=doc["first_timestamp"],
                 last_timestamp=doc["last_timestamp"],
@@ -132,6 +139,7 @@ class VectorRetriever:
         return [
             RetrievedConversation(
                 conversation_id=doc["conversation_id"],
+                session_id=doc["session_id"],
                 timestamp=doc["timestamp"],
                 role=doc["role"],
                 text=doc["text"],
@@ -294,10 +302,12 @@ class VectorRetriever:
             )
             end_time_str = timestamp_to_str(summary.last_timestamp, tz=Config.TIMEZONE)
             if start_time_str == end_time_str:
-                formatted.append(f"[{start_time_str}] {summary.summary}")
+                formatted.append(
+                    f"[{start_time_str}][session_id={summary.session_id}] {summary.summary}"
+                )
             else:
                 formatted.append(
-                    f"[{start_time_str} ~ {end_time_str}] {summary.summary}"
+                    f"[{start_time_str} ~ {end_time_str}][session_id={summary.session_id}] {summary.summary}"
                 )
 
         return formatted
@@ -324,7 +334,9 @@ class VectorRetriever:
         for conv in conversations:
             time_str = timestamp_to_str(conv.timestamp, tz=Config.TIMEZONE)
             role_display = role_to_name.get(conv.role, conv.role)
-            formatted.append(f"[{time_str}] {role_display}: {conv.text}")
+            formatted.append(
+                f"[{time_str}][session_id={conv.session_id}] {role_display}: {conv.text}"
+            )
 
         return formatted
 

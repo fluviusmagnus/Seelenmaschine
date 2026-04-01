@@ -685,7 +685,7 @@ class DatabaseManager:
         query_embedding: List[float],
         limit: int = 5,
         exclude_ids: Optional[List[int]] = None,
-    ) -> List[Tuple[int, str, int, int, float]]:
+    ) -> List[Tuple[int, int, str, int, int, float]]:
         """Search summaries by vector similarity.
 
         Args:
@@ -694,7 +694,7 @@ class DatabaseManager:
             exclude_ids: Optional list of summary_ids to exclude from results
 
         Returns:
-            List of tuples: (summary_id, summary, first_timestamp, last_timestamp, distance)
+            List of tuples: (summary_id, session_id, summary, first_timestamp, last_timestamp, distance)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -707,7 +707,7 @@ class DatabaseManager:
                     placeholders = ",".join("?" * len(exclude_ids))
                     query = f"""
                         SELECT 
-                            s.summary_id, s.summary, s.first_timestamp, s.last_timestamp,
+                            s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
                             distance
                         FROM vec_summaries
                         JOIN summaries s ON vec_summaries.summary_id = s.summary_id
@@ -721,7 +721,7 @@ class DatabaseManager:
                 else:
                     query = """
                         SELECT 
-                            s.summary_id, s.summary, s.first_timestamp, s.last_timestamp,
+                            s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
                             distance
                         FROM vec_summaries
                         JOIN summaries s ON vec_summaries.summary_id = s.summary_id
@@ -735,12 +735,20 @@ class DatabaseManager:
                 results = []
                 for row in cursor.fetchall():
                     summary_id = row["summary_id"]
+                    session_id = row["session_id"]
                     summary = row["summary"]
                     first_timestamp = row["first_timestamp"]
                     last_timestamp = row["last_timestamp"]
                     distance = row["distance"]
                     results.append(
-                        (summary_id, summary, first_timestamp, last_timestamp, distance)
+                        (
+                            summary_id,
+                            session_id,
+                            summary,
+                            first_timestamp,
+                            last_timestamp,
+                            distance,
+                        )
                     )
 
                 # Limit results after exclusion
@@ -861,7 +869,7 @@ class DatabaseManager:
         start_timestamp: int,
         end_timestamp: int,
         limit: int = 4,
-    ) -> List[Tuple[int, int, str, str]]:
+    ) -> List[Tuple[int, int, int, str, str]]:
         """Get conversations within a time range.
 
         Retrieves conversations that fall within the specified time window.
@@ -873,7 +881,7 @@ class DatabaseManager:
             limit: Maximum number of conversations to return
 
         Returns:
-            List of tuples: (conversation_id, timestamp, role, text)
+            List of tuples: (conversation_id, session_id, timestamp, role, text)
             Ordered by timestamp DESC (most recent first)
         """
         with self._get_connection() as conn:
@@ -881,7 +889,7 @@ class DatabaseManager:
 
             cursor.execute(
                 """
-                SELECT conversation_id, timestamp, role, text
+                SELECT conversation_id, session_id, timestamp, role, text
                 FROM conversations
                 WHERE timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp DESC
@@ -895,6 +903,7 @@ class DatabaseManager:
                 results.append(
                     (
                         row["conversation_id"],
+                        row["session_id"],
                         row["timestamp"],
                         row["role"],
                         row["text"],
@@ -1104,18 +1113,20 @@ class DatabaseManager:
         self,
         query: Optional[str] = None,
         limit: int = 10,
+        session_id: Optional[int] = None,
         exclude_session_id: Optional[int] = None,
         exclude_recent_from_session_id: Optional[int] = None,
         exclude_recent_limit: int = 0,
         role: Optional[str] = None,
         start_timestamp: Optional[int] = None,
         end_timestamp: Optional[int] = None,
-    ) -> List[Tuple[int, int, str, str, float]]:
+    ) -> List[Tuple[int, int, int, str, str, float]]:
         """Search conversations by keyword and/or filters using FTS5.
 
         Args:
             query: Search query (supports FTS5 query syntax). If None, returns all matching filters.
             limit: Maximum number of results
+            session_id: Optional session_id to include exclusively
             exclude_session_id: Optional session_id to exclude (e.g., current session)
             exclude_recent_from_session_id: Optional session_id whose most recent
                 conversation messages should be excluded from results
@@ -1126,7 +1137,7 @@ class DatabaseManager:
             end_timestamp: Optional end time (Unix timestamp)
 
         Returns:
-            List of tuples: (conversation_id, timestamp, role, text, rank)
+            List of tuples: (conversation_id, session_id, timestamp, role, text, rank)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -1140,7 +1151,7 @@ class DatabaseManager:
                 if query:
                     base_query = """
                         SELECT 
-                            c.conversation_id, c.timestamp, c.role, c.text,
+                            c.conversation_id, c.session_id, c.timestamp, c.role, c.text,
                             fts.rank
                         FROM fts_conversations fts
                         JOIN conversations c ON fts.conversation_id = c.conversation_id
@@ -1150,12 +1161,16 @@ class DatabaseManager:
                 else:
                     base_query = """
                         SELECT 
-                            c.conversation_id, c.timestamp, c.role, c.text,
+                            c.conversation_id, c.session_id, c.timestamp, c.role, c.text,
                             0.0 as rank
                         FROM conversations c
                     """
 
                 conditions.append("c.message_type = 'conversation'")
+
+                if session_id is not None:
+                    conditions.append("c.session_id = ?")
+                    params.append(session_id)
 
                 if exclude_session_id is not None:
                     conditions.append("c.session_id != ?")
@@ -1210,11 +1225,21 @@ class DatabaseManager:
                 results = []
                 for row in cursor.fetchall():
                     conversation_id = row["conversation_id"]
+                    session_id_val = row["session_id"]
                     timestamp = row["timestamp"]
                     role_val = row["role"]
                     text = row["text"]
                     rank = row["rank"]
-                    results.append((conversation_id, timestamp, role_val, text, rank))
+                    results.append(
+                        (
+                            conversation_id,
+                            session_id_val,
+                            timestamp,
+                            role_val,
+                            text,
+                            rank,
+                        )
+                    )
 
                 return results
             except sqlite3.OperationalError as e:
@@ -1225,21 +1250,23 @@ class DatabaseManager:
         self,
         query: Optional[str] = None,
         limit: int = 5,
+        session_id: Optional[int] = None,
         exclude_session_id: Optional[int] = None,
         start_timestamp: Optional[int] = None,
         end_timestamp: Optional[int] = None,
-    ) -> List[Tuple[int, str, int, int, float]]:
+    ) -> List[Tuple[int, int, str, int, int, float]]:
         """Search summaries by keyword and/or filters using FTS5.
 
         Args:
             query: Search query (supports FTS5 query syntax). If None, returns all matching filters.
             limit: Maximum number of results
+            session_id: Optional session_id to include exclusively
             exclude_session_id: Optional session_id to exclude (e.g., current session)
             start_timestamp: Optional start time (Unix timestamp) - matches if summary's last_timestamp >= this
             end_timestamp: Optional end time (Unix timestamp) - matches if summary's first_timestamp <= this
 
         Returns:
-            List of tuples: (summary_id, summary, first_timestamp, last_timestamp, rank)
+            List of tuples: (summary_id, session_id, summary, first_timestamp, last_timestamp, rank)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -1253,7 +1280,7 @@ class DatabaseManager:
                 if query:
                     base_query = """
                         SELECT 
-                            s.summary_id, s.summary, s.first_timestamp, s.last_timestamp,
+                            s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
                             fts.rank
                         FROM fts_summaries fts
                         JOIN summaries s ON fts.summary_id = s.summary_id
@@ -1263,10 +1290,14 @@ class DatabaseManager:
                 else:
                     base_query = """
                         SELECT 
-                            s.summary_id, s.summary, s.first_timestamp, s.last_timestamp,
+                            s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
                             0.0 as rank
                         FROM summaries s
                     """
+
+                if session_id is not None:
+                    conditions.append("s.session_id = ?")
+                    params.append(session_id)
 
                 if exclude_session_id is not None:
                     conditions.append("s.session_id != ?")
@@ -1299,12 +1330,20 @@ class DatabaseManager:
                 results = []
                 for row in cursor.fetchall():
                     summary_id = row["summary_id"]
+                    session_id_val = row["session_id"]
                     summary = row["summary"]
                     first_timestamp = row["first_timestamp"]
                     last_timestamp = row["last_timestamp"]
                     rank = row["rank"]
                     results.append(
-                        (summary_id, summary, first_timestamp, last_timestamp, rank)
+                        (
+                            summary_id,
+                            session_id_val,
+                            summary,
+                            first_timestamp,
+                            last_timestamp,
+                            rank,
+                        )
                     )
 
                 return results

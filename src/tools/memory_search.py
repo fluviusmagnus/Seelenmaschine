@@ -102,6 +102,16 @@ Leave empty to search using only filters (role, time range).""",
                     "description": "Whether to include the current conversation session in results. Defaults to false. Set to true only when you need to search the current ongoing session as well.",
                     "default": False,
                 },
+                "session_id": {
+                    "type": "integer",
+                    "description": "Search only within a specific session_id. When provided, this takes precedence over include_current_session behavior.",
+                },
+                "search_target": {
+                    "type": "string",
+                    "enum": ["all", "summaries", "conversations"],
+                    "description": "Choose which memory type to search. Defaults to 'all'.",
+                    "default": "all",
+                },
             },
             "required": [],
         }
@@ -214,6 +224,8 @@ Leave empty to search using only filters (role, time range).""",
         time_period: str,
         start_date: str,
         end_date: str,
+        session_id: int | None,
+        search_target: str,
     ) -> None:
         """Append a one-line summary of active search filters."""
         criteria = []
@@ -221,6 +233,10 @@ Leave empty to search using only filters (role, time range).""",
             criteria.append(f"keywords: '{query}'")
         if role:
             criteria.append(f"role: {role}")
+        if session_id is not None:
+            criteria.append(f"session_id: {session_id}")
+        if search_target != "all":
+            criteria.append(f"target: {search_target}")
         if time_period:
             criteria.append(f"time: {time_period}")
         elif start_date or end_date:
@@ -243,9 +259,12 @@ Leave empty to search using only filters (role, time range).""",
             return
 
         result.append("== Related Summaries ==")
-        for _summary_id, summary, _first_ts, last_ts, _rank in summary_results:
-            time_str = timestamp_to_str(last_ts, tz=Config.TIMEZONE)
-            result.append(f"[{time_str}] {summary}")
+        for _summary_id, session_id, summary, first_ts, last_ts, _rank in summary_results:
+            start_time_str = timestamp_to_str(first_ts, tz=Config.TIMEZONE)
+            end_time_str = timestamp_to_str(last_ts, tz=Config.TIMEZONE)
+            result.append(
+                f"[{start_time_str} ~ {end_time_str}][session_id={session_id}] {summary}"
+            )
 
     @staticmethod
     def _append_conversation_results(
@@ -267,10 +286,12 @@ Leave empty to search using only filters (role, time range).""",
             result.append("")
 
         result.append("== Related Conversations ==")
-        for _conv_id, timestamp, conv_role, text, _rank in conversation_results:
+        for _conv_id, session_id, timestamp, conv_role, text, _rank in conversation_results:
             time_str = timestamp_to_str(timestamp, tz=Config.TIMEZONE)
             role_display = role_to_name.get(conv_role, conv_role)
-            result.append(f"[{time_str}] {role_display}: {text}")
+            result.append(
+                f"[{time_str}][session_id={session_id}] {role_display}: {text}"
+            )
 
     def _sanitize_query(self, query: str) -> str:
         """Sanitize query to prevent FTS5 syntax errors.
@@ -310,6 +331,8 @@ Leave empty to search using only filters (role, time range).""",
         start_date: str = None,
         end_date: str = None,
         include_current_session: bool = False,
+        session_id: int = None,
+        search_target: str = "all",
     ) -> str:
         """Execute keyword-based memory search with optional filters"""
         if self._disabled:
@@ -326,6 +349,11 @@ Leave empty to search using only filters (role, time range).""",
 
                 if not is_valid:
                     return self._invalid_query_message(error_msg)
+
+            if search_target not in {"all", "summaries", "conversations"}:
+                return (
+                    "Invalid search_target. Use one of: all, summaries, conversations"
+                )
 
             # Parse time filters
             start_timestamp = None
@@ -354,40 +382,51 @@ Leave empty to search using only filters (role, time range).""",
             if not query and not role and not start_timestamp and not end_timestamp:
                 return "Please provide at least one search criterion (query, role, or time filter)"
 
+            effective_session_id = session_id
             exclude_session_id = None if include_current_session else self.session_id
             exclude_recent_from_session_id = None
             exclude_recent_limit = 0
 
-            if include_current_session:
+            if effective_session_id is not None:
+                exclude_session_id = None
+                if effective_session_id == self.session_id:
+                    exclude_recent_from_session_id = self.session_id
+                    exclude_recent_limit = Config.CONTEXT_WINDOW_KEEP_MIN
+            else:
                 exclude_recent_from_session_id = self.session_id
                 exclude_recent_limit = Config.CONTEXT_WINDOW_KEEP_MIN
 
-            # Search summaries by keyword (exclude current session)
-            summary_results = self._search_with_fts_guard(
-                self.db.search_summaries_by_keyword,
-                query=query if query else None,
-                limit=limit // 2,
-                exclude_session_id=exclude_session_id,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp,
-            )
-            if isinstance(summary_results, str):
-                return summary_results
+            summary_results = []
+            conversation_results = []
 
-            # Search conversations by keyword (exclude current session)
-            conversation_results = self._search_with_fts_guard(
-                self.db.search_conversations_by_keyword,
-                query=query if query else None,
-                limit=limit // 2,
-                exclude_session_id=exclude_session_id,
-                exclude_recent_from_session_id=exclude_recent_from_session_id,
-                exclude_recent_limit=exclude_recent_limit,
-                role=role,
-                start_timestamp=start_timestamp,
-                end_timestamp=end_timestamp,
-            )
-            if isinstance(conversation_results, str):
-                return conversation_results
+            if search_target in {"all", "summaries"}:
+                summary_results = self._search_with_fts_guard(
+                    self.db.search_summaries_by_keyword,
+                    query=query if query else None,
+                    limit=limit if search_target == "summaries" else limit // 2,
+                    session_id=effective_session_id,
+                    exclude_session_id=exclude_session_id,
+                    start_timestamp=start_timestamp,
+                    end_timestamp=end_timestamp,
+                )
+                if isinstance(summary_results, str):
+                    return summary_results
+
+            if search_target in {"all", "conversations"}:
+                conversation_results = self._search_with_fts_guard(
+                    self.db.search_conversations_by_keyword,
+                    query=query if query else None,
+                    limit=limit if search_target == "conversations" else limit // 2,
+                    session_id=effective_session_id,
+                    exclude_session_id=exclude_session_id,
+                    exclude_recent_from_session_id=exclude_recent_from_session_id,
+                    exclude_recent_limit=exclude_recent_limit,
+                    role=role,
+                    start_timestamp=start_timestamp,
+                    end_timestamp=end_timestamp,
+                )
+                if isinstance(conversation_results, str):
+                    return conversation_results
 
             result = []
             self._append_search_criteria(
@@ -397,6 +436,8 @@ Leave empty to search using only filters (role, time range).""",
                 time_period=time_period,
                 start_date=start_date,
                 end_date=end_date,
+                session_id=effective_session_id,
+                search_target=search_target,
             )
             self._append_summary_results(result, summary_results)
             self._append_conversation_results(result, conversation_results)

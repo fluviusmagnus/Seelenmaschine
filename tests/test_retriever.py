@@ -63,10 +63,10 @@ class TestVectorRetriever:
         monkeypatch.setattr(Config, "RERANK_TOP_SUMMARIES", 3)
         monkeypatch.setattr(Config, "RERANK_TOP_CONVS", 6)
 
-        mock_db.search_summaries.return_value = [(1, "Summary 1", 100, 200, 0.5)]
+        mock_db.search_summaries.return_value = [(1, 11, "Summary 1", 100, 200, 0.5)]
         # Use get_conversations_by_time_range instead of search_conversations
         mock_db.get_conversations_by_time_range.return_value = [
-            (1, 150, "user", "Test message")  # No distance score in time-range search
+            (1, 11, 150, "user", "Test message")  # No distance score in time-range search
         ]
 
         summaries, conversations = retriever.retrieve_related_memories(
@@ -90,7 +90,7 @@ class TestVectorRetriever:
         monkeypatch.setattr(Config, "RERANK_TOP_SUMMARIES", 3)
         monkeypatch.setattr(Config, "RERANK_TOP_CONVS", 6)
 
-        mock_db.search_summaries.return_value = [(1, "Summary 1", 100, 200, 0.5)]
+        mock_db.search_summaries.return_value = [(1, 11, "Summary 1", 100, 200, 0.5)]
         # Use get_conversations_by_time_range instead of search_conversations
         mock_db.get_conversations_by_time_range.return_value = []
 
@@ -110,6 +110,7 @@ class TestVectorRetriever:
         summaries = [
             RetrievedSummary(
                 summary_id=1,
+                session_id=11,
                 summary="Test summary",
                 first_timestamp=100,
                 last_timestamp=200,
@@ -120,6 +121,7 @@ class TestVectorRetriever:
         formatted = retriever.format_summaries_for_prompt(summaries)
         assert len(formatted) == 1
         assert "Test summary" in formatted[0]
+        assert "[session_id=11]" in formatted[0]
 
     def test_format_conversations_for_prompt(self, retriever, monkeypatch):
         """Test formatting conversations for prompt."""
@@ -131,6 +133,7 @@ class TestVectorRetriever:
         conversations = [
             RetrievedConversation(
                 conversation_id=1,
+                session_id=22,
                 timestamp=150,
                 role="user",
                 text="Test message",
@@ -147,6 +150,7 @@ class TestVectorRetriever:
 
         assert len(formatted) == 1
         assert "User: Test message" in formatted[0]
+        assert "[session_id=22]" in formatted[0]
 
 
 

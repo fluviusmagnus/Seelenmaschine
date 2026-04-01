@@ -56,6 +56,9 @@ class TestMemorySearchTool:
         assert params["properties"]["query"]["type"] == "string"
         assert "include_current_session" in params["properties"]
         assert params["properties"]["include_current_session"]["default"] is False
+        assert "session_id" in params["properties"]
+        assert "search_target" in params["properties"]
+        assert params["properties"]["search_target"]["default"] == "all"
 
     def test_disable(self, memory_search_tool):
         """Test disabling tool."""
@@ -104,7 +107,7 @@ class TestMemorySearchTool:
     async def test_execute_search(self, memory_search_tool, mock_db):
         """Test executing search."""
         mock_db.search_conversations_by_keyword.return_value = [
-            (1, 1234567890, "user", "Found message", 0.9)
+            (1, 321, 1234567890, "user", "Found message", 0.9)
         ]
 
         result = await memory_search_tool.execute(query="search term")
@@ -141,8 +144,8 @@ class TestMemorySearchTool:
     async def test_execute_multiple_results(self, memory_search_tool, mock_db):
         """Test executing search with multiple results."""
         mock_db.search_conversations_by_keyword.return_value = [
-            (1, 1234567890, "user", "First result", 0.9),
-            (2, 1234567891, "assistant", "Second result", 0.8),
+            (1, 321, 1234567890, "user", "First result", 0.9),
+            (2, 321, 1234567891, "assistant", "Second result", 0.8),
         ]
 
         with patch("tools.memory_search.load_seele_json") as mock_load_seele_json:
@@ -156,6 +159,7 @@ class TestMemorySearchTool:
         assert "Second result" in result
         assert "Alice: First result" in result
         assert "Seele: Second result" in result
+        assert "[session_id=321]" in result
 
     @pytest.mark.asyncio
     async def test_execute_with_role_filter(self, memory_search_tool, mock_db):
@@ -238,13 +242,116 @@ class TestMemorySearchTool:
     async def test_execute_without_query(self, memory_search_tool, mock_db):
         """Test executing search without query but with filters."""
         mock_db.search_conversations_by_keyword.return_value = [
-            (1, 1234567890, "user", "User message", 0.9)
+            (1, 321, 1234567890, "user", "User message", 0.9)
         ]
 
         result = await memory_search_tool.execute(role="user")
 
         assert "User message" in result
         assert mock_db.search_conversations_by_keyword.called
+
+    @pytest.mark.asyncio
+    async def test_execute_with_specific_session_id(self, memory_search_tool, mock_db):
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(query="test", session_id=456)
+
+        summary_call_kwargs = mock_db.search_summaries_by_keyword.call_args[1]
+        conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert summary_call_kwargs["session_id"] == 456
+        assert conversation_call_kwargs["session_id"] == 456
+        assert summary_call_kwargs["exclude_session_id"] is None
+        assert conversation_call_kwargs["exclude_session_id"] is None
+        assert conversation_call_kwargs["exclude_recent_from_session_id"] is None
+        assert conversation_call_kwargs["exclude_recent_limit"] == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_search_target_summaries_only(self, memory_search_tool, mock_db):
+        mock_db.search_summaries_by_keyword.return_value = [
+            (1, 456, "Summary result", 1, 2, 0.9)
+        ]
+
+        result = await memory_search_tool.execute(
+            query="test", search_target="summaries"
+        )
+
+        assert "Summary result" in result
+        assert "[session_id=456]" in result
+        mock_db.search_summaries_by_keyword.assert_called_once()
+        mock_db.search_conversations_by_keyword.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_search_target_conversations_only(self, memory_search_tool, mock_db):
+        mock_db.search_conversations_by_keyword.return_value = [
+            (1, 654, 1234567890, "user", "Conversation result", 0.9)
+        ]
+
+        result = await memory_search_tool.execute(
+            query="test", search_target="conversations"
+        )
+
+        assert "Conversation result" in result
+        assert "[session_id=654]" in result
+        mock_db.search_conversations_by_keyword.assert_called_once()
+        mock_db.search_summaries_by_keyword.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_session_id_takes_precedence_over_include_current_session(
+        self, memory_search_tool, mock_db
+    ):
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(
+            query="test", include_current_session=True, session_id=789
+        )
+
+        summary_call_kwargs = mock_db.search_summaries_by_keyword.call_args[1]
+        conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert summary_call_kwargs["session_id"] == 789
+        assert conversation_call_kwargs["session_id"] == 789
+        assert conversation_call_kwargs["exclude_recent_from_session_id"] is None
+        assert conversation_call_kwargs["exclude_recent_limit"] == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_excludes_recent_messages_even_without_include_current_session(
+        self, memory_search_tool, mock_db
+    ):
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(query="test")
+
+        conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert (
+            conversation_call_kwargs["exclude_recent_from_session_id"]
+            == memory_search_tool.session_id
+        )
+        assert (
+            conversation_call_kwargs["exclude_recent_limit"]
+            == Config.CONTEXT_WINDOW_KEEP_MIN
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_excludes_recent_messages_for_explicit_current_session(
+        self, memory_search_tool, mock_db
+    ):
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(query="test", session_id=123)
+
+        conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert conversation_call_kwargs["session_id"] == 123
+        assert (
+            conversation_call_kwargs["exclude_recent_from_session_id"]
+            == memory_search_tool.session_id
+        )
+        assert (
+            conversation_call_kwargs["exclude_recent_limit"]
+            == Config.CONTEXT_WINDOW_KEEP_MIN
+        )
 
 
 class TestMemorySearchToolIntegration:
@@ -255,7 +362,7 @@ class TestMemorySearchToolIntegration:
         """Test complete search workflow."""
         # Simulate successful search
         mock_db.search_conversations_by_keyword.return_value = [
-            (1, 1234567890, "user", "Integration test message", 0.9)
+            (1, 321, 1234567890, "user", "Integration test message", 0.9)
         ]
 
         # Execute search
