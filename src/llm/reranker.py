@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 import httpx
 
 from core.config import Config
+from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -114,21 +115,14 @@ class RerankerClient:
         """Synchronous wrapper for rerank. Use rerank_async in async contexts."""
         if not self._enabled:
             return documents[:top_n] if top_n else documents
-        
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "rerank() called from async context. Use await rerank_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                loop = self._get_event_loop()
-                return loop.run_until_complete(self._async_rerank(query, documents, top_n))
-            else:
-                raise
+
+        ensure_not_in_async_context(
+            "rerank() called from async context. Use await rerank_async() instead."
+        )
+        return run_sync(
+            lambda: self._async_rerank(query, documents, top_n),
+            self._get_event_loop,
+        )
     
     async def rerank_async(
         self,
@@ -145,7 +139,8 @@ class RerankerClient:
             self._client = None
 
     def close(self) -> None:
-        loop = self._get_event_loop()
-        if not loop.is_closed():
-            loop.run_until_complete(self._async_close())
+        ensure_not_in_async_context(
+            "close() called from async context. Use await _async_close() instead."
+        )
+        run_sync(self._async_close, self._get_event_loop)
 

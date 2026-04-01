@@ -1,9 +1,10 @@
-from typing import List, Tuple, Optional
+from typing import Any, Callable, List, Tuple, Optional
 from dataclasses import dataclass
 
 from core.database import DatabaseManager
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
+from utils.async_utils import run_sync
 from utils.time import timestamp_to_str
 from utils.logger import get_logger
 
@@ -39,6 +40,174 @@ class VectorRetriever:
         self.embedding_client = embedding_client
         self.reranker_client = reranker_client
 
+    @staticmethod
+    def _merge_query_results(
+        query_results: list[tuple], bot_results: list[tuple]
+    ) -> list[tuple]:
+        """Merge summary rows without introducing duplicates."""
+        summary_id_to_result = {r[0]: r for r in query_results}
+        for row in bot_results:
+            if row[0] not in summary_id_to_result:
+                query_results.append(row)
+        return query_results
+
+    @staticmethod
+    def _rows_to_summaries(rows: list[tuple]) -> List[RetrievedSummary]:
+        """Convert DB rows into RetrievedSummary models."""
+        return [
+            RetrievedSummary(
+                summary_id=summary_id,
+                summary=summary,
+                first_timestamp=first_ts,
+                last_timestamp=last_ts,
+                score=distance,
+            )
+            for summary_id, summary, first_ts, last_ts, distance in rows
+        ]
+
+    def _collect_conversations_for_summaries(
+        self, summaries: List[RetrievedSummary], limit: int
+    ) -> List[RetrievedConversation]:
+        """Collect conversations referenced by retrieved summaries."""
+        conversations: List[RetrievedConversation] = []
+        for summary in summaries:
+            conv_results = self.db.get_conversations_by_time_range(
+                start_timestamp=summary.first_timestamp,
+                end_timestamp=summary.last_timestamp,
+                limit=limit,
+            )
+            for conversation_id, timestamp, role, text in conv_results:
+                conversations.append(
+                    RetrievedConversation(
+                        conversation_id=conversation_id,
+                        timestamp=timestamp,
+                        role=role,
+                        text=text,
+                        score=0.0,
+                    )
+                )
+        return conversations
+
+    @staticmethod
+    def _summary_docs(summaries: List[RetrievedSummary]) -> List[dict]:
+        return [
+            {
+                "text": s.summary,
+                "summary_id": s.summary_id,
+                "first_timestamp": s.first_timestamp,
+                "last_timestamp": s.last_timestamp,
+            }
+            for s in summaries
+        ]
+
+    @staticmethod
+    def _conversation_docs(conversations: List[RetrievedConversation]) -> List[dict]:
+        return [
+            {
+                "text": c.text,
+                "conversation_id": c.conversation_id,
+                "timestamp": c.timestamp,
+                "role": c.role,
+            }
+            for c in conversations
+        ]
+
+    @staticmethod
+    def _reranked_summary_models(reranked_docs: List[dict]) -> List[RetrievedSummary]:
+        return [
+            RetrievedSummary(
+                summary_id=doc["summary_id"],
+                summary=doc["text"],
+                first_timestamp=doc["first_timestamp"],
+                last_timestamp=doc["last_timestamp"],
+                score=0.0,
+            )
+            for doc in reranked_docs
+        ]
+
+    @staticmethod
+    def _reranked_conversation_models(
+        reranked_docs: List[dict],
+    ) -> List[RetrievedConversation]:
+        return [
+            RetrievedConversation(
+                conversation_id=doc["conversation_id"],
+                timestamp=doc["timestamp"],
+                role=doc["role"],
+                text=doc["text"],
+                score=0.0,
+            )
+            for doc in reranked_docs
+        ]
+
+    async def _retrieve_related_memories_impl(
+        self,
+        *,
+        query: str,
+        last_bot_message: Optional[str],
+        query_embedding: Optional[List[float]],
+        last_bot_embedding: Optional[List[float]],
+        exclude_summary_ids: Optional[List[int]],
+        embedding_fetcher: Callable[[str], Any],
+        rerank_fetcher: Callable[[str, List[dict], int], Any],
+    ) -> Tuple[List[RetrievedSummary], List[RetrievedConversation]]:
+        """Shared implementation for sync/async memory retrieval."""
+        from core.config import Config
+
+        if query_embedding is None:
+            query_embedding = await embedding_fetcher(query)
+        else:
+            logger.debug("Reusing provided query_embedding")
+
+        query_results = self.db.search_summaries(
+            query_embedding,
+            limit=Config.RECALL_SUMMARY_PER_QUERY,
+            exclude_ids=exclude_summary_ids,
+        )
+
+        if last_bot_embedding is None and last_bot_message:
+            last_bot_embedding = await embedding_fetcher(last_bot_message)
+
+        if last_bot_embedding:
+            bot_results = self.db.search_summaries(
+                last_bot_embedding,
+                limit=Config.RECALL_SUMMARY_PER_QUERY,
+                exclude_ids=exclude_summary_ids,
+            )
+            query_results = self._merge_query_results(query_results, bot_results)
+
+        summaries = self._rows_to_summaries(query_results)
+        conversations_result = self._collect_conversations_for_summaries(
+            summaries,
+            Config.RECALL_CONV_PER_SUMMARY,
+        )
+
+        if self.reranker_client.is_enabled() and summaries:
+            reranked_summaries = await rerank_fetcher(
+                query,
+                self._summary_docs(summaries),
+                Config.RERANK_TOP_SUMMARIES,
+            )
+            summaries_result = self._reranked_summary_models(reranked_summaries)
+        else:
+            summaries_result = summaries[: Config.RERANK_TOP_SUMMARIES]
+
+        if self.reranker_client.is_enabled() and conversations_result:
+            reranked_convs = await rerank_fetcher(
+                query,
+                self._conversation_docs(conversations_result),
+                Config.RERANK_TOP_CONVS,
+            )
+            conversations_result = self._reranked_conversation_models(reranked_convs)
+        else:
+            conversations_result = conversations_result[: Config.RERANK_TOP_CONVS]
+
+        logger.debug(
+            f"Retrieved {len(summaries_result)} summaries and "
+            f"{len(conversations_result)} conversations for query"
+        )
+        return summaries_result, conversations_result
+
     def retrieve_related_memories(
         self,
         query: str,
@@ -56,129 +225,30 @@ class VectorRetriever:
             last_bot_embedding: Optional pre-computed bot embedding
             exclude_summary_ids: Optional list of summary_ids to exclude
         """
-        from core.config import Config
+        async def _embedding_fetcher(text: str) -> List[float]:
+            return self.embedding_client.get_embedding(text)
 
-        summaries_result = []
-        conversations_result = []
+        async def _rerank_fetcher(
+            current_query: str, documents: List[dict], top_n: int
+        ) -> List[dict]:
+            return self.reranker_client.rerank(
+                query=current_query,
+                documents=documents,
+                top_n=top_n,
+            )
 
-        if query_embedding is None:
-            query_embedding = self.embedding_client.get_embedding(query)
-        else:
-            logger.debug("Reusing provided query_embedding")
-
-        query_results = self.db.search_summaries(
-            query_embedding,
-            limit=Config.RECALL_SUMMARY_PER_QUERY,
-            exclude_ids=exclude_summary_ids,
+        return run_sync(
+            lambda: self._retrieve_related_memories_impl(
+                query=query,
+                last_bot_message=last_bot_message,
+                query_embedding=query_embedding,
+                last_bot_embedding=last_bot_embedding,
+                exclude_summary_ids=exclude_summary_ids,
+                embedding_fetcher=_embedding_fetcher,
+                rerank_fetcher=_rerank_fetcher,
+            ),
+            lambda: __import__("asyncio").new_event_loop(),
         )
-
-        if last_bot_embedding is None and last_bot_message:
-            last_bot_embedding = self.embedding_client.get_embedding(last_bot_message)
-
-        if last_bot_embedding:
-            bot_results = self.db.search_summaries(
-                last_bot_embedding,
-                limit=Config.RECALL_SUMMARY_PER_QUERY,
-                exclude_ids=exclude_summary_ids,
-            )
-
-            summary_id_to_result = {r[0]: r for r in query_results}
-            for r in bot_results:
-                if r[0] not in summary_id_to_result:
-                    query_results.append(r)
-
-        summaries = []
-        for r in query_results:
-            summary_id, summary, first_ts, last_ts, distance = r
-            summaries.append(
-                RetrievedSummary(
-                    summary_id=summary_id,
-                    summary=summary,
-                    first_timestamp=first_ts,
-                    last_timestamp=last_ts,
-                    score=distance,
-                )
-            )
-
-        if summaries:
-            for summary in summaries:
-                # Search conversations within the summary's time range
-                conv_results = self.db.get_conversations_by_time_range(
-                    start_timestamp=summary.first_timestamp,
-                    end_timestamp=summary.last_timestamp,
-                    limit=Config.RECALL_CONV_PER_SUMMARY,
-                )
-
-                for r in conv_results:
-                    conversation_id, timestamp, role, text = r
-                    conversations_result.append(
-                        RetrievedConversation(
-                            conversation_id=conversation_id,
-                            timestamp=timestamp,
-                            role=role,
-                            text=text,
-                            score=0.0,  # No distance score for time-range search
-                        )
-                    )
-
-        if self.reranker_client.is_enabled() and summaries:
-            summary_docs = [
-                {
-                    "text": s.summary,
-                    "summary_id": s.summary_id,
-                    "first_timestamp": s.first_timestamp,
-                    "last_timestamp": s.last_timestamp,
-                }
-                for s in summaries
-            ]
-            reranked_summaries = self.reranker_client.rerank(
-                query=query, documents=summary_docs, top_n=Config.RERANK_TOP_SUMMARIES
-            )
-            summaries_result = [
-                RetrievedSummary(
-                    summary_id=doc["summary_id"],
-                    summary=doc["text"],
-                    first_timestamp=doc["first_timestamp"],
-                    last_timestamp=doc["last_timestamp"],
-                    score=0.0,
-                )
-                for doc in reranked_summaries
-            ]
-        else:
-            summaries_result = summaries[: Config.RERANK_TOP_SUMMARIES]
-
-        if self.reranker_client.is_enabled() and conversations_result:
-            conv_docs = [
-                {
-                    "text": c.text,
-                    "conversation_id": c.conversation_id,
-                    "timestamp": c.timestamp,
-                    "role": c.role,
-                }
-                for c in conversations_result
-            ]
-            reranked_convs = self.reranker_client.rerank(
-                query=query, documents=conv_docs, top_n=Config.RERANK_TOP_CONVS
-            )
-            conversations_result = [
-                RetrievedConversation(
-                    conversation_id=doc["conversation_id"],
-                    timestamp=doc["timestamp"],
-                    role=doc["role"],
-                    text=doc["text"],
-                    score=0.0,
-                )
-                for doc in reranked_convs
-            ]
-        else:
-            conversations_result = conversations_result[: Config.RERANK_TOP_CONVS]
-
-        logger.debug(
-            f"Retrieved {len(summaries_result)} summaries and "
-            f"{len(conversations_result)} conversations for query"
-        )
-
-        return summaries_result, conversations_result
 
     async def retrieve_related_memories_async(
         self,
@@ -197,131 +267,19 @@ class VectorRetriever:
             last_bot_embedding: Optional pre-computed bot embedding
             exclude_summary_ids: Optional list of summary_ids to exclude
         """
-        from core.config import Config
-
-        summaries_result = []
-        conversations_result = []
-
-        if query_embedding is None:
-            query_embedding = await self.embedding_client.get_embedding_async(query)
-        else:
-            logger.debug("Reusing provided query_embedding")
-
-        query_results = self.db.search_summaries(
-            query_embedding,
-            limit=Config.RECALL_SUMMARY_PER_QUERY,
-            exclude_ids=exclude_summary_ids,
+        return await self._retrieve_related_memories_impl(
+            query=query,
+            last_bot_message=last_bot_message,
+            query_embedding=query_embedding,
+            last_bot_embedding=last_bot_embedding,
+            exclude_summary_ids=exclude_summary_ids,
+            embedding_fetcher=self.embedding_client.get_embedding_async,
+            rerank_fetcher=lambda current_query, documents, top_n: self.reranker_client.rerank_async(
+                query=current_query,
+                documents=documents,
+                top_n=top_n,
+            ),
         )
-
-        if last_bot_embedding is None and last_bot_message:
-            last_bot_embedding = await self.embedding_client.get_embedding_async(
-                last_bot_message
-            )
-
-        if last_bot_embedding:
-            bot_results = self.db.search_summaries(
-                last_bot_embedding,
-                limit=Config.RECALL_SUMMARY_PER_QUERY,
-                exclude_ids=exclude_summary_ids,
-            )
-
-            summary_id_to_result = {r[0]: r for r in query_results}
-            for r in bot_results:
-                if r[0] not in summary_id_to_result:
-                    query_results.append(r)
-
-        summaries = []
-        for r in query_results:
-            summary_id, summary, first_ts, last_ts, distance = r
-            summaries.append(
-                RetrievedSummary(
-                    summary_id=summary_id,
-                    summary=summary,
-                    first_timestamp=first_ts,
-                    last_timestamp=last_ts,
-                    score=distance,
-                )
-            )
-
-        if summaries:
-            for summary in summaries:
-                # Search conversations within the summary's time range
-                conv_results = self.db.get_conversations_by_time_range(
-                    start_timestamp=summary.first_timestamp,
-                    end_timestamp=summary.last_timestamp,
-                    limit=Config.RECALL_CONV_PER_SUMMARY,
-                )
-
-                for r in conv_results:
-                    conversation_id, timestamp, role, text = r
-                    conversations_result.append(
-                        RetrievedConversation(
-                            conversation_id=conversation_id,
-                            timestamp=timestamp,
-                            role=role,
-                            text=text,
-                            score=0.0,  # No distance score for time-range search
-                        )
-                    )
-
-        if self.reranker_client.is_enabled() and summaries:
-            summary_docs = [
-                {
-                    "text": s.summary,
-                    "summary_id": s.summary_id,
-                    "first_timestamp": s.first_timestamp,
-                    "last_timestamp": s.last_timestamp,
-                }
-                for s in summaries
-            ]
-            reranked_summaries = await self.reranker_client.rerank_async(
-                query=query, documents=summary_docs, top_n=Config.RERANK_TOP_SUMMARIES
-            )
-            summaries_result = [
-                RetrievedSummary(
-                    summary_id=doc["summary_id"],
-                    summary=doc["text"],
-                    first_timestamp=doc["first_timestamp"],
-                    last_timestamp=doc["last_timestamp"],
-                    score=0.0,
-                )
-                for doc in reranked_summaries
-            ]
-        else:
-            summaries_result = summaries[: Config.RERANK_TOP_SUMMARIES]
-
-        if self.reranker_client.is_enabled() and conversations_result:
-            conv_docs = [
-                {
-                    "text": c.text,
-                    "conversation_id": c.conversation_id,
-                    "timestamp": c.timestamp,
-                    "role": c.role,
-                }
-                for c in conversations_result
-            ]
-            reranked_convs = await self.reranker_client.rerank_async(
-                query=query, documents=conv_docs, top_n=Config.RERANK_TOP_CONVS
-            )
-            conversations_result = [
-                RetrievedConversation(
-                    conversation_id=doc["conversation_id"],
-                    timestamp=doc["timestamp"],
-                    role=doc["role"],
-                    text=doc["text"],
-                    score=0.0,
-                )
-                for doc in reranked_convs
-            ]
-        else:
-            conversations_result = conversations_result[: Config.RERANK_TOP_CONVS]
-
-        logger.debug(
-            f"Retrieved {len(summaries_result)} summaries and "
-            f"{len(conversations_result)} conversations for query"
-        )
-
-        return summaries_result, conversations_result
 
     def format_summaries_for_prompt(
         self, summaries: List[RetrievedSummary]

@@ -571,7 +571,7 @@ class ToolExecutor:
         if not self.is_mcp_connected():
             return None
 
-        mcp_tools = self.mcp_client.get_tools_sync()
+        mcp_tools = await self.mcp_client.list_tools()
         if not any(t["function"]["name"] == tool_name for t in mcp_tools):
             return None
 

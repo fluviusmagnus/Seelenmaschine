@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, cast
 from openai import AsyncOpenAI
 
 from core.config import Config
+from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -61,20 +62,10 @@ class EmbeddingClient:
 
     def get_embedding(self, text: str) -> List[float]:
         """Synchronous wrapper for get_embedding. Use get_embedding_async in async contexts."""
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "get_embedding() called from async context. Use await get_embedding_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                loop = self._get_event_loop()
-                return loop.run_until_complete(self._async_get_embedding(text))
-            else:
-                raise
+        ensure_not_in_async_context(
+            "get_embedding() called from async context. Use await get_embedding_async() instead."
+        )
+        return run_sync(lambda: self._async_get_embedding(text), self._get_event_loop)
 
     async def get_embedding_async(self, text: str) -> List[float]:
         """Async method for getting embeddings. Use this in async contexts."""
@@ -135,7 +126,8 @@ class EmbeddingClient:
             self._client = None
 
     def close(self) -> None:
-        loop = self._get_event_loop()
-        if not loop.is_closed():
-            loop.run_until_complete(self._async_close())
+        ensure_not_in_async_context(
+            "close() called from async context. Use await _async_close() instead."
+        )
+        run_sync(self._async_close, self._get_event_loop)
 

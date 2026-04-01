@@ -11,28 +11,22 @@ class MemoryRecall:
         self.context_window = context_window
         self.retriever = retriever
 
-    def process_user_input(
-        self, user_input: str, last_bot_message: Optional[str] = None
+    def _format_results(
+        self, summaries: List, conversations: List
     ) -> Tuple[List[str], List[str]]:
-        """Retrieve and format related memories for the current user input."""
-        exclude_summary_ids = self.context_window.get_recent_summary_ids()
-        summaries, conversations = self.retriever.retrieve_related_memories(
-            query=user_input,
-            last_bot_message=last_bot_message,
-            exclude_summary_ids=exclude_summary_ids,
-        )
+        """Format retrieved summaries and conversations for prompts."""
         return (
             self.retriever.format_summaries_for_prompt(summaries),
             self.retriever.format_conversations_for_prompt(conversations),
         )
 
-    async def process_user_input_async(
+    async def _process_user_input_impl(
         self,
         user_input: str,
         last_bot_message: Optional[str] = None,
         user_input_embedding: Optional[List[float]] = None,
     ) -> Tuple[List[str], List[str]]:
-        """Async version of process_user_input."""
+        """Shared async-first implementation for memory recall."""
         exclude_summary_ids = self.context_window.get_recent_summary_ids()
         messages = self.context_window.get_messages()
         last_bot_embedding = None
@@ -54,9 +48,31 @@ class MemoryRecall:
             last_bot_embedding=last_bot_embedding,
             exclude_summary_ids=exclude_summary_ids,
         )
-        return (
-            self.retriever.format_summaries_for_prompt(summaries),
-            self.retriever.format_conversations_for_prompt(conversations),
+        return self._format_results(summaries, conversations)
+
+    def process_user_input(
+        self, user_input: str, last_bot_message: Optional[str] = None
+    ) -> Tuple[List[str], List[str]]:
+        """Retrieve and format related memories for the current user input."""
+        exclude_summary_ids = self.context_window.get_recent_summary_ids()
+        summaries, conversations = self.retriever.retrieve_related_memories(
+            query=user_input,
+            last_bot_message=last_bot_message,
+            exclude_summary_ids=exclude_summary_ids,
+        )
+        return self._format_results(summaries, conversations)
+
+    async def process_user_input_async(
+        self,
+        user_input: str,
+        last_bot_message: Optional[str] = None,
+        user_input_embedding: Optional[List[float]] = None,
+    ) -> Tuple[List[str], List[str]]:
+        """Async version of process_user_input."""
+        return await self._process_user_input_impl(
+            user_input=user_input,
+            last_bot_message=last_bot_message,
+            user_input_embedding=user_input_embedding,
         )
 
     def get_context_messages(self) -> List[dict]:

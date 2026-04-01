@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Callable, Dict, List, Optional
 
 from core.config import Config
+from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -44,23 +45,12 @@ class MemoryClient:
 
     def _run_sync_tool_prompt(self, coroutine_factory: Callable[[], Any]) -> str:
         """Run an async tool-model coroutine from sync code."""
-        loop = self.llm_client._get_event_loop()
-        try:
-            return loop.run_until_complete(coroutine_factory())
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop.run_until_complete(coroutine_factory())
+        return run_sync(coroutine_factory, self.llm_client._get_event_loop)
 
     @staticmethod
     def _ensure_not_in_async_context(error_message: str) -> None:
         """Raise a clear error if a sync wrapper is called from async code."""
-        try:
-            asyncio.get_running_loop()
-            raise RuntimeError(error_message)
-        except RuntimeError as error:
-            if "no running event loop" not in str(error).lower():
-                raise
+        ensure_not_in_async_context(error_message)
 
     def _build_conversation_prompt(
         self,

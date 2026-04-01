@@ -19,6 +19,7 @@ from prompts import (
     load_seele_json,
 )
 from utils.logger import get_logger
+from utils.async_utils import ensure_not_in_async_context, run_sync
 
 logger = get_logger()
 
@@ -589,21 +590,10 @@ class LLMClient:
 
     def close(self) -> None:
         """Synchronous wrapper for close. Use close_async in async contexts."""
-        try:
-            # Check if we're in an event loop
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't be called
-            raise RuntimeError(
-                "close() called from async context. Use await close_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # We're in sync context, safe to use run_until_complete
-                loop = self._get_event_loop()
-                if not loop.is_closed():
-                    loop.run_until_complete(self._async_close())
-            else:
-                raise
+        ensure_not_in_async_context(
+            "close() called from async context. Use await close_async() instead."
+        )
+        run_sync(self._async_close, self._get_event_loop)
 
     async def close_async(self) -> None:
         """Async version of close. Use this in async contexts."""
