@@ -27,10 +27,27 @@ class SessionMemory:
     def _estimate_summary_window(
         self, messages: List[Message]
     ) -> Tuple[int, int]:
-        """Estimate a timestamp window for synthetic session-close summaries."""
+        """Resolve a summary window from message timestamps or fall back to estimation."""
+        timestamps = [message.timestamp for message in messages if message.timestamp is not None]
+        if timestamps:
+            return min(timestamps), max(timestamps)
+
         last_timestamp = get_current_timestamp()
         first_timestamp = int(last_timestamp - len(messages) * 60)
         return first_timestamp, last_timestamp
+
+    def _summary_timestamps_from_messages(
+        self, session_id: int, messages: List[Message]
+    ) -> Tuple[int, int]:
+        """Resolve summary timestamps directly from the actual summarized messages."""
+        timestamps = [message.timestamp for message in messages if message.timestamp is not None]
+        if timestamps:
+            return min(timestamps), max(timestamps)
+
+        logger.warning(
+            "Summarized messages do not have timestamps; falling back to database lookup"
+        )
+        return self._summary_timestamps_from_conversations(session_id, len(messages))
 
     def _insert_summary(
         self,
@@ -196,7 +213,10 @@ class SessionMemory:
             messages=messages_to_summarize,
             summary_text=summary_text,
             embedding_fetcher=self.embedding_client.get_embedding_async,
-            timestamp_resolver=self._summary_timestamps_from_conversations,
+            timestamp_resolver=lambda current_session_id, _message_count: self._summary_timestamps_from_messages(
+                current_session_id,
+                messages_to_summarize,
+            ),
         )
         self.context_window.add_summary(summary=summary_text, summary_id=summary_id)
         self.context_window.remove_earliest_messages(keep_count)
@@ -244,6 +264,7 @@ class SessionMemory:
         self.context_window.add_message(
             role=role,
             text=text,
+            timestamp=timestamp,
             embedding=embedding,
             message_type=message_type,
             include_in_turn_count=include_in_turn_count,
@@ -288,7 +309,7 @@ class SessionMemory:
             embedding=None,
             message_type="scheduled_task",
             include_in_turn_count=False,
-            include_in_summary=True,
+            include_in_summary=False,
         )
 
     async def add_tool_message_async(
@@ -383,6 +404,7 @@ class SessionMemory:
             self.context_window.add_message(
                 role=conv["role"],
                 text=conv["text"],
+                timestamp=conv.get("timestamp"),
                 message_type=conv.get("message_type", "conversation"),
                 include_in_turn_count=bool(conv.get("include_in_turn_count", 1)),
                 include_in_summary=bool(conv.get("include_in_summary", 1)),
@@ -545,9 +567,9 @@ class SessionMemory:
 
         summary_text = generate_summary(messages_to_summarize)
         session_id = get_current_session_id()
-        message_count = len(messages_to_summarize)
-        first_timestamp, last_timestamp = self._summary_timestamps_from_conversations(
-            session_id, message_count
+        first_timestamp, last_timestamp = self._summary_timestamps_from_messages(
+            session_id,
+            messages_to_summarize,
         )
 
         embedding = self.embedding_client.get_embedding(summary_text)

@@ -14,6 +14,7 @@ logger = get_logger()
 class Message:
     role: str
     text: str
+    timestamp: Optional[int] = None
     embedding: Optional[List[float]] = None
     message_type: str = "conversation"
     include_in_turn_count: bool = True
@@ -27,6 +28,7 @@ class Message:
         return cls(
             role=data["role"],
             text=data["text"],
+            timestamp=data.get("timestamp"),
             message_type=data.get("message_type", "conversation"),
             include_in_turn_count=data.get("include_in_turn_count", True),
             include_in_summary=data.get("include_in_summary", True),
@@ -51,6 +53,7 @@ class ContextWindow:
         self,
         role: str,
         text: str,
+        timestamp: Optional[int] = None,
         embedding: Optional[List[float]] = None,
         *,
         message_type: str = "conversation",
@@ -61,6 +64,7 @@ class ContextWindow:
             Message(
                 role=role,
                 text=text,
+                timestamp=timestamp,
                 embedding=embedding,
                 message_type=message_type,
                 include_in_turn_count=include_in_turn_count,

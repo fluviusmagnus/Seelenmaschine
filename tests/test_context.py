@@ -18,6 +18,7 @@ class TestMessage:
         msg = Message(role="user", text="Hello")
         assert msg.role == "user"
         assert msg.text == "Hello"
+        assert msg.timestamp is None
         assert msg.message_type == "conversation"
         assert msg.include_in_turn_count is True
         assert msg.include_in_summary is True
@@ -30,10 +31,11 @@ class TestMessage:
 
     def test_message_from_dict(self):
         """Test creating message from dict."""
-        msg_dict = {"role": "user", "text": "Test message"}
+        msg_dict = {"role": "user", "text": "Test message", "timestamp": 123}
         msg = Message.from_dict(msg_dict)
         assert msg.role == "user"
         assert msg.text == "Test message"
+        assert msg.timestamp == 123
 
     def test_message_from_dict_with_metadata(self):
         msg_dict = {

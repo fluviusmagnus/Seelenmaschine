@@ -88,9 +88,9 @@ class TestMemoryManager:
         mock_db.insert_summary.return_value = 10
 
         # Add some messages to context window
-        memory_manager.context_window.add_message("user", "Hello")
-        memory_manager.context_window.add_message("assistant", "Hi there")
-        memory_manager.context_window.add_message("user", "How are you?")
+        memory_manager.context_window.add_message("user", "Hello", timestamp=100)
+        memory_manager.context_window.add_message("assistant", "Hi there", timestamp=130)
+        memory_manager.context_window.add_message("user", "How are you?", timestamp=160)
 
         with patch.object(
             memory_manager, "_generate_summary", return_value="Final summary"
@@ -103,6 +103,8 @@ class TestMemoryManager:
                 # Verify summary was created for remaining messages
                 assert mock_summary.called
                 assert mock_db.insert_summary.called
+                assert mock_db.insert_summary.call_args.kwargs["first_timestamp"] == 100
+                assert mock_db.insert_summary.call_args.kwargs["last_timestamp"] == 160
 
                 # Verify long-term memory was updated with the remaining messages
                 assert mock_update_ltm.called
@@ -110,10 +112,28 @@ class TestMemoryManager:
                 assert update_call_args[0] == 10  # summary_id
                 assert len(update_call_args[1]) == 3  # 3 remaining messages
 
-                # Verify session was closed and new one created
-                assert mock_db.close_session.called
-                assert mock_db.create_session.called
-                assert new_id == 1
+    def test_new_session_ignores_scheduled_task_messages_in_summary(self, memory_manager, mock_db):
+        """Scheduled-task trigger messages should not pollute final summary input."""
+        mock_db.get_active_session.return_value = {"session_id": 1}
+        mock_db.insert_summary.return_value = 10
+        mock_db.insert_conversation.return_value = 20
+
+        memory_manager.context_window.add_message("user", "Hello", timestamp=100)
+        memory_manager.add_scheduled_task_message("[Scheduled Task Trigger]\n提醒喝水")
+        memory_manager.context_window.add_message("assistant", "Hi there", timestamp=130)
+
+        with patch.object(
+            memory_manager, "_generate_summary", return_value="Final summary"
+        ) as mock_summary:
+            with patch.object(
+                memory_manager, "_update_long_term_memory", return_value=True
+            ):
+                memory_manager.new_session()
+
+        summarized_messages = mock_summary.call_args[0][0]
+        assert [message.text for message in summarized_messages] == ["Hello", "Hi there"]
+        assert mock_db.close_session.called
+        assert mock_db.create_session.called
 
     def test_new_session_no_existing(self, memory_manager, mock_db):
         """Test creating new session when none exists."""
@@ -170,22 +190,12 @@ class TestMemoryManager:
         mock_db.insert_conversation.return_value = 11
         mock_db.insert_summary.return_value = 1
 
-        # Mock get_conversations_by_session to return conversations with proper timestamps
-        mock_conversations = [
-            {
-                "conversation_id": i,
-                "timestamp": 1000 + i * 100,
-                "role": "user" if i % 2 == 0 else "assistant",
-                "text": f"Message {i}",
-            }
-            for i in range(24)
-        ]
-        mock_db.get_conversations_by_session.return_value = mock_conversations
-
         # Add exactly 24 messages to trigger summary
         for i in range(24):
             memory_manager.context_window.add_message(
-                "user" if i % 2 == 0 else "assistant", f"Message {i}"
+                "user" if i % 2 == 0 else "assistant",
+                f"Message {i}",
+                timestamp=1000 + i * 100,
             )
 
         # Mock both summary generation and memory update
@@ -206,6 +216,8 @@ class TestMemoryManager:
 
                     assert summary_id is not None
                     assert mock_db.insert_summary.called
+                    assert mock_db.insert_summary.call_args.kwargs["first_timestamp"] == 1000
+                    assert mock_db.insert_summary.call_args.kwargs["last_timestamp"] == 2100
 
                     # Verify that _generate_memory_update was called with the correct messages
                     # It should be called with the 12 messages that were summarized (the earliest ones)
@@ -222,6 +234,7 @@ class TestMemoryManager:
         summaries = [
             RetrievedSummary(
                 summary_id=1,
+                session_id=1,
                 summary="Summary 1",
                 first_timestamp=100,
                 last_timestamp=200,
@@ -230,7 +243,12 @@ class TestMemoryManager:
         ]
         conversations = [
             RetrievedConversation(
-                conversation_id=1, timestamp=150, role="user", text="Test", score=0.5
+                conversation_id=1,
+                session_id=1,
+                timestamp=150,
+                role="user",
+                text="Test",
+                score=0.5,
             )
         ]
 
