@@ -3,6 +3,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from typing import Dict, Any
 
 from tools.memory_search import MemorySearchTool
+from core.config import Config
 
 
 @pytest.fixture(autouse=True)
@@ -183,6 +184,29 @@ class TestMemorySearchTool:
         conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
         assert summary_call_kwargs["exclude_session_id"] is None
         assert conversation_call_kwargs["exclude_session_id"] is None
+        assert (
+            conversation_call_kwargs["exclude_recent_from_session_id"]
+            == memory_search_tool.session_id
+        )
+        assert (
+            conversation_call_kwargs["exclude_recent_limit"]
+            == Config.CONTEXT_WINDOW_KEEP_MIN
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_excludes_recent_messages_when_including_current_session(
+        self, memory_search_tool, mock_db
+    ):
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(
+            query="test", include_current_session=True
+        )
+
+        conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert conversation_call_kwargs["exclude_recent_from_session_id"] == 123
+        assert conversation_call_kwargs["exclude_recent_limit"] == Config.CONTEXT_WINDOW_KEEP_MIN
 
     @pytest.mark.asyncio
     async def test_execute_with_time_period(self, memory_search_tool, mock_db):

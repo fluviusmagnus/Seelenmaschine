@@ -346,6 +346,12 @@ Leave empty to search using only filters (role, time range).""",
                 return "Please provide at least one search criterion (query, role, or time filter)"
 
             exclude_session_id = None if include_current_session else self.session_id
+            exclude_recent_from_session_id = None
+            exclude_recent_limit = 0
+
+            if include_current_session:
+                exclude_recent_from_session_id = self.session_id
+                exclude_recent_limit = Config.CONTEXT_WINDOW_KEEP_MIN
 
             # Search summaries by keyword (exclude current session)
             summary_results = self._search_with_fts_guard(
@@ -365,6 +371,8 @@ Leave empty to search using only filters (role, time range).""",
                 query=query if query else None,
                 limit=limit // 2,
                 exclude_session_id=exclude_session_id,
+                exclude_recent_from_session_id=exclude_recent_from_session_id,
+                exclude_recent_limit=exclude_recent_limit,
                 role=role,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,

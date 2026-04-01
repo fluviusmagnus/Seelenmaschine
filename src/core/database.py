@@ -1105,6 +1105,8 @@ class DatabaseManager:
         query: Optional[str] = None,
         limit: int = 10,
         exclude_session_id: Optional[int] = None,
+        exclude_recent_from_session_id: Optional[int] = None,
+        exclude_recent_limit: int = 0,
         role: Optional[str] = None,
         start_timestamp: Optional[int] = None,
         end_timestamp: Optional[int] = None,
@@ -1115,6 +1117,10 @@ class DatabaseManager:
             query: Search query (supports FTS5 query syntax). If None, returns all matching filters.
             limit: Maximum number of results
             exclude_session_id: Optional session_id to exclude (e.g., current session)
+            exclude_recent_from_session_id: Optional session_id whose most recent
+                conversation messages should be excluded from results
+            exclude_recent_limit: Number of most recent conversation messages to
+                exclude for exclude_recent_from_session_id
             role: Optional role filter ('user' or 'assistant')
             start_timestamp: Optional start time (Unix timestamp)
             end_timestamp: Optional end time (Unix timestamp)
@@ -1154,6 +1160,26 @@ class DatabaseManager:
                 if exclude_session_id is not None:
                     conditions.append("c.session_id != ?")
                     params.append(exclude_session_id)
+
+                if (
+                    exclude_recent_from_session_id is not None
+                    and exclude_recent_limit > 0
+                ):
+                    conditions.append(
+                        """
+                        c.conversation_id NOT IN (
+                            SELECT recent.conversation_id
+                            FROM conversations recent
+                            WHERE recent.session_id = ?
+                              AND recent.message_type = 'conversation'
+                            ORDER BY recent.timestamp DESC, recent.conversation_id DESC
+                            LIMIT ?
+                        )
+                        """
+                    )
+                    params.extend(
+                        [exclude_recent_from_session_id, exclude_recent_limit]
+                    )
 
                 if role is not None:
                     conditions.append("c.role = ?")
