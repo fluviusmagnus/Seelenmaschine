@@ -63,6 +63,18 @@ class ConversationService:
             f"Please respond proactively based on this scheduled task."
         )
 
+    async def _persist_scheduled_task_trigger_message(
+        self, wrapped_message: str
+    ) -> None:
+        """Persist the scheduled-task trigger as a context-only system message.
+
+        This mirrors tool-call context behavior: the message enters the current
+        context window for future turns, but it is not counted as a normal
+        user/assistant turn, is not summarized, and is not part of vector
+        retrieval because it is stored as a non-conversation message type.
+        """
+        await self.memory.add_tool_message_async(wrapped_message)
+
     async def _retrieve_memory_context(
         self,
         *,
@@ -259,10 +271,13 @@ class ConversationService:
             )
 
             logger.debug(f"Wrapped scheduled task message: {wrapped_message[:100]}...")
-            logger.debug("Step 1: Getting current context for scheduled task")
+            logger.debug("Step 1: Persisting scheduled task trigger message")
+            await self._persist_scheduled_task_trigger_message(wrapped_message)
+
+            logger.debug("Step 2: Getting current context for scheduled task")
             current_context = self.memory.get_context_messages()
 
-            logger.debug("Step 2: Retrieving relevant memories for scheduled task")
+            logger.debug("Step 3: Retrieving relevant memories for scheduled task")
             task_embedding = await self.embedding_client.get_embedding_async(task_message)
             retrieved_summaries, retrieved_conversations, recent_summaries = (
                 await self._retrieve_memory_context(

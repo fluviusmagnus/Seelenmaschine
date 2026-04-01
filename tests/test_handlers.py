@@ -317,14 +317,20 @@ class TestMessageProcessing:
         response = await core_bot.process_scheduled_task("提醒喝水", "喝水提醒")
 
         assert response == "别忘了喝水。"
-        handler.memory.add_tool_message_async.assert_awaited_once()
+        assert handler.memory.add_tool_message_async.await_count == 2
+        scheduled_trigger_message = handler.memory.add_tool_message_async.await_args_list[
+            0
+        ].args[0]
+        assert "[SYSTEM_SCHEDULED_TASK]" in scheduled_trigger_message
+        assert "Task Name: 喝水提醒" in scheduled_trigger_message
+        assert "Task: 提醒喝水" in scheduled_trigger_message
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
         handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")
         assert handler.memory.add_assistant_message_async.await_args_list[0].args == (
             "我提醒你一下",
         )
-        assert handler.memory.add_tool_message_async.await_args_list[0].args == (
+        assert handler.memory.add_tool_message_async.await_args_list[1].args == (
             '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"',
         )
         assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
