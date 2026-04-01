@@ -332,7 +332,7 @@ class TestMessageProcessing:
         assert "name: 喝水提醒" in scheduled_trigger_message
         assert "message: 提醒喝水" in scheduled_trigger_message
         assert (
-            "Finish the request in the task message and then continue the current conversation."
+            "This is a trigger message. Now execute the task described above and then continue the current conversation."
             in scheduled_trigger_message
         )
         handler.llm_client.chat_with_custom_message_async_detailed.assert_awaited_once()

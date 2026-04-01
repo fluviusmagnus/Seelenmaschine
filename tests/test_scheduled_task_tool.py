@@ -99,7 +99,11 @@ class TestScheduledTaskTool:
             message="Test message",
         )
 
-        assert "task_001" in result
+        assert "✓ Task created (Task ID: task_001)" in result
+        assert "Name: Test Task" in result
+        assert "Type: Recurring" in result
+        assert "Interval: 5m" in result
+        assert "Message: Test message" in result
         assert mock_scheduler.add_task.called
 
     @pytest.mark.asyncio
@@ -115,7 +119,11 @@ class TestScheduledTaskTool:
             message="One-time message",
         )
 
-        assert "task_002" in result
+        assert "✓ Task created (Task ID: task_002)" in result
+        assert "Name: One-time Task" in result
+        assert "Type: One-time" in result
+        assert "Trigger at:" in result
+        assert "Message: One-time message" in result
         assert mock_scheduler.add_task.called
 
     @pytest.mark.asyncio
@@ -159,8 +167,9 @@ class TestScheduledTaskTool:
 
         result = await scheduled_task_tool.execute(action="list")
 
-        assert "task_001" in result
+        assert "Task ID: task_001" in result
         assert "Task 1" in result
+        assert "Type: interval" in result
         assert mock_scheduler.db.get_all_tasks.called
 
     @pytest.mark.asyncio
@@ -188,8 +197,10 @@ class TestScheduledTaskTool:
 
         result = await scheduled_task_tool.execute(action="get", task_id="task_001")
 
-        assert "task_001" in result
-        assert "Task 1" in result
+        assert result.startswith("Name: Task 1\n")
+        assert "Task ID: task_001" in result
+        assert "Type: interval" in result
+        assert "Status: active" in result
         assert mock_scheduler.get_task.called
 
     @pytest.mark.asyncio
