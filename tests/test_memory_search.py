@@ -53,6 +53,8 @@ class TestMemorySearchTool:
         assert params["type"] == "object"
         assert "query" in params["properties"]
         assert params["properties"]["query"]["type"] == "string"
+        assert "include_current_session" in params["properties"]
+        assert params["properties"]["include_current_session"]["default"] is False
 
     def test_disable(self, memory_search_tool):
         """Test disabling tool."""
@@ -166,6 +168,21 @@ class TestMemorySearchTool:
 
         call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
         assert call_kwargs["query"] == "test"
+        assert call_kwargs["exclude_session_id"] == memory_search_tool.session_id
+
+    @pytest.mark.asyncio
+    async def test_execute_can_include_current_session(self, memory_search_tool, mock_db):
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+
+        await memory_search_tool.execute(
+            query="test", include_current_session=True
+        )
+
+        summary_call_kwargs = mock_db.search_summaries_by_keyword.call_args[1]
+        conversation_call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
+        assert summary_call_kwargs["exclude_session_id"] is None
+        assert conversation_call_kwargs["exclude_session_id"] is None
 
     @pytest.mark.asyncio
     async def test_execute_with_time_period(self, memory_search_tool, mock_db):

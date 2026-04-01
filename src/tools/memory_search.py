@@ -51,7 +51,8 @@ BEST PRACTICES:
 3. Combine keywords with AND for precise results
 4. Use time filters when timeframe is known
 5. Use role filter to find specific speaker's messages
-6. Start with broader keywords, then narrow down if needed"""
+6. Start with broader keywords, then narrow down if needed
+7. By default, this tool excludes the current conversation session. Only set include_current_session=true when you explicitly need to search the current session as well."""
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -94,6 +95,11 @@ Leave empty to search using only filters (role, time range).""",
                 "end_date": {
                     "type": "string",
                     "description": "Filter conversations until this date. Format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS. Use when user specifies a date range or 'before March'.",
+                },
+                "include_current_session": {
+                    "type": "boolean",
+                    "description": "Whether to include the current conversation session in results. Defaults to false. Set to true only when you need to search the current ongoing session as well.",
+                    "default": False,
                 },
             },
             "required": [],
@@ -294,6 +300,7 @@ Leave empty to search using only filters (role, time range).""",
         time_period: str = None,
         start_date: str = None,
         end_date: str = None,
+        include_current_session: bool = False,
     ) -> str:
         """Execute keyword-based memory search with optional filters"""
         if self._disabled:
@@ -338,12 +345,14 @@ Leave empty to search using only filters (role, time range).""",
             if not query and not role and not start_timestamp and not end_timestamp:
                 return "Please provide at least one search criterion (query, role, or time filter)"
 
+            exclude_session_id = None if include_current_session else self.session_id
+
             # Search summaries by keyword (exclude current session)
             summary_results = self._search_with_fts_guard(
                 self.db.search_summaries_by_keyword,
                 query=query if query else None,
                 limit=limit // 2,
-                exclude_session_id=self.session_id,
+                exclude_session_id=exclude_session_id,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,
             )
@@ -355,7 +364,7 @@ Leave empty to search using only filters (role, time range).""",
                 self.db.search_conversations_by_keyword,
                 query=query if query else None,
                 limit=limit // 2,
-                exclude_session_id=self.session_id,
+                exclude_session_id=exclude_session_id,
                 role=role,
                 start_timestamp=start_timestamp,
                 end_timestamp=end_timestamp,

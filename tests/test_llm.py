@@ -100,7 +100,10 @@ class TestLLMClient:
         retrieved_conversations = ["Conversation 1"]
 
         messages = llm_client._build_chat_messages(
-            current_context, retrieved_summaries, retrieved_conversations
+            current_context,
+            retrieved_summaries,
+            retrieved_conversations,
+            current_session_id=123,
         )
 
         assert len(messages) == 6
@@ -118,6 +121,8 @@ class TestLLMClient:
         assert "Summary 1" in messages[4]["content"]
         assert "<related_historical_conversations>" in messages[4]["content"]
         assert "Conversation 1" in messages[4]["content"]
+        assert "<current_session_id>" in messages[4]["content"]
+        assert "123" in messages[4]["content"]
         assert "<current_time>" in messages[4]["content"]
         assert "2026-01-28 12:00:00" in messages[4]["content"]
         assert messages[5]["role"] == "user"

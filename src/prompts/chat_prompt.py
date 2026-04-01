@@ -5,6 +5,7 @@ def _build_extra_context_message(
     retrieved_summaries: List[str],
     retrieved_conversations: List[str],
     current_time_str: str,
+    current_session_id: Optional[int] = None,
 ) -> str:
     """Build a single extra-context system message with XML-wrapped sections."""
     parts: List[str] = ["<extra_context>"]
@@ -21,6 +22,11 @@ def _build_extra_context_message(
             "<related_historical_conversations>\n"
             + "\n\n".join(retrieved_conversations)
             + "\n</related_historical_conversations>"
+        )
+
+    if current_session_id is not None:
+        parts.append(
+            f"<current_session_id>\n{current_session_id}\n</current_session_id>"
         )
 
     parts.append(f"<current_time>\n{current_time_str}\n</current_time>")
@@ -41,6 +47,7 @@ class ChatMessageBuilder:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        current_session_id: Optional[int] = None,
     ) -> List[Dict[str, str]]:
         """Build the final chat payload for the LLM."""
         messages: List[Dict[str, str]] = []
@@ -77,6 +84,7 @@ class ChatMessageBuilder:
                     retrieved_summaries=retrieved_summaries,
                     retrieved_conversations=retrieved_conversations,
                     current_time_str=self.llm_client._get_current_time_str(),
+                    current_session_id=current_session_id,
                 ),
             }
         )

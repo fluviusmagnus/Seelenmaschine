@@ -275,6 +275,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Build prompt messages and execute the tool-aware chat loop."""
@@ -283,6 +284,7 @@ class LLMClient:
             retrieved_summaries,
             retrieved_conversations,
             recent_summaries,
+            current_session_id=current_session_id,
             custom_user_message=custom_user_message,
         )
         return await self._run_chat_with_tool_loop(
@@ -331,6 +333,7 @@ class LLMClient:
         retrieved_summaries: List[str],
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
+        current_session_id: Optional[int] = None,
     ) -> str:
         """Async version of chat. Use this in async contexts.
 
@@ -341,6 +344,7 @@ class LLMClient:
             retrieved_summaries=retrieved_summaries,
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
+            current_session_id=current_session_id,
         )
 
     async def chat_async_detailed(
@@ -349,6 +353,7 @@ class LLMClient:
         retrieved_summaries: List[str],
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
+        current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Async chat returning both final text and intermediate assistant messages."""
@@ -357,6 +362,7 @@ class LLMClient:
             retrieved_summaries=retrieved_summaries,
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
+            current_session_id=current_session_id,
             intermediate_callback=intermediate_callback,
         )
 
@@ -367,6 +373,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        current_session_id: Optional[int] = None,
     ) -> str:
         """Async chat with custom user message instead of context's last message.
 
@@ -389,6 +396,7 @@ class LLMClient:
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
             custom_user_message=custom_user_message,
+            current_session_id=current_session_id,
         )
 
     async def chat_with_custom_message_async_detailed(
@@ -398,6 +406,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         """Async chat with custom message, returning detailed assistant outputs."""
@@ -407,6 +416,7 @@ class LLMClient:
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
             custom_user_message=custom_user_message,
+            current_session_id=current_session_id,
             intermediate_callback=intermediate_callback,
         )
 
@@ -416,6 +426,7 @@ class LLMClient:
         retrieved_summaries: List[str],
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
+        current_session_id: Optional[int] = None,
         custom_user_message: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """Build messages while preserving the native chat message structure.
@@ -437,6 +448,7 @@ class LLMClient:
             retrieved_summaries=retrieved_summaries,
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
+            current_session_id=current_session_id,
             custom_user_message=custom_user_message,
         )
 
