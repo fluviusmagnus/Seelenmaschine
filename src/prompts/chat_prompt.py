@@ -12,16 +12,16 @@ def _build_extra_context_message(
 
     if retrieved_summaries:
         parts.append(
-            "<related_historical_summaries>\n"
+            "<similar_historical_summaries>\n"
             + "\n\n".join(retrieved_summaries)
-            + "\n</related_historical_summaries>"
+            + "\n</similar_historical_summaries>"
         )
 
     if retrieved_conversations:
         parts.append(
-            "<related_historical_conversations>\n"
+            "<similar_historical_conversations>\n"
             + "\n\n".join(retrieved_conversations)
-            + "\n</related_historical_conversations>"
+            + "\n</similar_historical_conversations>"
         )
 
     if current_session_id is not None:
@@ -47,6 +47,7 @@ class ChatMessageBuilder:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        custom_message_role: str = "user",
         current_session_id: Optional[int] = None,
     ) -> List[Dict[str, str]]:
         """Build the final chat payload for the LLM."""
@@ -92,7 +93,7 @@ class ChatMessageBuilder:
         if custom_user_message:
             messages.append(
                 {
-                    "role": "user",
+                    "role": custom_message_role,
                     "content": (
                         "<current_request>\n"
                         "Please respond to the following system message:\n\n"

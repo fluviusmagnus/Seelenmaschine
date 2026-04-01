@@ -29,13 +29,17 @@ class TelegramAdapter:
         self.scheduler.set_message_callback(self._send_scheduled_message)
 
     async def _send_scheduled_message(
-        self, message: str, task_name: str = "Scheduled Task"
+        self,
+        message: str,
+        task_name: str = "Scheduled Task",
+        task_id: str | None = None,
     ) -> None:
         """Send a scheduled message to the user via the LLM flow."""
         await self.message_handler.messages.send_scheduled_message(
             application=self._application,
             message=message,
             task_name=task_name,
+            task_id=task_id,
         )
 
     def create_application(

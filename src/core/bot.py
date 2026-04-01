@@ -163,6 +163,7 @@ class CoreBot:
         self,
         task_message: str,
         task_name: str = "Scheduled Task",
+        task_id: Optional[str] = None,
         *,
         intermediate_callback: Optional[Callable[[str], Any]] = None,
     ) -> str:
@@ -172,6 +173,7 @@ class CoreBot:
         return await self.conversation_service.process_scheduled_task(
             task_message,
             task_name,
+            task_id,
             intermediate_callback=intermediate_callback,
         )
 

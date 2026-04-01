@@ -271,6 +271,26 @@ class SessionMemory:
             include_in_summary=False,
         )
 
+    def add_scheduled_task_message(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Store a scheduled-task trigger as a persisted system message."""
+        message_timestamp = timestamp or get_current_timestamp()
+        return self._store_message(
+            session_id=session_id,
+            timestamp=message_timestamp,
+            role="system",
+            text=text,
+            embedding=None,
+            message_type="scheduled_task",
+            include_in_turn_count=False,
+            include_in_summary=True,
+        )
+
     async def add_tool_message_async(
         self,
         session_id: int,
@@ -280,6 +300,20 @@ class SessionMemory:
     ) -> int:
         """Async wrapper for persisting a tool-context message."""
         return self.add_tool_message(session_id, text, timestamp=timestamp)
+
+    async def add_scheduled_task_message_async(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Async wrapper for persisting a scheduled-task system message."""
+        return self.add_scheduled_task_message(
+            session_id,
+            text,
+            timestamp=timestamp,
+        )
 
     @staticmethod
     def _assistant_text_for_storage(text: str) -> str:

@@ -22,7 +22,7 @@ Seelenmaschine has a powerful built-in scheduled task feature that supports:
 ```
 Task setting: message="Remind user to drink water"
          
-When triggered → AI receives: "[SYSTEM_SCHEDULED_TASK] Task: Remind user to drink water"
+When triggered → AI receives: "[Scheduled Task]\ntask_id: abc123\nname: Daily Water Reminder\ntrigger_time: 2026-01-29 08:00:00\nmessage: Remind user to drink water\n\nFinish the request in the task message and then continue the current conversation."
          
 AI generates: "Good afternoon! You've been working for a while, remember to stand up and stretch,
            and drink some water to recharge 💧 Would you like me to help adjust your schedule?"
@@ -148,16 +148,24 @@ When a task triggers, the message format sent to the LLM is as follows:
 
 ```json
 {
-  "role": "user",
-  "content": "⚡ [Current Request]\n[SYSTEM_SCHEDULED_TASK]\nTask Name: Daily Water Reminder\nTrigger Time: 2026-01-29 08:00:00\nTask: Suggest user drink a glass of water to start the day hydrated\n\nPlease respond proactively based on this scheduled task."
+  "role": "system",
+  "content": "[Scheduled Task]\ntask_id: abc123\nname: Daily Water Reminder\ntrigger_time: 2026-01-29 08:00:00\nmessage: Suggest user drink a glass of water to start the day hydrated\n\nFinish the request in the task message and then continue the current conversation."
 }
 ```
+
+This message is persisted into the current session as `message_type="scheduled_task"`:
+
+- ✅ saved to the database
+- ✅ included in the current context window
+- ✅ included in summaries
+- ❌ not counted toward turn count
+- ❌ not treated as normal `conversation` content for vector retrieval
 
 ### Data Storage Strategy
 
 | Data                     | Saved to Database | Counted in Context | Description                         |
 | ------------------------ | ----------------- | ------------------ | ----------------------------------- |
-| Task message (`message`) | ❌ No              | ❌ No               | Only used to trigger LLM, not saved |
+| Scheduled-task trigger message | ✅ Yes       | ✅ Yes              | Stored as a `scheduled_task` system message; included in summaries but not in turn count |
 | Task name (`name`)       | ✅ Yes             | ❌ No               | Used for listing and managing tasks |
 | LLM generated response   | ✅ Yes             | ✅ Yes              | Saved as normal conversation        |
 
@@ -186,7 +194,7 @@ CREATE TABLE scheduled_tasks (
 ### Execution Mechanism
 
 1. The scheduler checks for due tasks every 10 seconds
-2. When a task triggers, construct the `[SYSTEM_SCHEDULED_TASK]` message and send it to the LLM
+2. When a task triggers, construct the `[Scheduled Task]` system message, send it to the LLM, and persist it into the current session as `message_type="scheduled_task"`
 3. LLM generates a personalized response (can use memory search and other tools, **but cannot use scheduled_task tool**)
 4. Response is sent to the user and saved to the database (counts in conversation history)
 5. Update task status:
@@ -212,9 +220,9 @@ db = DatabaseManager()
 scheduler = TaskScheduler(db)
 
 # Set message callback (Telegram bot will set automatically)
-# Note: Callback now receives two parameters: message and task_name
-def my_callback(message: str, task_name: str):
-    print(f"Task '{task_name}' triggered with message: {message}")
+# Note: Callback now receives three parameters: message, task_name, and task_id
+def my_callback(message: str, task_name: str, task_id: str):
+    print(f"Task '{task_name}' ({task_id}) triggered with message: {message}")
 
 scheduler.set_message_callback(my_callback)
 
@@ -258,7 +266,7 @@ Test coverage:
 - One-time and periodic task execution
 - Task status management
 - JSON configuration loading
-- Message callback mechanism (including task_name passing)
+- Message callback mechanism (including task_name / task_id passing)
 
 ## Limitations and Notes
 

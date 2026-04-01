@@ -117,7 +117,14 @@ class TelegramController:
         await self.messages.handle_file(update, context)
 
     async def process_scheduled_task(
-        self, task_message: str, task_name: str = "Scheduled Task"
+        self,
+        task_message: str,
+        task_name: str = "Scheduled Task",
+        task_id: Optional[str] = None,
     ) -> str:
         """Process a scheduled task message through the LLM."""
-        return await self.messages.process_scheduled_task(task_message, task_name)
+        return await self.messages.process_scheduled_task(
+            task_message,
+            task_name,
+            task_id,
+        )

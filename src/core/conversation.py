@@ -51,16 +51,22 @@ class ConversationService:
                 return msg.get("content", "")
         return None
 
-    def _wrap_scheduled_task_message(self, task_message: str, task_name: str) -> str:
-        """Build the synthetic user message used for scheduled tasks."""
+    def _wrap_scheduled_task_message(
+        self,
+        task_message: str,
+        task_name: str,
+        task_id: Optional[str] = None,
+    ) -> str:
+        """Build the synthetic system message used for scheduled tasks."""
         trigger_time = get_current_timestamp()
         trigger_time_str = timestamp_to_str(trigger_time)
         return (
-            f"[SYSTEM_SCHEDULED_TASK]\n"
-            f"Task Name: {task_name}\n"
-            f"Trigger Time: {trigger_time_str}\n"
-            f"Task: {task_message}\n\n"
-            f"Please respond proactively based on this scheduled task."
+            f"[Scheduled Task]\n"
+            f"task_id: {task_id or 'unknown'}\n"
+            f"name: {task_name}\n"
+            f"trigger_time: {trigger_time_str}\n"
+            f"message: {task_message}\n\n"
+            f"Finish the request in the task message and then continue the current conversation."
         )
 
     async def _persist_scheduled_task_trigger_message(
@@ -73,7 +79,7 @@ class ConversationService:
         user/assistant turn, is not summarized, and is not part of vector
         retrieval because it is stored as a non-conversation message type.
         """
-        await self.memory.add_tool_message_async(wrapped_message)
+        await self.memory.add_scheduled_task_message_async(wrapped_message)
 
     async def _retrieve_memory_context(
         self,
@@ -261,13 +267,16 @@ class ConversationService:
         self,
         task_message: str,
         task_name: str = "Scheduled Task",
+        task_id: Optional[str] = None,
         *,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> str:
         """Process a scheduled task message through the LLM and memory."""
         try:
             wrapped_message = self._wrap_scheduled_task_message(
-                task_message, task_name
+                task_message,
+                task_name,
+                task_id,
             )
 
             logger.debug(f"Wrapped scheduled task message: {wrapped_message[:100]}...")
@@ -278,7 +287,9 @@ class ConversationService:
             current_context = self.memory.get_context_messages()
 
             logger.debug("Step 3: Retrieving relevant memories for scheduled task")
-            task_embedding = await self.embedding_client.get_embedding_async(task_message)
+            task_embedding = await self.embedding_client.get_embedding_async(
+                task_message
+            )
             retrieved_summaries, retrieved_conversations, recent_summaries = (
                 await self._retrieve_memory_context(
                     query_text=task_message,
@@ -289,13 +300,14 @@ class ConversationService:
             )
             llm_result = await self._run_with_memory_search_tool(
                 lambda: self.llm_client.chat_with_custom_message_async_detailed(
-                        current_context=current_context,
-                        retrieved_summaries=retrieved_summaries,
-                        retrieved_conversations=retrieved_conversations,
-                        recent_summaries=recent_summaries,
-                        custom_user_message=wrapped_message,
-                        current_session_id=self.memory.get_current_session_id(),
-                        intermediate_callback=intermediate_callback,
+                    current_context=current_context,
+                    retrieved_summaries=retrieved_summaries,
+                    retrieved_conversations=retrieved_conversations,
+                    recent_summaries=recent_summaries,
+                    custom_user_message=wrapped_message,
+                    custom_message_role="system",
+                    current_session_id=self.memory.get_current_session_id(),
+                    intermediate_callback=intermediate_callback,
                 ),
                 enable_log="Step 4: Enabling memory search tool",
                 disable_log="Step 7: Disabling memory search tool",
@@ -325,7 +337,9 @@ class ConversationService:
                         f"{self.preview_text(assistant_message)}"
                     )
 
-            logger.debug("Step 8: Adding assistant responses to memory (scheduled task)")
+            logger.debug(
+                "Step 8: Adding assistant responses to memory (scheduled task)"
+            )
             if conversation_events:
                 await self._persist_conversation_events(
                     conversation_events,

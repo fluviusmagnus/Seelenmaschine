@@ -221,6 +221,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
+        handler.memory.add_scheduled_task_message_async = AsyncMock(return_value=4)
         handler.memory.add_tool_message_async = AsyncMock(return_value=4)
 
         handler.memory_search_tool = Mock()
@@ -280,6 +281,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
+        handler.memory.add_scheduled_task_message_async = AsyncMock(return_value=4)
         handler.memory.add_tool_message_async = AsyncMock(return_value=4)
 
         handler.embedding_client = Mock()
@@ -314,23 +316,39 @@ class TestMessageProcessing:
         )
 
         core_bot = self._build_core_bot_for_conversation(handler, scheduled=True)
-        response = await core_bot.process_scheduled_task("提醒喝水", "喝水提醒")
+        response = await core_bot.process_scheduled_task(
+            "提醒喝水",
+            "喝水提醒",
+            "task-123",
+        )
 
         assert response == "别忘了喝水。"
-        assert handler.memory.add_tool_message_async.await_count == 2
-        scheduled_trigger_message = handler.memory.add_tool_message_async.await_args_list[
-            0
-        ].args[0]
-        assert "[SYSTEM_SCHEDULED_TASK]" in scheduled_trigger_message
-        assert "Task Name: 喝水提醒" in scheduled_trigger_message
-        assert "Task: 提醒喝水" in scheduled_trigger_message
+        handler.memory.add_scheduled_task_message_async.assert_awaited_once()
+        scheduled_trigger_message = (
+            handler.memory.add_scheduled_task_message_async.await_args.args[0]
+        )
+        assert "[Scheduled Task]" in scheduled_trigger_message
+        assert "task_id: task-123" in scheduled_trigger_message
+        assert "name: 喝水提醒" in scheduled_trigger_message
+        assert "message: 提醒喝水" in scheduled_trigger_message
+        assert (
+            "Finish the request in the task message and then continue the current conversation."
+            in scheduled_trigger_message
+        )
+        handler.llm_client.chat_with_custom_message_async_detailed.assert_awaited_once()
+        assert (
+            handler.llm_client.chat_with_custom_message_async_detailed.await_args.kwargs[
+                "custom_message_role"
+            ]
+            == "system"
+        )
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
         handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")
         assert handler.memory.add_assistant_message_async.await_args_list[0].args == (
             "我提醒你一下",
         )
-        assert handler.memory.add_tool_message_async.await_args_list[1].args == (
+        assert handler.memory.add_tool_message_async.await_args_list[0].args == (
             '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"',
         )
         assert handler.memory.add_assistant_message_async.await_args_list[1].args == (

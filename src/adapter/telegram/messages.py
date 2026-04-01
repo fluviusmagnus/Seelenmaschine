@@ -53,6 +53,7 @@ class TelegramMessages:
         application: Any,
         message: str,
         task_name: str = "Scheduled Task",
+        task_id: str | None = None,
     ) -> None:
         """Process a scheduled task and send the result through the bot."""
         if not application:
@@ -70,7 +71,7 @@ class TelegramMessages:
                 logger.info(
                     f"Processing scheduled task '{task_name}': {message[:50]}..."
                 )
-                response = await self.process_scheduled_task(message, task_name)
+                response = await self.process_scheduled_task(message, task_name, task_id)
                 await self.response_sender.send_bot_text(
                     telegram_bot=application.bot,
                     chat_id=self.core_bot.config.TELEGRAM_USER_ID,
@@ -169,10 +170,14 @@ class TelegramMessages:
         )
 
     async def process_scheduled_task(
-        self, task_message: str, task_name: str = "Scheduled Task"
+        self,
+        task_message: str,
+        task_name: str = "Scheduled Task",
+        task_id: str | None = None,
     ) -> str:
         return await self.core_bot.process_scheduled_task(
             task_message,
             task_name,
+            task_id,
             intermediate_callback=self.intermediate_callback,
         )

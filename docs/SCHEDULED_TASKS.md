@@ -22,7 +22,7 @@ Seelenmaschine 内置了强大的定时任务功能，支持：
 ```
 任务设置: message="提醒用户喝水"
          
-触发时 → AI 收到: "[SYSTEM_SCHEDULED_TASK] Task: 提醒用户喝水"
+触发时 → AI 收到: "[Scheduled Task]\ntask_id: abc123\nname: Daily Water Reminder\ntrigger_time: 2026-01-29 08:00:00\nmessage: 提醒用户喝水\n\nFinish the request in the task message and then continue the current conversation."
          
 AI 生成: "下午好！工作了一会儿了，记得站起来活动一下，
           顺便喝杯水补充能量 💧 需要我帮你调整接下来的安排吗？"
@@ -148,16 +148,24 @@ AI: [调用 scheduled_task 工具]
 
 ```json
 {
-  "role": "user",
-  "content": "⚡ [Current Request]\n[SYSTEM_SCHEDULED_TASK]\nTask Name: Daily Water Reminder\nTrigger Time: 2026-01-29 08:00:00\nTask: Suggest user drink a glass of water to start the day hydrated\n\nPlease respond proactively based on this scheduled task."
+  "role": "system",
+  "content": "[Scheduled Task]\ntask_id: abc123\nname: Daily Water Reminder\ntrigger_time: 2026-01-29 08:00:00\nmessage: Suggest user drink a glass of water to start the day hydrated\n\nFinish the request in the task message and then continue the current conversation."
 }
 ```
+
+该消息会以 `message_type="scheduled_task"` 持久化到当前 session：
+
+- ✅ 写入数据库
+- ✅ 进入当前 context window
+- ✅ 计入 summary
+- ❌ 不计入 turn count
+- ❌ 不作为普通 `conversation` 向量检索语料
 
 ### 数据保存策略
 
 | 数据                 | 保存到数据库 | 计入上下文 | 说明                   |
 | -------------------- | ------------ | ---------- | ---------------------- |
-| 任务消息 (`message`) | ❌ 否         | ❌ 否       | 仅用于触发 LLM，不保存 |
+| 定时任务触发消息     | ✅ 是         | ✅ 是       | 以 `scheduled_task` system 消息保存；计入 summary，但不计入 turn count |
 | 任务名称 (`name`)    | ✅ 是         | ❌ 否       | 用于列出和管理任务     |
 | LLM 生成的回复       | ✅ 是         | ✅ 是       | 作为正常对话保存       |
 
@@ -186,7 +194,7 @@ CREATE TABLE scheduled_tasks (
 ### 执行机制
 
 1. 调度器每 10 秒检查一次是否有到期任务
-2. 任务触发时，构造 `[SYSTEM_SCHEDULED_TASK]` 消息发送给 LLM
+2. 任务触发时，构造 `[Scheduled Task]` system 消息发送给 LLM，并以 `message_type="scheduled_task"` 写入当前 session
 3. LLM 生成个性化回复（可使用记忆搜索等工具，**但不能使用 scheduled_task 工具**）
 4. 回复发送给用户，并保存到数据库（计入对话历史）
 5. 更新任务状态：
@@ -212,9 +220,9 @@ db = DatabaseManager()
 scheduler = TaskScheduler(db)
 
 # 设置消息回调（Telegram bot 会自动设置）
-# 注意：回调现在接收两个参数：message 和 task_name
-def my_callback(message: str, task_name: str):
-    print(f"Task '{task_name}' triggered with message: {message}")
+# 注意：回调现在接收三个参数：message、task_name 和 task_id
+def my_callback(message: str, task_name: str, task_id: str):
+    print(f"Task '{task_name}' ({task_id}) triggered with message: {message}")
 
 scheduler.set_message_callback(my_callback)
 
@@ -258,7 +266,7 @@ python -m pytest tests/test_scheduler.py -v
 - 一次性和周期性任务执行
 - 任务状态管理
 - JSON 配置加载
-- 消息回调机制（包括 task_name 传递）
+- 消息回调机制（包括 task_name / task_id 传递）
 
 ## 限制和注意事项
 

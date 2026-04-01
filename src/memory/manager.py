@@ -181,6 +181,22 @@ class MemoryManager:
             text=text,
         )
 
+    def add_scheduled_task_message(self, text: str) -> int:
+        """Persist a scheduled-task system message in the current session."""
+        session_id = self.get_current_session_id()
+        return self.sessions.add_scheduled_task_message(
+            session_id=session_id,
+            text=text,
+        )
+
+    async def add_scheduled_task_message_async(self, text: str) -> int:
+        """Async version of add_scheduled_task_message."""
+        session_id = self.get_current_session_id()
+        return await self.sessions.add_scheduled_task_message_async(
+            session_id=session_id,
+            text=text,
+        )
+
     def _check_and_create_summary(
         self,
     ) -> Tuple[Optional[int], Optional[List[Message]]]:

@@ -121,12 +121,12 @@ class TaskScheduler:
 
         if self._message_callback:
             # Support both sync and async callbacks
-            # Pass message and task_name to help the handler construct better context
+            # Pass message, task_name, and task_id to help construct richer context.
             task_name = task_data.get("name", "Scheduled Task")
             if asyncio.iscoroutinefunction(self._message_callback):
-                await self._message_callback(message, task_name)
+                await self._message_callback(message, task_name, task_id)
             else:
-                self._message_callback(message, task_name)
+                self._message_callback(message, task_name, task_id)
         else:
             logger.warning(f"No message callback set, task message: {message}")
 

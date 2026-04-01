@@ -276,6 +276,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        custom_message_role: str = "user",
         current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
@@ -287,6 +288,7 @@ class LLMClient:
             recent_summaries,
             current_session_id=current_session_id,
             custom_user_message=custom_user_message,
+            custom_message_role=custom_message_role,
         )
         return await self._run_chat_with_tool_loop(
             messages,
@@ -374,6 +376,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        custom_message_role: str = "user",
         current_session_id: Optional[int] = None,
     ) -> str:
         """Async chat with custom user message instead of context's last message.
@@ -397,6 +400,7 @@ class LLMClient:
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
             custom_user_message=custom_user_message,
+            custom_message_role=custom_message_role,
             current_session_id=current_session_id,
         )
 
@@ -407,6 +411,7 @@ class LLMClient:
         retrieved_conversations: List[str],
         recent_summaries: Optional[List[str]] = None,
         custom_user_message: Optional[str] = None,
+        custom_message_role: str = "user",
         current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
@@ -417,6 +422,7 @@ class LLMClient:
             retrieved_conversations=retrieved_conversations,
             recent_summaries=recent_summaries,
             custom_user_message=custom_user_message,
+            custom_message_role=custom_message_role,
             current_session_id=current_session_id,
             intermediate_callback=intermediate_callback,
         )
@@ -429,6 +435,7 @@ class LLMClient:
         recent_summaries: Optional[List[str]] = None,
         current_session_id: Optional[int] = None,
         custom_user_message: Optional[str] = None,
+        custom_message_role: str = "user",
     ) -> List[Dict[str, str]]:
         """Build messages while preserving the native chat message structure.
 
@@ -451,6 +458,7 @@ class LLMClient:
             recent_summaries=recent_summaries,
             current_session_id=current_session_id,
             custom_user_message=custom_user_message,
+            custom_message_role=custom_message_role,
         )
 
     def generate_summary(
