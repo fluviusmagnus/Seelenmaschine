@@ -124,6 +124,24 @@ search_memories(
 ```
 Searches only session `42`.
 
+### 14b. Browse a Specific Session Without Keywords (Recommended: Summaries First)
+```python
+search_memories(
+    session_id=42,
+    search_target="summaries"
+)
+```
+Use this when you want a concise overview of what happened in one session, without requiring any keyword query.
+
+### 14c. Browse Verbatim Messages in a Specific Session
+```python
+search_memories(
+    session_id=42,
+    search_target="conversations"
+)
+```
+Use this only when you need detailed line-by-line conversation history from that session.
+
 ### 15. Search the Current Session Explicitly
 ```python
 search_memories(
@@ -252,6 +270,14 @@ search_memories(
 ### Search only one session
 ```python
 search_memories(
+    session_id=7,
+    search_target="summaries"
+)
+```
+
+### Search one session for a specific topic
+```python
+search_memories(
     query="预算",
     session_id=7,
     search_target="conversations"
@@ -293,6 +319,7 @@ Valid examples:
 5. **Wildcards**: Use `*` for prefix matching
 6. **Search Target**: Use `summaries` when you want concise high-level memory, `conversations` when you want verbatim history
 7. **Session Filter**: Use `session_id` when you want deterministic scope
+8. **Session Overview First**: If using only `session_id` without keywords, prefer `search_target="summaries"` first, then switch to `conversations` if you need details
 
 ## Performance Notes
 

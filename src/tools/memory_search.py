@@ -53,7 +53,15 @@ BEST PRACTICES:
 4. Use time filters when timeframe is known
 5. Use role filter to find specific speaker's messages
 6. Start with broader keywords, then narrow down if needed
-7. By default, this tool excludes the current conversation session. Only set include_current_session=true when you explicitly need to search the current session as well."""
+7. query is optional: you may search using only filters such as session_id, role, or time range
+8. If you want to see what a specific session was about, prefer session_id + search_target="summaries" for a concise overview
+9. Use session_id + search_target="conversations" only when you need verbatim messages from that session
+10. By default, this tool excludes the current conversation session. Only set include_current_session=true when you explicitly need to search the current session as well.
+
+COMMON PATTERNS:
+- Browse one session overview: search_memories(session_id=60, search_target="summaries")
+- Search inside one session: search_memories(query="预算", session_id=60, search_target="conversations")
+- Filter-only search: search_memories(role="user", time_period="last_week")"""
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -72,7 +80,8 @@ Examples:
 - "coffee NOT decaf" - include coffee but exclude decaf
 - "(tea OR coffee) AND morning" - grouping with OR and AND
 
-Leave empty to search using only filters (role, time range).""",
+Leave empty to search using only filters (session_id, role, time range).
+If you only want to inspect one session, leaving query empty is valid; prefer search_target='summaries' for a concise overview.""",
                 },
                 "limit": {
                     "type": "integer",
@@ -104,12 +113,12 @@ Leave empty to search using only filters (role, time range).""",
                 },
                 "session_id": {
                     "type": "integer",
-                    "description": "Search only within a specific session_id. When provided, this takes precedence over include_current_session behavior.",
+                    "description": "Search only within a specific session_id. When provided, this takes precedence over include_current_session behavior. This can be used without query; if you only want to inspect a session, prefer search_target='summaries' first.",
                 },
                 "search_target": {
                     "type": "string",
                     "enum": ["all", "summaries", "conversations"],
-                    "description": "Choose which memory type to search. Defaults to 'all'.",
+                    "description": "Choose which memory type to search. Defaults to 'all'. If using only session_id without query, prefer 'summaries' to review the session overview before using 'conversations' for verbatim details.",
                     "default": "all",
                 },
             },
@@ -379,8 +388,14 @@ Leave empty to search using only filters (role, time range).""",
                     return f"Invalid end_date format: {end_date}. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
 
             # Validate that at least one search criterion is provided
-            if not query and not role and not start_timestamp and not end_timestamp:
-                return "Please provide at least one search criterion (query, role, or time filter)"
+            if (
+                not query
+                and not role
+                and not start_timestamp
+                and not end_timestamp
+                and session_id is None
+            ):
+                return "Please provide at least one search criterion (query, session_id, role, or time filter)"
 
             effective_session_id = session_id
             exclude_session_id = None if include_current_session else self.session_id

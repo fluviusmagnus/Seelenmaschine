@@ -54,11 +54,14 @@ class TestMemorySearchTool:
         assert params["type"] == "object"
         assert "query" in params["properties"]
         assert params["properties"]["query"]["type"] == "string"
+        assert "session_id" in params["properties"]["query"]["description"]
         assert "include_current_session" in params["properties"]
         assert params["properties"]["include_current_session"]["default"] is False
         assert "session_id" in params["properties"]
+        assert "without query" in params["properties"]["session_id"]["description"]
         assert "search_target" in params["properties"]
         assert params["properties"]["search_target"]["default"] == "all"
+        assert "prefer 'summaries'" in params["properties"]["search_target"]["description"]
 
     def test_disable(self, memory_search_tool):
         """Test disabling tool."""
@@ -265,6 +268,31 @@ class TestMemorySearchTool:
         assert conversation_call_kwargs["exclude_session_id"] is None
         assert conversation_call_kwargs["exclude_recent_from_session_id"] is None
         assert conversation_call_kwargs["exclude_recent_limit"] == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_with_session_id_only_prefers_supported_filtering(
+        self, memory_search_tool, mock_db
+    ):
+        mock_db.search_summaries_by_keyword.return_value = [
+            (1, 456, "Session overview", 1, 2, 0.9)
+        ]
+
+        result = await memory_search_tool.execute(
+            session_id=456, search_target="summaries"
+        )
+
+        assert "Session overview" in result
+        summary_call_kwargs = mock_db.search_summaries_by_keyword.call_args[1]
+        assert summary_call_kwargs["session_id"] == 456
+        assert summary_call_kwargs["query"] is None
+
+    @pytest.mark.asyncio
+    async def test_execute_requires_query_or_filters_including_session_id(
+        self, memory_search_tool
+    ):
+        result = await memory_search_tool.execute()
+
+        assert "query, session_id, role, or time filter" in result
 
     @pytest.mark.asyncio
     async def test_execute_search_target_summaries_only(self, memory_search_tool, mock_db):
