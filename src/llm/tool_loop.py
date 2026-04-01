@@ -7,6 +7,9 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
+ConversationEvent = Dict[str, str]
+
+
 class ToolLoop:
     """Run the assistant/tool exchange loop until a final answer is produced."""
 
@@ -21,6 +24,7 @@ class ToolLoop:
         """Run chat completion loop with tool execution and collect assistant texts."""
         assistant_messages: List[str] = []
         tool_context_messages: List[str] = []
+        conversation_events: List[ConversationEvent] = []
         iteration = 1
 
         result = await self.llm_client._async_chat(
@@ -34,6 +38,9 @@ class ToolLoop:
             assistant_text = self.llm_client._extract_assistant_text_from_result(result)
             if assistant_text:
                 assistant_messages.append(assistant_text)
+                conversation_events.append(
+                    {"role": "assistant", "content": assistant_text}
+                )
                 if not Config.DEBUG_SHOW_FULL_PROMPT:
                     logger.debug(
                         "LLM emitted intermediate assistant text before tool execution: "
@@ -67,6 +74,12 @@ class ToolLoop:
                     )
                     if isinstance(response, dict) and response.get("context_message"):
                         tool_context_messages.append(response["context_message"])
+                        conversation_events.append(
+                            {
+                                "role": "system",
+                                "content": response["context_message"],
+                            }
+                        )
                     tool_responses.append(
                         {
                             "tool_call_id": call["id"],
@@ -99,6 +112,7 @@ class ToolLoop:
         final_text = self.llm_client._extract_assistant_text_from_result(result) or ""
         if final_text:
             assistant_messages.append(final_text)
+            conversation_events.append({"role": "assistant", "content": final_text})
 
         if Config.DEBUG_SHOW_FULL_PROMPT:
             logger.debug(
@@ -116,4 +130,5 @@ class ToolLoop:
             "final_text": final_text,
             "assistant_messages": assistant_messages,
             "tool_context_messages": tool_context_messages,
+            "conversation_events": conversation_events,
         }

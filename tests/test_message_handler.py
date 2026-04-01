@@ -80,6 +80,9 @@ def mock_llm_client():
             "final_text": "This is a test response",
             "assistant_messages": ["This is a test response"],
             "tool_context_messages": [],
+            "conversation_events": [
+                {"role": "assistant", "content": "This is a test response"}
+            ],
         }
     )
     client.set_tools = Mock()

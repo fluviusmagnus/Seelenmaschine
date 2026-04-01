@@ -172,6 +172,9 @@ class TestMessageProcessing:
                 "final_text": "这是最后答复",
                 "assistant_messages": ["这是最后答复"],
                 "tool_context_messages": [],
+                "conversation_events": [
+                    {"role": "assistant", "content": "这是最后答复"}
+                ],
             }
         )
 
@@ -235,6 +238,14 @@ class TestMessageProcessing:
                 "tool_context_messages": [
                     '[Tool Call]\ntrace_id: 1\nstatus: "success"\ntool_name: "search_memories"\narguments_preview: {"query": "test"}\nresult_preview: "ok"'
                 ],
+                "conversation_events": [
+                    {"role": "assistant", "content": "我先查一下"},
+                    {
+                        "role": "system",
+                        "content": '[Tool Call]\ntrace_id: 1\nstatus: "success"\ntool_name: "search_memories"\narguments_preview: {"query": "test"}\nresult_preview: "ok"',
+                    },
+                    {"role": "assistant", "content": "最终答复"},
+                ],
             }
         )
 
@@ -246,6 +257,15 @@ class TestMessageProcessing:
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我先查一下")
         handler.memory.add_assistant_message_async.assert_any_await("最终答复")
+        assert handler.memory.add_assistant_message_async.await_args_list[0].args == (
+            "我先查一下",
+        )
+        assert handler.memory.add_tool_message_async.await_args_list[0].args == (
+            '[Tool Call]\ntrace_id: 1\nstatus: "success"\ntool_name: "search_memories"\narguments_preview: {"query": "test"}\nresult_preview: "ok"',
+        )
+        assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
+            "最终答复",
+        )
 
     @pytest.mark.asyncio
     async def test_process_scheduled_task_saves_intermediate_assistant_messages(self):
@@ -282,6 +302,14 @@ class TestMessageProcessing:
                 "tool_context_messages": [
                     '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"'
                 ],
+                "conversation_events": [
+                    {"role": "assistant", "content": "我提醒你一下"},
+                    {
+                        "role": "system",
+                        "content": '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"',
+                    },
+                    {"role": "assistant", "content": "别忘了喝水。"},
+                ],
             }
         )
 
@@ -293,6 +321,15 @@ class TestMessageProcessing:
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
         handler.memory.add_assistant_message_async.assert_any_await("别忘了喝水。")
+        assert handler.memory.add_assistant_message_async.await_args_list[0].args == (
+            "我提醒你一下",
+        )
+        assert handler.memory.add_tool_message_async.await_args_list[0].args == (
+            '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"',
+        )
+        assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
+            "别忘了喝水。",
+        )
 
     @pytest.mark.asyncio
     async def test_handle_message_returns_error_details_on_failure(self):

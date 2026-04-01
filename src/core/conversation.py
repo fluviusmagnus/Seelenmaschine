@@ -138,6 +138,29 @@ class ConversationService:
         for tool_message in tool_context_messages:
             await self.memory.add_tool_message_async(tool_message)
 
+    async def _persist_conversation_events(
+        self, conversation_events: List[Dict[str, str]], *, context_label: str
+    ) -> None:
+        """Persist assistant/tool events in the exact order they occurred."""
+        if not conversation_events:
+            return
+
+        logger.debug(f"Persisting ordered conversation events ({context_label})")
+        for event in conversation_events:
+            role = event.get("role")
+            content = event.get("content", "")
+            if not content:
+                continue
+
+            if role == "assistant":
+                _, summary_id = await self.memory.add_assistant_message_async(content)
+                if summary_id:
+                    logger.info(
+                        f"Created new summary (ID: {summary_id}) during {context_label}"
+                    )
+            elif role == "system":
+                await self.memory.add_tool_message_async(content)
+
     async def process_message(
         self,
         user_message: str,
@@ -175,6 +198,7 @@ class ConversationService:
 
             assistant_messages = llm_result.get("assistant_messages", [])
             tool_context_messages = llm_result.get("tool_context_messages", [])
+            conversation_events = llm_result.get("conversation_events", [])
             response = llm_result.get("final_text", "")
 
             if self.config.DEBUG_SHOW_FULL_PROMPT:
@@ -195,14 +219,20 @@ class ConversationService:
                     )
 
             logger.debug("Step 8: Adding assistant responses to memory")
-            await self._persist_tool_context_messages(
-                tool_context_messages,
-                context_label="message processing",
-            )
-            await self._persist_assistant_messages(
-                assistant_messages,
-                context_label="message processing",
-            )
+            if conversation_events:
+                await self._persist_conversation_events(
+                    conversation_events,
+                    context_label="message processing",
+                )
+            else:
+                await self._persist_tool_context_messages(
+                    tool_context_messages,
+                    context_label="message processing",
+                )
+                await self._persist_assistant_messages(
+                    assistant_messages,
+                    context_label="message processing",
+                )
 
             if not self.config.DEBUG_SHOW_FULL_PROMPT:
                 logger.debug(
@@ -257,6 +287,7 @@ class ConversationService:
 
             assistant_messages = llm_result.get("assistant_messages", [])
             tool_context_messages = llm_result.get("tool_context_messages", [])
+            conversation_events = llm_result.get("conversation_events", [])
             response_text = llm_result.get("final_text", "")
 
             if self.config.DEBUG_SHOW_FULL_PROMPT:
@@ -278,14 +309,20 @@ class ConversationService:
                     )
 
             logger.debug("Step 8: Adding assistant responses to memory (scheduled task)")
-            await self._persist_tool_context_messages(
-                tool_context_messages,
-                context_label="scheduled task processing",
-            )
-            await self._persist_assistant_messages(
-                assistant_messages,
-                context_label="scheduled task processing",
-            )
+            if conversation_events:
+                await self._persist_conversation_events(
+                    conversation_events,
+                    context_label="scheduled task processing",
+                )
+            else:
+                await self._persist_tool_context_messages(
+                    tool_context_messages,
+                    context_label="scheduled task processing",
+                )
+                await self._persist_assistant_messages(
+                    assistant_messages,
+                    context_label="scheduled task processing",
+                )
 
             if not self.config.DEBUG_SHOW_FULL_PROMPT:
                 logger.debug(

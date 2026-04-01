@@ -440,6 +440,10 @@ class TestLLMClient:
             "final_text": "查到了，结果如下。",
             "assistant_messages": ["我先帮你查一下。", "查到了，结果如下。"],
             "tool_context_messages": [],
+            "conversation_events": [
+                {"role": "assistant", "content": "我先帮你查一下。"},
+                {"role": "assistant", "content": "查到了，结果如下。"},
+            ],
         }
 
     @pytest.mark.asyncio
