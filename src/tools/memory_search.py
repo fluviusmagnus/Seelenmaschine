@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from core.database import DatabaseManager
 from utils.time import timestamp_to_str
 from core.config import Config
+from prompts import load_seele_json
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -254,13 +255,21 @@ Leave empty to search using only filters (role, time range).""",
         if not conversation_results:
             return
 
+        seele_data = load_seele_json()
+        bot_name = seele_data.get("bot", {}).get("name", "AI Assistant") or "AI Assistant"
+        user_name = seele_data.get("user", {}).get("name", "User") or "User"
+        role_to_name = {
+            "user": user_name,
+            "assistant": bot_name,
+        }
+
         if result and not result[-1].startswith("=="):
             result.append("")
 
         result.append("== Related Conversations ==")
         for _conv_id, timestamp, conv_role, text, _rank in conversation_results:
             time_str = timestamp_to_str(timestamp, tz=Config.TIMEZONE)
-            role_display = "User" if conv_role == "user" else "Assistant"
+            role_display = role_to_name.get(conv_role, conv_role)
             result.append(f"[{time_str}] {role_display}: {text}")
 
     def _sanitize_query(self, query: str) -> str:

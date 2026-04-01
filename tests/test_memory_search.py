@@ -145,10 +145,17 @@ class TestMemorySearchTool:
             (2, 1234567891, "assistant", "Second result", 0.8),
         ]
 
-        result = await memory_search_tool.execute(query="test")
+        with patch("tools.memory_search.load_seele_json") as mock_load_seele_json:
+            mock_load_seele_json.return_value = {
+                "bot": {"name": "Seele"},
+                "user": {"name": "Alice"},
+            }
+            result = await memory_search_tool.execute(query="test")
 
         assert "First result" in result
         assert "Second result" in result
+        assert "Alice: First result" in result
+        assert "Seele: Second result" in result
 
     @pytest.mark.asyncio
     async def test_execute_with_role_filter(self, memory_search_tool, mock_db):
