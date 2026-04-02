@@ -23,7 +23,7 @@ class TestLoadSeeleJson:
         """Test loading seele.json from disk"""
         from prompts import _load_seele_json_from_disk
         
-        mock_data = {"user": {"name": "Test"}, "bot": {"name": "Assistant"}}
+        mock_data = {"user": {"name": "Test", "location": ""}, "bot": {"name": "Assistant"}}
         
         with patch('pathlib.Path.exists', return_value=True):
             with patch('builtins.open', mock_open(read_data=json.dumps(mock_data))):
@@ -44,7 +44,7 @@ class TestLoadSeeleJson:
         import prompts
         prompts._seele_json_cache = {}
         
-        mock_data = {"user": {"name": "Test"}}
+        mock_data = {"user": {"name": "Test", "location": ""}}
         
         # First call should load from disk
         with patch('prompts._load_seele_json_from_disk', return_value=mock_data):
@@ -111,7 +111,7 @@ class TestBuildSystemPrompt:
                     "traits": ["analytical", "logical"]
                 }
             },
-            "user": {"name": "TestUser"},
+            "user": {"name": "TestUser", "location": "Tokyo"},
             "memorable_events": {
                 "evt_20260329_project_commitment": {
                     "date": "2026-03-29",
@@ -131,6 +131,7 @@ class TestBuildSystemPrompt:
                 assert "TestBot" in result
                 # Should contain user name
                 assert "TestUser" in result
+                assert "Location: Tokyo" in result
                 # Should contain summaries
                 assert "Summary 1" in result
                 assert "Summary 2" in result

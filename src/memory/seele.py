@@ -45,6 +45,7 @@ CURRENT_SEELE_TEMPLATE_FALLBACK = {
         "name": "",
         "gender": "",
         "birthday": "",
+        "location": "",
         "personal_facts": [],
         "abilities": [],
         "likes": [],
@@ -236,7 +237,14 @@ def prune_expired_memorable_events(
 def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
     """Normalize current seele data to the latest schema."""
     normalized_data = dict(data)
-    memorable_events, changed = normalize_memorable_events(
+    schema_changed = False
+
+    user = normalized_data.get("user")
+    if isinstance(user, dict) and not isinstance(user.get("location"), str):
+        user["location"] = ""
+        schema_changed = True
+
+    memorable_events, memorable_events_changed = normalize_memorable_events(
         normalized_data.get("memorable_events", {}),
         logger=logger,
     )
@@ -245,7 +253,9 @@ def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, A
         logger=logger,
     )
     normalized_data["memorable_events"] = pruned_events
-    return normalized_data, changed or pruned_changed
+    return normalized_data, (
+        schema_changed or memorable_events_changed or pruned_changed
+    )
 
 
 def load_seele_json_from_disk(

@@ -103,7 +103,7 @@ The seele.json structure:
   - /bot/emotions_and_needs: {{long_term: string, short_term: string}}
   - /bot/relationship_with_user (string)
 - user: Your understanding of the user
-  - /user/name, /user/gender, /user/birthday (strings)
+  - /user/name, /user/gender, /user/birthday, /user/location (strings)
   - /user/personal_facts, /user/abilities, /user/likes, /user/dislikes (arrays of strings)
   - /user/personal_facts should contain relatively stable facts about the user that are likely to remain true across time
   - Do NOT store temporary states, short-term plans, one-off arrangements, today's mood, near-term schedules, or transient situation updates in /user/personal_facts
@@ -338,6 +338,7 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
     "name": "string",
     "gender": "string",
     "birthday": "string",
+    "location": "string",
     "personal_facts": ["string"],
     "abilities": ["string"],
     "likes": ["string"],

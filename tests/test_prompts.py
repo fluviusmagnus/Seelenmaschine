@@ -71,7 +71,7 @@ class TestUpdateSeeeleJson:
         seele_path = tmp_path / "seele.json"
         initial_data = {
             "bot": {"name": "Test"},
-            "user": {"name": ""},
+            "user": {"name": "", "location": ""},
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -103,7 +103,7 @@ class TestUpdateSeeeleJson:
         seele_path = tmp_path / "seele.json"
         initial_data = {
             "bot": {"name": "Test", "likes": []},
-            "user": {"name": ""},
+            "user": {"name": "", "location": ""},
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -131,7 +131,7 @@ class TestUpdateSeeeleJson:
         seele_path = tmp_path / "seele.json"
         initial_data = {
             "bot": {"name": "Test", "personality": {"mbti": ""}},
-            "user": {"name": ""},
+            "user": {"name": "", "location": ""},
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -159,7 +159,7 @@ class TestUpdateSeeeleJson:
         seele_path = tmp_path / "seele.json"
         initial_data = {
             "bot": {"name": "Test"},
-            "user": {"name": ""},
+            "user": {"name": "", "location": ""},
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -188,7 +188,7 @@ class TestUpdateSeeeleJson:
         seele_path = tmp_path / "seele.json"
         initial_data = {
             "bot": {"name": "Test"},
-            "user": {"name": ""},
+            "user": {"name": "", "location": ""},
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -249,6 +249,7 @@ class TestGetCacheableSystemPrompt:
             "user": {
                 "name": "",
                 "gender": "",
+                "location": "Berlin",
                 "personal_facts": [],
                 "abilities": [],
                 "likes": [],
@@ -293,6 +294,7 @@ class TestGetCacheableSystemPrompt:
         assert "importance=4" in prompt
         assert "<system_instruction>" in prompt
         assert "<user_profile>" in prompt
+        assert "Location: Berlin" in prompt
         assert "Use related memories only when helpful" in prompt
         assert "Keep user-facing replies clean and lightweight" in prompt
         assert "Lightweight Markdown is allowed" in prompt
@@ -339,7 +341,7 @@ class TestGetMemoryUpdatePrompt:
         return json.dumps(
             {
                 "bot": {"name": "TestBot"},
-                "user": {"name": "TestUser"},
+                "user": {"name": "TestUser", "location": ""},
                 "memorable_events": {},
                 "commands_and_agreements": [],
             }
@@ -361,6 +363,7 @@ class TestGetMemoryUpdatePrompt:
         assert "<memory_update_task>" in prompt
         assert "<schema>" in prompt
         assert "<output_requirements>" in prompt
+        assert "/user/location" in prompt
 
     def test_get_memory_update_prompt_includes_importance_examples(self):
         """Test that importance examples and task boundary rules are present."""
@@ -393,6 +396,7 @@ class TestGetMemoryUpdatePrompt:
         assert "<complete_memory_json_task>" in prompt
         assert "<previous_error>" in prompt
         assert "<output_requirements>" in prompt
+        assert '"location": "string"' in prompt
 
     def test_get_complete_memory_json_prompt_includes_previous_attempt(self):
         """Retry prompt should include the raw previous failed output when provided."""
@@ -507,7 +511,7 @@ class TestPromptIntegration:
         current_seele_json = json.dumps(
             {
                 "bot": {"name": "TestBot"},
-                "user": {"name": "TestUser"},
+                "user": {"name": "TestUser", "location": ""},
                 "memorable_events": {},
                 "commands_and_agreements": [],
             }

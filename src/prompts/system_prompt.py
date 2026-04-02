@@ -116,6 +116,7 @@ Core principles to follow in this conversation:
 - Name: {user.get("name", "User")}
 - Gender: {user.get("gender", "")}
 - Birthday: {user.get("birthday", "")}
+- Location: {user.get("location", "")}
 
 **Personality:**
 - MBTI: {user.get("personality", {}).get("mbti", "")}

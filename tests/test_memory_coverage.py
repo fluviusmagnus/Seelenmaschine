@@ -254,7 +254,7 @@ class TestMemoryManagerJsonUtils:
         """Test _validate_seele_structure with valid data"""
         valid_data = {
             "bot": {"name": "TestBot"},
-            "user": {"name": "TestUser"},
+            "user": {"name": "TestUser", "location": ""},
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -344,6 +344,7 @@ class TestSeeleRepairPaths:
                     "name": "TestUser",
                     "gender": "",
                     "birthday": "",
+                    "location": "",
                     "personal_facts": [],
                     "abilities": [],
                     "likes": [],
@@ -378,6 +379,7 @@ class TestSeeleRepairPaths:
         saved = json.loads(seele_path.read_text(encoding="utf-8"))
         assert saved["bot"]["name"] == "TestBot"
         assert saved["user"]["name"] == "TestUser"
+        assert saved["user"]["location"] == ""
 
 
 # Run tests if executed directly
