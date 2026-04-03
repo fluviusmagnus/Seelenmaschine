@@ -10,6 +10,7 @@ from memory.seele import (
 from prompts.memory_prompts import (
     build_complete_memory_json_prompt,
     build_memory_update_prompt,
+    build_seele_compaction_prompt,
     build_seele_repair_prompt,
     build_summary_prompt,
 )
@@ -147,12 +148,26 @@ def get_seele_repair_prompt(
     )
 
 
+def get_seele_compaction_prompt(
+    current_seele_json: str,
+    personal_facts_limit: int,
+    memorable_events_limit: int,
+) -> str:
+    """Build the LLM prompt for compacting overgrown seele memory sections."""
+    return build_seele_compaction_prompt(
+        current_seele_json=current_seele_json,
+        personal_facts_limit=personal_facts_limit,
+        memorable_events_limit=memorable_events_limit,
+    )
+
+
 __all__ = [
     "get_cacheable_system_prompt",
     "get_current_time_str",
     "get_summary_prompt",
     "get_memory_update_prompt",
     "get_complete_memory_json_prompt",
+    "get_seele_compaction_prompt",
     "get_seele_repair_prompt",
     "load_seele_json",
     "update_seele_json",

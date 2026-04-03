@@ -502,3 +502,83 @@ CRITICAL OUTPUT REQUIREMENTS:
 Repaired complete seele.json (pure JSON object only):
 </final_instruction>
 </seele_repair_task>"""
+
+
+def build_seele_compaction_prompt(
+    current_seele_json: str,
+    personal_facts_limit: int,
+    memorable_events_limit: int,
+) -> str:
+    """Build prompt for LLM-driven seele memory compaction."""
+    seele_data = json.loads(current_seele_json)
+    bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
+    user_name = seele_data.get("user", {}).get("name", "User")
+
+    return f"""<seele_compaction_task>
+<role>
+You are a long-term memory curator for {bot_name}.
+</role>
+
+<goal>
+The current seele.json contains too many long-term memory items.
+Re-evaluate importance and return a compacted result that preserves only the most valuable long-term information.
+</goal>
+
+<compaction_rules>
+1. Return a JSON object with exactly two top-level fields:
+   - "personal_facts": array of strings
+   - "memorable_events": object keyed by stable event ids
+2. Keep at most {personal_facts_limit} personal_facts.
+3. Keep at most {memorable_events_limit} memorable_events.
+4. For personal_facts:
+   - Keep only durable, identity-relevant, long-term useful facts about {user_name}
+   - Remove temporary, redundant, overly specific, outdated, or low-value facts
+   - Prefer facts that help {bot_name} understand {user_name}'s stable identity, preferences, history, habits, abilities, or long-term situation
+5. For memorable_events:
+   - Re-evaluate each event's lasting significance
+   - You may remove low-value or redundant events
+   - You may adjust importance scores up or down
+   - Keep only events that are truly important to {user_name}'s life story or the relationship between {user_name} and {bot_name}
+   - Do not keep reminders, todo items, errands, meeting schedules, shopping lists, or temporary tasks
+6. Preserve the original language of each item whenever possible.
+7. Do not invent new facts or new events unsupported by the current data.
+</compaction_rules>
+
+<event_schema>
+Each memorable event value must remain:
+{{
+  "date": "YYYY-MM-DD",
+  "importance": 1-5,
+  "details": "string"
+}}
+</event_schema>
+
+<selection_preference>
+When forced to choose, prefer:
+- higher long-term significance
+- clearer identity relevance
+- stronger relationship importance
+- less redundancy
+- more stable and enduring information
+</selection_preference>
+
+<current_seele_json>
+{current_seele_json}
+</current_seele_json>
+
+<output_requirements>
+1. Output pure JSON only, no markdown, no code fences, no explanation.
+2. The first character must be '{{' and the last character must be '}}'.
+3. Output exactly this shape:
+{{
+  "personal_facts": ["..."],
+  "memorable_events": {{
+    "evt_example": {{"date": "YYYY-MM-DD", "importance": 3, "details": "..."}}
+  }}
+}}
+</output_requirements>
+
+<final_instruction>
+Compacted memory JSON:
+</final_instruction>
+</seele_compaction_task>"""

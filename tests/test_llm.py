@@ -117,9 +117,9 @@ class TestLLMClient:
         assert messages[3]["content"] == "</current_conversation>"
         assert messages[4]["role"] == "system"
         assert "<extra_context>" in messages[4]["content"]
-        assert "<related_historical_summaries>" in messages[4]["content"]
+        assert "<similar_historical_summaries>" in messages[4]["content"]
         assert "Summary 1" in messages[4]["content"]
-        assert "<related_historical_conversations>" in messages[4]["content"]
+        assert "<similar_historical_conversations>" in messages[4]["content"]
         assert "Conversation 1" in messages[4]["content"]
         assert "<current_session_id>" in messages[4]["content"]
         assert "123" in messages[4]["content"]
@@ -241,6 +241,38 @@ class TestLLMClient:
             None,
             None,
             None,
+        )
+
+    @patch("llm.chat_client.AsyncOpenAI")
+    @patch(
+        "llm.chat_client.get_seele_compaction_prompt",
+        return_value="compaction prompt",
+    )
+    def test_generate_seele_compaction(
+        self, mock_get_prompt, mock_openai, llm_client
+    ):
+        """Test generating seele compaction request."""
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = '{"personal_facts": [], "memorable_events": {}}'
+
+        mock_async_client = AsyncMock()
+        mock_async_client.chat.completions.create = AsyncMock(
+            return_value=mock_response
+        )
+        mock_openai.return_value = mock_async_client
+
+        result = llm_client.generate_seele_compaction(
+            '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
+            20,
+            20,
+        )
+
+        assert result == '{"personal_facts": [], "memorable_events": {}}'
+        mock_get_prompt.assert_called_once_with(
+            '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
+            20,
+            20,
         )
 
     @patch("llm.chat_client.AsyncOpenAI")

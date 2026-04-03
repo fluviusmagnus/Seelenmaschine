@@ -292,3 +292,48 @@ class MemoryClient:
             debug_result_label="Seele repair (async) result from tool_model",
         )
 
+    def generate_seele_compaction(
+        self,
+        current_seele_json: str,
+        personal_facts_limit: int,
+        memorable_events_limit: int,
+        prompt_builder: Callable[[str, int, int], str],
+    ) -> str:
+        """Synchronously compact overgrown seele memory sections."""
+        prompt = prompt_builder(
+            current_seele_json,
+            personal_facts_limit,
+            memorable_events_limit,
+        )
+        return self._run_sync_prompt_request(
+            prompt=prompt,
+            system_content="You compact overgrown seele.json memory sections.",
+            debug_prompt_label="Seele compaction prompt sent to tool_model",
+            debug_result_label="Seele compaction result from tool_model",
+            async_context_error=(
+                "generate_seele_compaction() called from async context. "
+                "Use await generate_seele_compaction_async() instead."
+            ),
+        )
+
+    async def generate_seele_compaction_async(
+        self,
+        current_seele_json: str,
+        personal_facts_limit: int,
+        memorable_events_limit: int,
+        prompt_builder: Callable[[str, int, int], str],
+    ) -> str:
+        """Asynchronously compact overgrown seele memory sections."""
+        prompt = prompt_builder(
+            current_seele_json,
+            personal_facts_limit,
+            memorable_events_limit,
+        )
+
+        return await self._run_tool_model_prompt(
+            prompt=prompt,
+            system_content="You compact overgrown seele.json memory sections.",
+            debug_prompt_label="Seele compaction (async) prompt sent to tool_model",
+            debug_result_label="Seele compaction (async) result from tool_model",
+        )
+

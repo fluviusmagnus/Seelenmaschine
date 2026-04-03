@@ -74,6 +74,8 @@ MEMORABLE_EVENT_RETENTION_DAYS = {
     4: 180,
     5: None,
 }
+PERSONAL_FACTS_LIMIT = 20
+MEMORABLE_EVENTS_LIMIT = 20
 
 
 def _safe_event_slug(details: str) -> str:
@@ -232,6 +234,55 @@ def prune_expired_memorable_events(
         pruned[event_id] = event
 
     return pruned, changed
+
+
+def _deduplicate_personal_facts(personal_facts: Any) -> List[str]:
+    """Return normalized, deduplicated personal facts preserving order."""
+    if not isinstance(personal_facts, list):
+        return []
+
+    deduplicated: List[str] = []
+    seen: set[str] = set()
+    for fact in personal_facts:
+        if not isinstance(fact, str):
+            continue
+        normalized = " ".join(fact.split()).strip()
+        if not normalized:
+            continue
+        fact_key = normalized.casefold()
+        if fact_key in seen:
+            continue
+        seen.add(fact_key)
+        deduplicated.append(normalized)
+    return deduplicated
+
+
+def _event_sort_key(item: tuple[str, Dict[str, Any]]) -> tuple[int, str, str]:
+    """Build deterministic sort key for memorable event fallback retention."""
+    event_id, event = item
+    importance = event.get("importance") if isinstance(event, dict) else None
+    importance_rank = importance if isinstance(importance, int) else 0
+    date_str = ""
+    if isinstance(event, dict):
+        date_str = str(event.get("date", ""))
+    return (-importance_rank, date_str or "", event_id)
+
+
+def fallback_compact_personal_facts(
+    personal_facts: Any, limit: int = PERSONAL_FACTS_LIMIT
+) -> List[str]:
+    """Deterministically compact personal facts when LLM compaction is unavailable."""
+    return _deduplicate_personal_facts(personal_facts)[:limit]
+
+
+def fallback_compact_memorable_events(
+    memorable_events: Dict[str, Dict[str, Any]],
+    limit: int = MEMORABLE_EVENTS_LIMIT,
+) -> Dict[str, Dict[str, Any]]:
+    """Deterministically compact memorable events when LLM compaction is unavailable."""
+    sorted_items = sorted(memorable_events.items(), key=_event_sort_key)
+    kept_items = sorted(sorted_items[:limit], key=lambda item: item[0])
+    return {event_id: event for event_id, event in kept_items}
 
 
 def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
@@ -393,6 +444,142 @@ class Seele:
         last_timestamp = summary_row["last_timestamp"] if summary_row else None
         return first_timestamp, last_timestamp
 
+    @staticmethod
+    def _memory_limits_exceeded(data: Dict[str, Any]) -> bool:
+        """Return whether seele memory sections exceed configured limits."""
+        user = data.get("user", {}) if isinstance(data.get("user"), dict) else {}
+        personal_facts = user.get("personal_facts", [])
+        memorable_events = data.get("memorable_events", {})
+        return (
+            isinstance(personal_facts, list)
+            and len(personal_facts) > PERSONAL_FACTS_LIMIT
+        ) or (
+            isinstance(memorable_events, dict)
+            and len(memorable_events) > MEMORABLE_EVENTS_LIMIT
+        )
+
+    @staticmethod
+    def _apply_compaction_candidate(
+        data: Dict[str, Any], candidate: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply compacted sections onto the existing seele data."""
+        compacted = json.loads(json.dumps(data))
+        compacted_user = compacted.setdefault("user", {})
+        compacted_user["personal_facts"] = candidate["personal_facts"]
+        compacted["memorable_events"] = candidate["memorable_events"]
+        return compacted
+
+    @staticmethod
+    def _parse_compaction_response(compaction_response: str) -> Dict[str, Any]:
+        """Parse a compacted-memory JSON response."""
+        cleaned_response = compaction_response.strip()
+        if "```json" in cleaned_response:
+            cleaned_response = cleaned_response.split("```json", 1)[1].split("```", 1)[0]
+        elif "```" in cleaned_response:
+            cleaned_response = cleaned_response.split("```", 1)[1].split("```", 1)[0]
+
+        cleaned_response = cleaned_response.strip()
+        start = cleaned_response.find("{")
+        end = cleaned_response.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            cleaned_response = cleaned_response[start : end + 1]
+        return json.loads(cleaned_response)
+
+    def _validate_compaction_candidate(self, candidate: Dict[str, Any]) -> bool:
+        """Validate LLM compaction output shape and limits."""
+        if not isinstance(candidate, dict):
+            return False
+
+        personal_facts = candidate.get("personal_facts")
+        memorable_events = candidate.get("memorable_events")
+        if not isinstance(personal_facts, list) or not isinstance(memorable_events, dict):
+            return False
+        if len(personal_facts) > PERSONAL_FACTS_LIMIT:
+            return False
+        if len(memorable_events) > MEMORABLE_EVENTS_LIMIT:
+            return False
+
+        normalized_facts = _deduplicate_personal_facts(personal_facts)
+        if len(normalized_facts) != len(personal_facts):
+            return False
+
+        if any(not isinstance(fact, str) or not fact.strip() for fact in personal_facts):
+            return False
+
+        return self.validate_seele_structure(
+            self._apply_compaction_candidate(
+                load_seele_template(Path.cwd() / "template" / "seele.json", logger),
+                {
+                    "personal_facts": personal_facts,
+                    "memorable_events": memorable_events,
+                },
+            )
+        )
+
+    def _fallback_compact_seele_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply deterministic fallback compaction to overgrown seele data."""
+        compacted = json.loads(json.dumps(data))
+        compacted_user = compacted.setdefault("user", {})
+        compacted_user["personal_facts"] = fallback_compact_personal_facts(
+            compacted_user.get("personal_facts", [])
+        )
+        compacted["memorable_events"] = fallback_compact_memorable_events(
+            compacted.get("memorable_events", {})
+        )
+        return compacted
+
+    def _compact_overflowing_memory(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Use the tool model to compact overgrown long-term memory sections."""
+        if not self._memory_limits_exceeded(data):
+            return data
+
+        from llm.chat_client import LLMClient
+
+        client = LLMClient()
+        current_seele_json = json.dumps(data, ensure_ascii=False, indent=2)
+        try:
+            response = client.generate_seele_compaction(
+                current_seele_json=current_seele_json,
+                personal_facts_limit=PERSONAL_FACTS_LIMIT,
+                memorable_events_limit=MEMORABLE_EVENTS_LIMIT,
+            )
+            candidate = self._parse_compaction_response(response)
+            if not self._validate_compaction_candidate(candidate):
+                raise ValueError("Invalid seele compaction response structure")
+            logger.info("Compacted overflowing seele memory with LLM")
+            return self._apply_compaction_candidate(data, candidate)
+        except Exception as error:
+            logger.warning(f"LLM seele compaction failed, using fallback compaction: {error}")
+            return self._fallback_compact_seele_data(data)
+        finally:
+            client.close()
+
+    async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Async version of overflowing long-term memory compaction."""
+        if not self._memory_limits_exceeded(data):
+            return data
+
+        from llm.chat_client import LLMClient
+
+        client = LLMClient()
+        current_seele_json = json.dumps(data, ensure_ascii=False, indent=2)
+        try:
+            response = await client.generate_seele_compaction_async(
+                current_seele_json=current_seele_json,
+                personal_facts_limit=PERSONAL_FACTS_LIMIT,
+                memorable_events_limit=MEMORABLE_EVENTS_LIMIT,
+            )
+            candidate = self._parse_compaction_response(response)
+            if not self._validate_compaction_candidate(candidate):
+                raise ValueError("Invalid seele compaction response structure")
+            logger.info("Compacted overflowing seele memory with LLM")
+            return self._apply_compaction_candidate(data, candidate)
+        except Exception as error:
+            logger.warning(f"LLM seele compaction failed, using fallback compaction: {error}")
+            return self._fallback_compact_seele_data(data)
+        finally:
+            await client.close_async()
+
     def _build_memory_generation_context(
         self, messages: List[Message], summary_id: int
     ) -> tuple[List[Dict[str, str]], str, Optional[int], Optional[int]]:
@@ -463,6 +650,10 @@ class Seele:
 
         success = update_seele_json(patch_data)
         if success:
+            current_memory = self.get_long_term_memory()
+            compacted_data = self._compact_overflowing_memory(current_memory)
+            if compacted_data != current_memory:
+                self._write_complete_seele_json(compacted_data)
             self._log_patch_update_success(summary_id, patch_data)
             return True
 
@@ -490,6 +681,10 @@ class Seele:
 
         success = update_seele_json(patch_data)
         if success:
+            current_memory = self.get_long_term_memory()
+            compacted_data = await self._compact_overflowing_memory_async(current_memory)
+            if compacted_data != current_memory:
+                self._write_complete_seele_json(compacted_data)
             self._log_patch_update_success(summary_id, patch_data)
             return True
 
@@ -1046,6 +1241,7 @@ class Seele:
 
         config = Config()
         complete_data, _ = normalize_seele_data(complete_data, logger)
+        complete_data = self._compact_overflowing_memory(complete_data)
         seele_path = config.SEELE_JSON_PATH
         seele_path.parent.mkdir(parents=True, exist_ok=True)
         with open(seele_path, "w", encoding="utf-8") as f:

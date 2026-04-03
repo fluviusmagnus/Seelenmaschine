@@ -14,6 +14,7 @@ from prompts import (
     get_cacheable_system_prompt,
     get_current_time_str,
     get_memory_update_prompt,
+    get_seele_compaction_prompt,
     get_seele_repair_prompt,
     get_summary_prompt,
     load_seele_json,
@@ -586,6 +587,34 @@ class LLMClient:
             repair_context=repair_context,
             previous_attempt=previous_attempt,
             prompt_builder=get_seele_repair_prompt,
+        )
+
+    def generate_seele_compaction(
+        self,
+        current_seele_json: str,
+        personal_facts_limit: int,
+        memorable_events_limit: int,
+    ) -> str:
+        """Synchronously compact overgrown seele memory sections."""
+        return self._memory_client.generate_seele_compaction(
+            current_seele_json=current_seele_json,
+            personal_facts_limit=personal_facts_limit,
+            memorable_events_limit=memorable_events_limit,
+            prompt_builder=get_seele_compaction_prompt,
+        )
+
+    async def generate_seele_compaction_async(
+        self,
+        current_seele_json: str,
+        personal_facts_limit: int,
+        memorable_events_limit: int,
+    ) -> str:
+        """Asynchronously compact overgrown seele memory sections."""
+        return await self._memory_client.generate_seele_compaction_async(
+            current_seele_json=current_seele_json,
+            personal_facts_limit=personal_facts_limit,
+            memorable_events_limit=memorable_events_limit,
+            prompt_builder=get_seele_compaction_prompt,
         )
 
     async def _async_close(self) -> None:

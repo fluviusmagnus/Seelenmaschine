@@ -379,4 +379,119 @@ def test_build_event_id_adds_suffix_on_collision():
     assert second_id == f"{first_id}_2"
 
 
+def test_fallback_compact_personal_facts_deduplicates_and_limits():
+    """Fallback personal-fact compaction should deduplicate and truncate deterministically."""
+    from memory.seele import fallback_compact_personal_facts
+
+    facts = [" Loves Python ", "loves python", "Has a cat"] + [
+        f"Fact {i}" for i in range(30)
+    ]
+
+    compacted = fallback_compact_personal_facts(facts, limit=3)
+
+    assert compacted == ["Loves Python", "Has a cat", "Fact 0"]
+
+
+def test_fallback_compact_memorable_events_prioritizes_importance_then_date():
+    """Fallback memorable-event compaction should keep strongest events first."""
+    from memory.seele import fallback_compact_memorable_events
+
+    events = {
+        "evt_low": {"date": "2026-01-01", "importance": 1, "details": "low"},
+        "evt_mid_old": {"date": "2026-01-01", "importance": 3, "details": "mid old"},
+        "evt_high": {"date": "2026-01-02", "importance": 5, "details": "high"},
+        "evt_mid_new": {"date": "2026-02-01", "importance": 3, "details": "mid new"},
+    }
+
+    compacted = fallback_compact_memorable_events(events, limit=2)
+
+    assert set(compacted.keys()) == {"evt_high", "evt_mid_old"}
+
+
+def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_manager):
+    """Successful patch application should trigger follow-up compaction when needed."""
+    from memory.seele import PERSONAL_FACTS_LIMIT
+
+    oversized_memory = {
+        "bot": {"name": "TestBot"},
+        "user": {
+            "name": "TestUser",
+            "location": "",
+            "personal_facts": [f"Fact {i}" for i in range(PERSONAL_FACTS_LIMIT + 2)],
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+    compacted_memory = {
+        **oversized_memory,
+        "user": {
+            **oversized_memory["user"],
+            "personal_facts": oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT],
+        },
+    }
+
+    with patch("prompts.update_seele_json", return_value=True):
+        with patch.object(memory_manager.seele, "get_long_term_memory", return_value=oversized_memory):
+            with patch.object(
+                memory_manager.seele,
+                "_compact_overflowing_memory",
+                return_value=compacted_memory,
+            ) as mock_compact:
+                with patch.object(
+                    memory_manager.seele,
+                    "_write_complete_seele_json",
+                ) as mock_write:
+                    result = memory_manager.seele._apply_generated_patch(1, [], None)
+
+    assert result is True
+    mock_compact.assert_called_once_with(oversized_memory)
+    mock_write.assert_called_once_with(compacted_memory)
+
+
+def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_manager):
+    """Invalid compaction output should fall back to deterministic truncation."""
+    from memory.seele import PERSONAL_FACTS_LIMIT
+
+    oversized_memory = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions_and_needs": {"long_term": "", "short_term": ""},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [f"Fact {i}" for i in range(PERSONAL_FACTS_LIMIT + 5)],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions_and_needs": {"long_term": "", "short_term": ""},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    fake_client = Mock()
+    fake_client.generate_seele_compaction.return_value = '{"personal_facts": [""], "memorable_events": {}}'
+    fake_client.close = Mock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        compacted = memory_manager.seele._compact_overflowing_memory(oversized_memory)
+
+    assert len(compacted["user"]["personal_facts"]) == PERSONAL_FACTS_LIMIT
+    assert compacted["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
+    fake_client.close.assert_called_once()
+
+
 

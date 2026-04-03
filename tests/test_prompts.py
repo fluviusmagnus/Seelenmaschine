@@ -11,6 +11,7 @@ from prompts import (
     get_summary_prompt,
     get_memory_update_prompt,
     get_complete_memory_json_prompt,
+    get_seele_compaction_prompt,
     get_seele_repair_prompt,
 )
 
@@ -456,6 +457,21 @@ class TestGetMemoryUpdatePrompt:
         assert "memorable_events MUST be an object keyed by stable ids" in prompt
         assert len(prompt) > 0
         assert "Repair context: migration" in prompt
+
+    def test_get_seele_compaction_prompt_contains_limits_and_rules(self):
+        """Compaction prompt should encode retention limits and curation rules."""
+        prompt = get_seele_compaction_prompt(
+            self._current_seele_json(),
+            20,
+            20,
+        )
+
+        assert "<seele_compaction_task>" in prompt
+        assert "Keep at most 20 personal_facts" in prompt
+        assert "Keep at most 20 memorable_events" in prompt
+        assert "Re-evaluate each event's lasting significance" in prompt
+        assert '"personal_facts": ["..."]' in prompt
+        assert '"memorable_events": {' in prompt
 
     def test_get_memory_update_prompt_without_timestamps(self):
         """Test getting memory update prompt without timestamps."""
