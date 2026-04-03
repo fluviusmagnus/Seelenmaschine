@@ -34,6 +34,30 @@ class TestFormatting(unittest.TestCase):
         expected = "<pre>Special chars: -_.!</pre> &amp; more"
         self.assertEqual(formatted, expected)
 
+    def test_format_markdown_quote_single_line(self):
+        text = "> Single line quote"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "<pre>Single line quote</pre>"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_quote_multiline(self):
+        text = "> Line 1\n> Line 2\n> Line 3"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "<pre>Line 1\nLine 2\nLine 3</pre>"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_quote_mixed_with_text(self):
+        text = "Before\n\n> Line 1\n> Line 2\n\nAfter"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "Before\n\n<pre>Line 1\nLine 2</pre>\n\nAfter"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_quote_ignored_in_fenced_code(self):
+        text = "```text\n> keep literal\n```"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "<pre>&gt; keep literal</pre>"
+        self.assertEqual(formatted, expected)
+
     def test_format_bold(self):
         text = "This is **bold** text."
         formatted = self.formatter.format_response(text, debug_mode=True)

@@ -28,6 +28,41 @@ class TelegramResponseFormatter:
                 content = ""
             return _save_placeholder(content.strip(), "pre")
 
+        def save_markdown_quote_lines(lines: list[str]) -> str:
+            normalized_lines = []
+            for raw_line in lines:
+                line = re.sub(r"^\s*>\s?", "", raw_line)
+                normalized_lines.append(line)
+            return _save_placeholder("\n".join(normalized_lines).strip(), "pre")
+
+        def replace_markdown_quote_blocks(content: str) -> str:
+            result_lines = []
+            quote_lines: list[str] = []
+            quote_trailing_newline = ""
+
+            def flush_quote_lines() -> None:
+                nonlocal quote_lines, quote_trailing_newline
+                if quote_lines:
+                    result_lines.append(
+                        f"{save_markdown_quote_lines(quote_lines)}{quote_trailing_newline}"
+                    )
+                    quote_lines = []
+                    quote_trailing_newline = ""
+
+            for line in content.splitlines(keepends=True):
+                line_without_newline = line.rstrip("\r\n")
+                newline_suffix = line[len(line_without_newline) :]
+                if re.match(r"^\s*>", line_without_newline):
+                    quote_lines.append(line_without_newline)
+                    quote_trailing_newline = newline_suffix
+                    continue
+
+                flush_quote_lines()
+                result_lines.append(f"{line_without_newline}{newline_suffix}")
+
+            flush_quote_lines()
+            return "".join(result_lines)
+
         def save_blockquote(match):
             content = match.group(1).strip()
             return _save_placeholder(content, "pre")
@@ -42,10 +77,14 @@ class TelegramResponseFormatter:
             flags=re.DOTALL,
         )
 
+        text_with_markdown_quote_placeholders = replace_markdown_quote_blocks(
+            text_with_fenced_placeholders
+        )
+
         text_with_block_placeholders = re.sub(
             r"<\s*blockquote[^>]*>(.*?)<\s*/\s*blockquote\s*>",
             save_blockquote,
-            text_with_fenced_placeholders,
+            text_with_markdown_quote_placeholders,
             flags=re.DOTALL | re.IGNORECASE,
         )
 
