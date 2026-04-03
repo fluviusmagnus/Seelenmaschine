@@ -1,9 +1,11 @@
 import sqlite3
 import json
-from pathlib import Path
-from typing import List, Optional, Tuple, Dict, Any
+import re
 import struct
+import unicodedata
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.config import Config
 from utils.logger import get_logger
@@ -48,6 +50,206 @@ class DatabaseManager:
     def _ensure_db_exists(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _contains_cjk(text: str) -> bool:
+        """Return whether a string contains CJK characters."""
+        return any("\u4e00" <= char <= "\u9fff" or "\u3040" <= char <= "\u30ff" for char in text)
+
+    @staticmethod
+    def _normalize_for_ngram(text: str) -> str:
+        """Normalize text before extracting mixed-language search units."""
+        return unicodedata.normalize("NFKC", text).lower()
+
+    @classmethod
+    def _extract_search_units(cls, text: str) -> list[str]:
+        """Extract mixed-language search units.
+
+        - CJK runs are indexed as bigrams, with single-character fallback.
+        - Non-CJK alphanumeric runs are indexed as whole lowercase tokens.
+        """
+        normalized = cls._normalize_for_ngram(text)
+        units: list[str] = []
+        current_cjk: list[str] = []
+        current_non_cjk: list[str] = []
+
+        def flush_cjk() -> None:
+            nonlocal current_cjk
+            if not current_cjk:
+                return
+            run = "".join(current_cjk)
+            if len(run) == 1:
+                units.append(run)
+            else:
+                units.extend(run[index : index + 2] for index in range(len(run) - 1))
+            current_cjk = []
+
+        def flush_non_cjk() -> None:
+            nonlocal current_non_cjk
+            if current_non_cjk:
+                units.append("".join(current_non_cjk))
+                current_non_cjk = []
+
+        for char in normalized:
+            if "\u4e00" <= char <= "\u9fff" or "\u3040" <= char <= "\u30ff":
+                flush_non_cjk()
+                current_cjk.append(char)
+            elif char.isalnum():
+                flush_cjk()
+                current_non_cjk.append(char)
+            else:
+                flush_cjk()
+                flush_non_cjk()
+
+        flush_cjk()
+        flush_non_cjk()
+        return list(dict.fromkeys(unit for unit in units if unit))
+
+    @staticmethod
+    def _tokenize_boolean_query(query: str) -> list[str]:
+        """Tokenize a boolean query for the n-gram search parser."""
+        return re.findall(r"\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+", query, flags=re.IGNORECASE)
+
+    @classmethod
+    def _parse_ngram_query(cls, query: str) -> Any:
+        """Parse a simple boolean query into an expression tree."""
+        tokens = cls._tokenize_boolean_query(query)
+        position = 0
+
+        def peek() -> str | None:
+            return tokens[position] if position < len(tokens) else None
+
+        def consume() -> str:
+            nonlocal position
+            token = tokens[position]
+            position += 1
+            return token
+
+        def parse_or() -> Any:
+            node = parse_and()
+            while True:
+                token = peek()
+                if token is not None and token.upper() == "OR":
+                    consume()
+                    node = ("OR", node, parse_and())
+                else:
+                    return node
+
+        def parse_and() -> Any:
+            node = parse_not()
+            while True:
+                token = peek()
+                if token is None or token == ")" or token.upper() == "OR":
+                    return node
+                if token.upper() == "AND":
+                    consume()
+                node = ("AND", node, parse_not())
+
+        def parse_not() -> Any:
+            token = peek()
+            if token is not None and token.upper() == "NOT":
+                consume()
+                return ("NOT", parse_not())
+            return parse_primary()
+
+        def parse_primary() -> Any:
+            token = peek()
+            if token is None:
+                raise ValueError("Unexpected end of query")
+            if token == "(":
+                consume()
+                node = parse_or()
+                if peek() != ")":
+                    raise ValueError("Unmatched parentheses in query")
+                consume()
+                return node
+            if token == ")":
+                raise ValueError("Unexpected closing parenthesis")
+            return ("TERM", consume())
+
+        if not tokens:
+            raise ValueError("Empty query")
+
+        tree = parse_or()
+        if position != len(tokens):
+            raise ValueError(f"Unexpected token '{tokens[position]}'")
+        return tree
+
+    def _ensure_ngram_schema(self, cursor: sqlite3.Cursor) -> None:
+        """Create auxiliary mixed-language n-gram index tables."""
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversation_ngrams (
+                conversation_id INTEGER NOT NULL,
+                gram TEXT NOT NULL,
+                PRIMARY KEY (conversation_id, gram),
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversation_ngrams_gram ON conversation_ngrams(gram)"
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS summary_ngrams (
+                summary_id INTEGER NOT NULL,
+                gram TEXT NOT NULL,
+                PRIMARY KEY (summary_id, gram),
+                FOREIGN KEY(summary_id) REFERENCES summaries(summary_id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_summary_ngrams_gram ON summary_ngrams(gram)"
+        )
+
+    def _refresh_conversation_ngrams_with_cursor(
+        self, cursor: sqlite3.Cursor, conversation_id: int, text: str
+    ) -> None:
+        """Refresh n-gram index rows for a conversation."""
+        cursor.execute(
+            "DELETE FROM conversation_ngrams WHERE conversation_id = ?", (conversation_id,)
+        )
+        grams = self._extract_search_units(text)
+        if grams:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO conversation_ngrams (conversation_id, gram) VALUES (?, ?)",
+                [(conversation_id, gram) for gram in grams],
+            )
+
+    def _refresh_summary_ngrams_with_cursor(
+        self, cursor: sqlite3.Cursor, summary_id: int, summary: str
+    ) -> None:
+        """Refresh n-gram index rows for a summary."""
+        cursor.execute("DELETE FROM summary_ngrams WHERE summary_id = ?", (summary_id,))
+        grams = self._extract_search_units(summary)
+        if grams:
+            cursor.executemany(
+                "INSERT OR IGNORE INTO summary_ngrams (summary_id, gram) VALUES (?, ?)",
+                [(summary_id, gram) for gram in grams],
+            )
+
+    def _rebuild_ngram_indexes_with_cursor(self, cursor: sqlite3.Cursor) -> None:
+        """Backfill n-gram indexes from existing conversations and summaries."""
+        cursor.execute("DELETE FROM conversation_ngrams")
+        cursor.execute("DELETE FROM summary_ngrams")
+
+        cursor.execute("SELECT conversation_id, text FROM conversations")
+        for row in cursor.fetchall():
+            self._refresh_conversation_ngrams_with_cursor(
+                cursor, row["conversation_id"], row["text"]
+            )
+
+        cursor.execute("SELECT summary_id, summary FROM summaries")
+        for row in cursor.fetchall():
+            self._refresh_summary_ngrams_with_cursor(
+                cursor, row["summary_id"], row["summary"]
+            )
+
+    def _should_use_ngram_search(self, query: Optional[str]) -> bool:
+        """Decide whether a query should use mixed-language n-gram search."""
+        return bool(query and self._contains_cjk(query))
+
     def _initialize_schema(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -72,7 +274,7 @@ class DatabaseManager:
                 )
 
                 cursor.execute(
-                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3.2')"
+                    "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '3.3')"
                 )
 
                 cursor.execute(
@@ -253,6 +455,9 @@ class DatabaseManager:
                     "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_at, status)"
                 )
 
+                self._ensure_ngram_schema(cursor)
+                self._rebuild_ngram_indexes_with_cursor(cursor)
+
                 conn.commit()
                 logger.info("Database schema initialized successfully")
 
@@ -388,6 +593,18 @@ class DatabaseManager:
                     "UPDATE meta SET value = '3.2' WHERE key = 'schema_version'"
                 )
                 logger.info("Successfully migrated to version 3.2")
+                current_version = "3.2"
+
+            if current_version == "3.2":
+                logger.info(
+                    "Migrating database from version 3.2 to 3.3 (Adding n-gram search indexes)"
+                )
+                self._ensure_ngram_schema(cursor)
+                self._rebuild_ngram_indexes_with_cursor(cursor)
+                cursor.execute(
+                    "UPDATE meta SET value = '3.3' WHERE key = 'schema_version'"
+                )
+                logger.info("Successfully migrated to version 3.3")
 
     def _upgrade_to_3_0(self, cursor):
         """Helper to create FTS5 tables and triggers for 2.0 -> 3.0 migration"""
@@ -599,6 +816,8 @@ class DatabaseManager:
                     (conversation_id, embedding_blob),
                 )
 
+            self._refresh_conversation_ngrams_with_cursor(cursor, conversation_id, text)
+
             if Config.DEBUG_LOG_DATABASE_OPS:
                 logger.debug(
                     f"Inserted conversation: conversation_id={conversation_id}, text={text[:50]}..."
@@ -635,6 +854,8 @@ class DatabaseManager:
                 """,
                     (summary_id, embedding_blob),
                 )
+
+            self._refresh_summary_ngrams_with_cursor(cursor, summary_id, summary)
 
             if Config.DEBUG_LOG_DATABASE_OPS:
                 logger.debug(
@@ -1109,6 +1330,207 @@ class DatabaseManager:
             )
             return cursor.rowcount
 
+    def _ngram_term_condition(
+        self,
+        text_expression: str,
+        owner_alias: str,
+        id_column: str,
+        table_name: str,
+        term: str,
+        params: list[Any],
+    ) -> str:
+        """Build an EXISTS-based condition for a single n-gram term."""
+        grams = self._extract_search_units(term)
+        if not grams:
+            params.append(self._normalize_for_ngram(term))
+            return f"instr(lower({text_expression}), ?) > 0"
+
+        clauses = []
+        for gram in grams:
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM {table_name} ng WHERE ng.{id_column} = {owner_alias}.{id_column} AND ng.gram = ?)"
+            )
+            params.append(gram)
+        return "(" + " AND ".join(clauses) + ")"
+
+    def _compile_ngram_expression(
+        self,
+        node: Any,
+        text_expression: str,
+        owner_alias: str,
+        id_column: str,
+        table_name: str,
+        params: list[Any],
+    ) -> str:
+        """Compile a parsed boolean expression tree into SQL."""
+        kind = node[0]
+        if kind == "TERM":
+            return self._ngram_term_condition(
+                text_expression, owner_alias, id_column, table_name, node[1], params
+            )
+        if kind == "NOT":
+            return (
+                "NOT ("
+                + self._compile_ngram_expression(
+                    node[1], text_expression, owner_alias, id_column, table_name, params
+                )
+                + ")"
+            )
+        if kind in {"AND", "OR"}:
+            left = self._compile_ngram_expression(
+                node[1], text_expression, owner_alias, id_column, table_name, params
+            )
+            right = self._compile_ngram_expression(
+                node[2], text_expression, owner_alias, id_column, table_name, params
+            )
+            return f"({left} {kind} {right})"
+        raise ValueError(f"Unsupported expression node: {kind}")
+
+    def _search_conversations_by_ngram(
+        self,
+        query: str,
+        limit: int = 10,
+        session_id: Optional[int] = None,
+        exclude_session_id: Optional[int] = None,
+        exclude_recent_from_session_id: Optional[int] = None,
+        exclude_recent_limit: int = 0,
+        role: Optional[str] = None,
+        start_timestamp: Optional[int] = None,
+        end_timestamp: Optional[int] = None,
+    ) -> List[Tuple[int, int, int, str, str, float]]:
+        """Search conversations using mixed-language n-gram fallback."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            params: list[Any] = []
+            conditions = ["c.message_type = 'conversation'"]
+
+            expression = self._parse_ngram_query(query)
+            conditions.append(
+                self._compile_ngram_expression(
+                    expression,
+                    "c.text",
+                    "c",
+                    "conversation_id",
+                    "conversation_ngrams",
+                    params,
+                )
+            )
+
+            if session_id is not None:
+                conditions.append("c.session_id = ?")
+                params.append(session_id)
+            if exclude_session_id is not None:
+                conditions.append("c.session_id != ?")
+                params.append(exclude_session_id)
+            if (
+                exclude_recent_from_session_id is not None
+                and exclude_recent_limit > 0
+            ):
+                conditions.append(
+                    """
+                    c.conversation_id NOT IN (
+                        SELECT recent.conversation_id
+                        FROM conversations recent
+                        WHERE recent.session_id = ?
+                          AND recent.message_type = 'conversation'
+                        ORDER BY recent.timestamp DESC, recent.conversation_id DESC
+                        LIMIT ?
+                    )
+                    """
+                )
+                params.extend([exclude_recent_from_session_id, exclude_recent_limit])
+            if role is not None:
+                conditions.append("c.role = ?")
+                params.append(role)
+            if start_timestamp is not None:
+                conditions.append("c.timestamp >= ?")
+                params.append(start_timestamp)
+            if end_timestamp is not None:
+                conditions.append("c.timestamp <= ?")
+                params.append(end_timestamp)
+
+            where_clause = "WHERE " + " AND ".join(conditions)
+            full_query = f"""
+                SELECT c.conversation_id, c.session_id, c.timestamp, c.role, c.text, 0.0 as rank
+                FROM conversations c
+                {where_clause}
+                ORDER BY c.timestamp DESC
+                LIMIT ?
+            """
+            params.append(limit)
+            cursor.execute(full_query, params)
+            return [
+                (
+                    row["conversation_id"],
+                    row["session_id"],
+                    row["timestamp"],
+                    row["role"],
+                    row["text"],
+                    row["rank"],
+                )
+                for row in cursor.fetchall()
+            ]
+
+    def _search_summaries_by_ngram(
+        self,
+        query: str,
+        limit: int = 5,
+        session_id: Optional[int] = None,
+        exclude_session_id: Optional[int] = None,
+        start_timestamp: Optional[int] = None,
+        end_timestamp: Optional[int] = None,
+    ) -> List[Tuple[int, int, str, int, int, float]]:
+        """Search summaries using mixed-language n-gram fallback."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            params: list[Any] = []
+            conditions: list[str] = []
+            expression = self._parse_ngram_query(query)
+            conditions.append(
+                self._compile_ngram_expression(
+                    expression,
+                    "s.summary",
+                    "s",
+                    "summary_id",
+                    "summary_ngrams",
+                    params,
+                )
+            )
+            if session_id is not None:
+                conditions.append("s.session_id = ?")
+                params.append(session_id)
+            if exclude_session_id is not None:
+                conditions.append("s.session_id != ?")
+                params.append(exclude_session_id)
+            if start_timestamp is not None:
+                conditions.append("s.last_timestamp >= ?")
+                params.append(start_timestamp)
+            if end_timestamp is not None:
+                conditions.append("s.first_timestamp <= ?")
+                params.append(end_timestamp)
+
+            where_clause = "WHERE " + " AND ".join(conditions)
+            full_query = f"""
+                SELECT s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp, 0.0 as rank
+                FROM summaries s
+                {where_clause}
+                ORDER BY s.last_timestamp DESC
+                LIMIT ?
+            """
+            params.append(limit)
+            cursor.execute(full_query, params)
+            return [
+                (
+                    row["summary_id"],
+                    row["session_id"],
+                    row["summary"],
+                    row["first_timestamp"],
+                    row["last_timestamp"],
+                    row["rank"],
+                )
+                for row in cursor.fetchall()
+            ]
+
     def search_conversations_by_keyword(
         self,
         query: Optional[str] = None,
@@ -1139,6 +1561,19 @@ class DatabaseManager:
         Returns:
             List of tuples: (conversation_id, session_id, timestamp, role, text, rank)
         """
+        if self._should_use_ngram_search(query):
+            return self._search_conversations_by_ngram(
+                query=query or "",
+                limit=limit,
+                session_id=session_id,
+                exclude_session_id=exclude_session_id,
+                exclude_recent_from_session_id=exclude_recent_from_session_id,
+                exclude_recent_limit=exclude_recent_limit,
+                role=role,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
@@ -1268,6 +1703,16 @@ class DatabaseManager:
         Returns:
             List of tuples: (summary_id, session_id, summary, first_timestamp, last_timestamp, rank)
         """
+        if self._should_use_ngram_search(query):
+            return self._search_summaries_by_ngram(
+                query=query or "",
+                limit=limit,
+                session_id=session_id,
+                exclude_session_id=exclude_session_id,
+                start_timestamp=start_timestamp,
+                end_timestamp=end_timestamp,
+            )
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
 

@@ -47,6 +47,11 @@ QUERY SYNTAX (FTS5):
 - Exclude: coffee NOT decaf
 - Grouping: (tea OR coffee) AND morning
 
+MIXED-LANGUAGE QUERY NOTES:
+- Queries containing CJK text may use a mixed-language n-gram fallback instead of raw FTS tokenization
+- In that fallback path, boolean operators like AND/OR/NOT and parentheses are still supported
+- Longer CJK phrases and explicit operators are usually more predictable than very short ambiguous terms
+
 BEST PRACTICES:
 1. Use specific keywords relevant to the topic
 2. Use the same language as the user's conversation (e.g., if user speaks Chinese, search with Chinese keywords)
@@ -83,7 +88,8 @@ Examples:
 - "(tea OR coffee) AND morning" - grouping with OR and AND
 
 Leave empty to search using only filters (session_id, role, time range).
-If you only want to inspect one session, leaving query empty is valid; prefer search_target='summaries' for a concise overview.""",
+If you only want to inspect one session, leaving query empty is valid; prefer search_target='summaries' for a concise overview.
+Queries containing CJK text may automatically use a mixed-language n-gram fallback that still supports AND/OR/NOT and parentheses.""",
                 },
                 "limit": {
                     "type": "integer",

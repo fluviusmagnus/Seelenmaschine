@@ -80,7 +80,7 @@ class TestDatabaseFTSSearch:
         results = db_manager.search_conversations_by_keyword("alpha", limit=10)
 
         assert len(results) == 1
-        assert results[0][3] == "alpha project update"
+        assert results[0][4] == "alpha project update"
 
     def test_search_conversations_by_keyword_fuzzy(self, db_manager):
         """FTS prefix syntax should match word prefixes."""
@@ -91,7 +91,7 @@ class TestDatabaseFTSSearch:
         results = db_manager.search_conversations_by_keyword("programm*", limit=10)
 
         assert len(results) == 1
-        assert results[0][3] == "programming language"
+        assert results[0][4] == "programming language"
 
     def test_search_with_filters_timestamp(self, db_manager):
         """Timestamp filters should narrow summary search results."""
@@ -117,7 +117,7 @@ class TestDatabaseFTSSearch:
         )
 
         assert len(results) == 1
-        assert results[0][1] == "Late summary"
+        assert results[0][2] == "Late summary"
 
     def test_search_with_filters_role(self, db_manager):
         """Role filters should only return conversations for the requested role."""
@@ -132,8 +132,43 @@ class TestDatabaseFTSSearch:
         )
 
         assert len(results) == 1
-        assert results[0][2] == "assistant"
-        assert results[0][3] == "alpha assistant note"
+        assert results[0][3] == "assistant"
+        assert results[0][4] == "alpha assistant note"
+
+    def test_search_conversations_by_keyword_uses_ngram_for_chinese(self, db_manager):
+        """Chinese substring queries should use the n-gram fallback path."""
+        session_id = db_manager.create_session(1000)
+        db_manager.insert_conversation(session_id, 1100, "user", "今天讨论了电影配乐")
+        db_manager.insert_conversation(session_id, 1200, "assistant", "完全无关")
+
+        results = db_manager.search_conversations_by_keyword("电影", limit=10)
+
+        assert len(results) == 1
+        assert results[0][4] == "今天讨论了电影配乐"
+
+    def test_search_summaries_by_keyword_supports_mixed_language_boolean(self, db_manager):
+        """Mixed-language boolean queries should work on the n-gram fallback path."""
+        session_id = db_manager.create_session(1000)
+        db_manager.insert_summary(
+            session_id=session_id,
+            summary="Reisekosten 和 東京旅行安排",
+            first_timestamp=1000,
+            last_timestamp=1500,
+        )
+        db_manager.insert_summary(
+            session_id=session_id,
+            summary="Reisekosten 但没有日本部分",
+            first_timestamp=1600,
+            last_timestamp=1700,
+        )
+
+        results = db_manager.search_summaries_by_keyword(
+            query="Reisekosten AND 東京",
+            limit=10,
+        )
+
+        assert len(results) == 1
+        assert results[0][2] == "Reisekosten 和 東京旅行安排"
 
 
 class TestDatabaseTransactions:

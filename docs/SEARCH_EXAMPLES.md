@@ -5,6 +5,7 @@
 The `search_memories` tool supports:
 
 - FTS5 full-text keyword search
+- Mixed-language n-gram fallback for CJK and mixed-script queries
 - Boolean operators (`AND`, `OR`, `NOT`)
 - Role filtering
 - Time-range filtering
@@ -73,6 +74,13 @@ search_memories(query="Anna AND 电影 AND 排序")
 ```python
 search_memories(query="Anna AND (电影 OR 音乐) NOT 恐怖")
 ```
+
+### 8b. Mixed-Language Boolean Query
+```python
+search_memories(query="Reisekosten AND 東京")
+```
+Queries containing CJK text may automatically use the mixed-language n-gram fallback.
+Boolean operators are still supported in that path.
 
 ## Filtering by Time / Role
 

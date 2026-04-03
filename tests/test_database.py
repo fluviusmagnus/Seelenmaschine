@@ -32,7 +32,7 @@ class TestDatabaseManager:
             cursor.execute("SELECT value FROM meta WHERE key = 'schema_version'")
             result = cursor.fetchone()
             assert result is not None
-            assert result[0] == "3.2"
+            assert result[0] == "3.3"
 
     def test_create_session(self, db_manager):
         """Test creating a new session."""
@@ -161,6 +161,48 @@ class TestDatabaseManager:
             assert row["summary"] == "Test summary"
             assert row["first_timestamp"] == 1234567890
             assert row["last_timestamp"] == 1234567900
+
+    def test_insert_conversation_builds_ngram_index(self, db_manager):
+        """Inserted conversations should populate the mixed-language n-gram index."""
+        session_id = db_manager.create_session(1234567890)
+        conv_id = db_manager.insert_conversation(
+            session_id=session_id,
+            timestamp=1234567891,
+            role="user",
+            text="电影配乐 OpenAI",
+        )
+
+        with db_manager._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT gram FROM conversation_ngrams WHERE conversation_id = ? ORDER BY gram",
+                (conv_id,),
+            ).fetchall()
+
+        grams = {row[0] for row in rows}
+        assert "电影" in grams
+        assert "配乐" in grams
+        assert "openai" in grams
+
+    def test_insert_summary_builds_ngram_index(self, db_manager):
+        """Inserted summaries should populate the mixed-language n-gram index."""
+        session_id = db_manager.create_session(1234567890)
+        summary_id = db_manager.insert_summary(
+            session_id=session_id,
+            summary="東京旅行 Budgetplanung",
+            first_timestamp=1234567890,
+            last_timestamp=1234567900,
+        )
+
+        with db_manager._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT gram FROM summary_ngrams WHERE summary_id = ? ORDER BY gram",
+                (summary_id,),
+            ).fetchall()
+
+        grams = {row[0] for row in rows}
+        assert "東京" in grams
+        assert "旅行" in grams
+        assert "budgetplanung" in grams
 
     def test_get_conversations_by_session(self, db_manager):
         """Test retrieving conversations by session."""
