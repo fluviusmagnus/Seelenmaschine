@@ -202,9 +202,9 @@ start-telegram.bat hy
 当前已实现的记忆搜索能力：
 - **FTS5 全文检索**：支持布尔运算符、短语搜索、前缀匹配等经典全文检索语法
 - **mixed-language n-gram fallback**：当 query 含中文 / 日文 / 混合脚本内容时，自动切换到更稳健的 n-gram 路径
-- **vector-assisted recall**：当自然语言 query 的关键词结果稀疏时，可补充向量召回的 summary 候选
-- **weighted fusion**：对 summary 结果综合关键词与向量信号进行统一排序
-- **optional rerank**：若配置了 reranker，会在粗排后对小规模 summary 候选再做一次精排
+- **vector-assisted recall**：当自然语言 query 的关键词结果稀疏时，可补充向量召回的 summary / conversation 候选
+- **weighted fusion**：对 summary 与 conversation 结果综合关键词与向量信号进行统一排序
+- **optional rerank**：若配置了 reranker，会在粗排后对小规模 summary / conversation 候选再做一次精排
 
 支持的搜索语法与过滤条件：
 - 布尔运算符：`AND`, `OR`, `NOT`
@@ -213,19 +213,19 @@ start-telegram.bat hy
 - 角色过滤：`role='user'` 或 `role='assistant'`
 - 日期范围：`start_date`, `end_date`
 
-#### Summary 排序规则（加权评分）
+#### Summary / Conversation 排序规则（加权评分）
 
-对于 `search_target="summaries"` 或 `search_target="all"` 中的 summary 部分，当前排序不是只看单一来源，而是分阶段进行：
+对于 `search_target="summaries"`、`search_target="conversations"`，以及 `search_target="all"` 中的两个结果分支，当前排序不是只看单一来源，而是分阶段进行：
 
 1. **粗召回**
    - 优先走 FTS5 或 n-gram 关键词召回
-   - 若 query 更像自然语言且关键词结果偏少，则补充向量召回的 summary 候选
+   - 若 query 更像自然语言且关键词结果偏少，则补充向量召回的 summary / conversation 候选
 
 2. **加权融合（weighted fusion）**
-   - 系统会为每条 summary 计算多个信号：
+   - 系统会为每条 summary / conversation 计算多个信号：
      - **keyword_origin**：该结果是否来自明确的关键词命中路径
-     - **token_coverage**：query 中拆分 token 在 summary 中的覆盖比例
-     - **exact_match**：query 是否作为完整子串直接出现在 summary 中
+     - **token_coverage**：query 中拆分 token 在结果文本中的覆盖比例
+     - **exact_match**：query 是否作为完整子串直接出现在结果文本中
      - **lexical_overlap**：基于 mixed-language 搜索单元（CJK bigram / 非 CJK token）的词法重叠度
      - **vector_similarity**：向量距离换算后的相似度
      - **recency**：轻量时间新鲜度
@@ -238,7 +238,7 @@ start-telegram.bat hy
      - `recency`: **0.05**
 
 3. **可选 rerank**
-   - 如果配置了 reranker，系统会对加权融合后的前一小批 summary 候选再做一次精排
+   - 如果配置了 reranker，系统会对加权融合后的前一小批 summary / conversation 候选再做一次精排
    - rerank 是 **best-effort**：未配置或调用失败时，会自动退回融合排序结果
 
 这意味着：

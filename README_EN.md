@@ -202,9 +202,9 @@ Look for conversations containing "machine learning" or "AI"
 Currently implemented memory-search capabilities:
 - **FTS5 full-text retrieval** for boolean / phrase / prefix queries
 - **mixed-language n-gram fallback** for Chinese, Japanese, and mixed-script queries
-- **vector-assisted recall** to supplement sparse natural-language summary results
-- **weighted fusion** to rank summary candidates using both keyword and vector signals
-- **optional rerank** to refine a small set of top summary candidates when a reranker is configured
+- **vector-assisted recall** to supplement sparse natural-language summary / conversation results
+- **weighted fusion** to rank summary and conversation candidates using both keyword and vector signals
+- **optional rerank** to refine a small set of top summary / conversation candidates when a reranker is configured
 
 Supported search syntax and filters:
 - Boolean operators: `AND`, `OR`, `NOT`
@@ -213,19 +213,19 @@ Supported search syntax and filters:
 - Role filters: `role='user'` or `role='assistant'`
 - Date ranges: `start_date`, `end_date`
 
-#### Summary Ranking Rules (Weighted Scoring)
+#### Summary / Conversation Ranking Rules (Weighted Scoring)
 
-For summaries returned from `search_target="summaries"` or the summary portion of `search_target="all"`, ranking is performed in stages rather than by a single source:
+For results returned from `search_target="summaries"`, `search_target="conversations"`, or either branch of `search_target="all"`, ranking is performed in stages rather than by a single source:
 
 1. **Coarse retrieval**
    - keyword retrieval first via FTS5 or the n-gram fallback
-   - vector-retrieved summary candidates may be added when the query looks like natural language and keyword hits are sparse
+   - vector-retrieved summary / conversation candidates may be added when the query looks like natural language and keyword hits are sparse
 
 2. **Weighted fusion**
-   - each summary is scored using multiple signals:
+   - each summary / conversation item is scored using multiple signals:
      - **keyword_origin**: whether the row came from an explicit keyword-hit path
-     - **token_coverage**: how much of the query token set is covered in the summary
-     - **exact_match**: whether the whole query appears as a direct substring
+     - **token_coverage**: how much of the query token set is covered in the retrieved text
+     - **exact_match**: whether the whole query appears as a direct substring in the retrieved text
      - **lexical_overlap**: overlap based on mixed-language search units (CJK bigrams / non-CJK tokens)
      - **vector_similarity**: similarity converted from vector distance
      - **recency**: a light recency bonus
@@ -238,7 +238,7 @@ For summaries returned from `search_target="summaries"` or the summary portion o
      - `recency`: **0.05**
 
 3. **Optional rerank**
-   - if a reranker is configured, the system reranks a small top candidate set after weighted fusion
+   - if a reranker is configured, the system reranks a small top candidate set after weighted fusion for summaries or conversations
    - rerank is **best-effort**: if no reranker is configured, or the call fails, the fused order is kept
 
 In practice this means:
