@@ -272,6 +272,31 @@ class SessionMemory:
         )
         return conversation_id
 
+    def add_context_message(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        role: str,
+        message_type: str,
+        include_in_turn_count: bool,
+        include_in_summary: bool,
+        embedding: Optional[List[float]] = None,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Store a generic context message with explicit persistence flags."""
+        message_timestamp = timestamp or get_current_timestamp()
+        return self._store_message(
+            session_id=session_id,
+            timestamp=message_timestamp,
+            role=role,
+            text=text,
+            embedding=embedding,
+            message_type=message_type,
+            include_in_turn_count=include_in_turn_count,
+            include_in_summary=include_in_summary,
+        )
+
     def add_tool_message(
         self,
         session_id: int,
@@ -280,16 +305,15 @@ class SessionMemory:
         timestamp: Optional[int] = None,
     ) -> int:
         """Store a tool-context message as a persisted system message."""
-        message_timestamp = timestamp or get_current_timestamp()
-        return self._store_message(
+        return self.add_context_message(
             session_id=session_id,
-            timestamp=message_timestamp,
-            role="system",
             text=text,
-            embedding=None,
+            role="system",
             message_type="tool_call",
             include_in_turn_count=False,
             include_in_summary=False,
+            embedding=None,
+            timestamp=timestamp,
         )
 
     def add_scheduled_task_message(
@@ -300,16 +324,58 @@ class SessionMemory:
         timestamp: Optional[int] = None,
     ) -> int:
         """Store a scheduled-task trigger as a persisted system message."""
-        message_timestamp = timestamp or get_current_timestamp()
-        return self._store_message(
+        return self.add_context_message(
             session_id=session_id,
-            timestamp=message_timestamp,
-            role="system",
             text=text,
-            embedding=None,
+            role="system",
             message_type="scheduled_task",
             include_in_turn_count=False,
             include_in_summary=False,
+            embedding=None,
+            timestamp=timestamp,
+        )
+
+    def add_system_event_message(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Store a system event as a persisted system message."""
+        return self.add_context_message(
+            session_id=session_id,
+            text=text,
+            role="system",
+            message_type="system_event",
+            include_in_turn_count=False,
+            include_in_summary=False,
+            embedding=None,
+            timestamp=timestamp,
+        )
+
+    async def add_context_message_async(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        role: str,
+        message_type: str,
+        include_in_turn_count: bool,
+        include_in_summary: bool,
+        embedding: Optional[List[float]] = None,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Async wrapper for persisting a generic context message."""
+        return self.add_context_message(
+            session_id=session_id,
+            text=text,
+            role=role,
+            message_type=message_type,
+            include_in_turn_count=include_in_turn_count,
+            include_in_summary=include_in_summary,
+            embedding=embedding,
+            timestamp=timestamp,
         )
 
     async def add_tool_message_async(
@@ -331,6 +397,20 @@ class SessionMemory:
     ) -> int:
         """Async wrapper for persisting a scheduled-task system message."""
         return self.add_scheduled_task_message(
+            session_id,
+            text,
+            timestamp=timestamp,
+        )
+
+    async def add_system_event_message_async(
+        self,
+        session_id: int,
+        text: str,
+        *,
+        timestamp: Optional[int] = None,
+    ) -> int:
+        """Async wrapper for persisting a system event message."""
+        return self.add_system_event_message(
             session_id,
             text,
             timestamp=timestamp,

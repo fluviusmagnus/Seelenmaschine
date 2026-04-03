@@ -181,3 +181,9 @@ class TelegramMessages:
             task_id,
             intermediate_callback=self.intermediate_callback,
         )
+
+    async def process_system_event(self, event_message: str) -> str:
+        return await self.core_bot.process_system_event(
+            event_message,
+            intermediate_callback=self.intermediate_callback,
+        )

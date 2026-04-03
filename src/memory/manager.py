@@ -173,12 +173,56 @@ class MemoryManager:
         session_id = self.get_current_session_id()
         return self.sessions.add_tool_message(session_id=session_id, text=text)
 
+    def add_context_message(
+        self,
+        text: str,
+        *,
+        role: str,
+        message_type: str,
+        include_in_turn_count: bool,
+        include_in_summary: bool,
+        embedding: Optional[List[float]] = None,
+    ) -> int:
+        """Persist a generic context message in the current session."""
+        session_id = self.get_current_session_id()
+        return self.sessions.add_context_message(
+            session_id=session_id,
+            text=text,
+            role=role,
+            message_type=message_type,
+            include_in_turn_count=include_in_turn_count,
+            include_in_summary=include_in_summary,
+            embedding=embedding,
+        )
+
     async def add_tool_message_async(self, text: str) -> int:
         """Async version of add_tool_message."""
         session_id = self.get_current_session_id()
         return await self.sessions.add_tool_message_async(
             session_id=session_id,
             text=text,
+        )
+
+    async def add_context_message_async(
+        self,
+        text: str,
+        *,
+        role: str,
+        message_type: str,
+        include_in_turn_count: bool,
+        include_in_summary: bool,
+        embedding: Optional[List[float]] = None,
+    ) -> int:
+        """Async version of add_context_message."""
+        session_id = self.get_current_session_id()
+        return await self.sessions.add_context_message_async(
+            session_id=session_id,
+            text=text,
+            role=role,
+            message_type=message_type,
+            include_in_turn_count=include_in_turn_count,
+            include_in_summary=include_in_summary,
+            embedding=embedding,
         )
 
     def add_scheduled_task_message(self, text: str) -> int:
@@ -193,6 +237,22 @@ class MemoryManager:
         """Async version of add_scheduled_task_message."""
         session_id = self.get_current_session_id()
         return await self.sessions.add_scheduled_task_message_async(
+            session_id=session_id,
+            text=text,
+        )
+
+    def add_system_event_message(self, text: str) -> int:
+        """Persist a system event message in the current session."""
+        session_id = self.get_current_session_id()
+        return self.sessions.add_system_event_message(
+            session_id=session_id,
+            text=text,
+        )
+
+    async def add_system_event_message_async(self, text: str) -> int:
+        """Async version of add_system_event_message."""
+        session_id = self.get_current_session_id()
+        return await self.sessions.add_system_event_message_async(
             session_id=session_id,
             text=text,
         )

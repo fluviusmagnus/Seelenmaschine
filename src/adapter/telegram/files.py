@@ -38,7 +38,7 @@ class TelegramFiles:
         preview_text: Callable[[str, int], str],
         format_exception_for_user: Callable[[Exception], str],
     ) -> None:
-        """Save the uploaded file and process it as a synthetic user event."""
+        """Save the uploaded file and process it as a synthetic user message."""
         if not update.effective_user or not update.message:
             return
 
@@ -207,7 +207,7 @@ class TelegramFiles:
         """Describe an uploaded file as a synthetic system event for the LLM."""
         original_name = file_info.get("original_name") or saved_path.name
         message_lines = [
-            "[System Event] The user has sent a file.",
+            "[System Event]\nThe user has sent a file.\n",
             f"File type: {file_info['file_type']}",
             f"Original filename: {original_name}",
             f"Saved to: {self.format_saved_media_path(saved_path)}",

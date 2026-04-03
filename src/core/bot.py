@@ -177,6 +177,20 @@ class CoreBot:
             intermediate_callback=intermediate_callback,
         )
 
+    async def process_system_event(
+        self,
+        event_message: str,
+        *,
+        intermediate_callback: Optional[Callable[[str], Any]] = None,
+    ) -> str:
+        """Process a system event through the core conversation pipeline."""
+        if self.conversation_service is None:
+            raise RuntimeError("Conversation service has not been initialized")
+        return await self.conversation_service.process_system_event(
+            event_message,
+            intermediate_callback=intermediate_callback,
+        )
+
     async def create_new_session(self) -> int:
         """Archive the current session and start a new one."""
         if self.session_service is None:
