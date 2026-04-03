@@ -297,63 +297,6 @@ class SessionMemory:
             include_in_summary=include_in_summary,
         )
 
-    def add_tool_message(
-        self,
-        session_id: int,
-        text: str,
-        *,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """Store a tool-context message as a persisted system message."""
-        return self.add_context_message(
-            session_id=session_id,
-            text=text,
-            role="system",
-            message_type="tool_call",
-            include_in_turn_count=False,
-            include_in_summary=False,
-            embedding=None,
-            timestamp=timestamp,
-        )
-
-    def add_scheduled_task_message(
-        self,
-        session_id: int,
-        text: str,
-        *,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """Store a scheduled-task trigger as a persisted system message."""
-        return self.add_context_message(
-            session_id=session_id,
-            text=text,
-            role="system",
-            message_type="scheduled_task",
-            include_in_turn_count=False,
-            include_in_summary=False,
-            embedding=None,
-            timestamp=timestamp,
-        )
-
-    def add_system_event_message(
-        self,
-        session_id: int,
-        text: str,
-        *,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """Store a system event as a persisted system message."""
-        return self.add_context_message(
-            session_id=session_id,
-            text=text,
-            role="system",
-            message_type="system_event",
-            include_in_turn_count=False,
-            include_in_summary=False,
-            embedding=None,
-            timestamp=timestamp,
-        )
-
     async def add_context_message_async(
         self,
         session_id: int,
@@ -375,44 +318,6 @@ class SessionMemory:
             include_in_turn_count=include_in_turn_count,
             include_in_summary=include_in_summary,
             embedding=embedding,
-            timestamp=timestamp,
-        )
-
-    async def add_tool_message_async(
-        self,
-        session_id: int,
-        text: str,
-        *,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """Async wrapper for persisting a tool-context message."""
-        return self.add_tool_message(session_id, text, timestamp=timestamp)
-
-    async def add_scheduled_task_message_async(
-        self,
-        session_id: int,
-        text: str,
-        *,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """Async wrapper for persisting a scheduled-task system message."""
-        return self.add_scheduled_task_message(
-            session_id,
-            text,
-            timestamp=timestamp,
-        )
-
-    async def add_system_event_message_async(
-        self,
-        session_id: int,
-        text: str,
-        *,
-        timestamp: Optional[int] = None,
-    ) -> int:
-        """Async wrapper for persisting a system event message."""
-        return self.add_system_event_message(
-            session_id,
-            text,
             timestamp=timestamp,
         )
 

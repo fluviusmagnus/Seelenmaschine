@@ -207,7 +207,7 @@ class TelegramFiles:
         """Describe an uploaded file as a synthetic system event for the LLM."""
         original_name = file_info.get("original_name") or saved_path.name
         message_lines = [
-            "[System Event]\nThe user has sent a file.\n",
+            "[File Event]\nThe user has sent a file.\n",
             f"File type: {file_info['file_type']}",
             f"Original filename: {original_name}",
             f"Saved to: {self.format_saved_media_path(saved_path)}",

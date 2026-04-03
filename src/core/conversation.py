@@ -79,11 +79,14 @@ class ConversationService:
         user/assistant turn, is not summarized, and is not part of vector
         retrieval because it is stored as a non-conversation message type.
         """
-        await self.memory.add_scheduled_task_message_async(wrapped_message)
-
-    async def _persist_system_event_message(self, message: str) -> None:
-        """Persist a system event as a context-only system message."""
-        await self.memory.add_system_event_message_async(message)
+        await self.memory.add_context_message_async(
+            wrapped_message,
+            role="system",
+            message_type="scheduled_task",
+            include_in_turn_count=False,
+            include_in_summary=False,
+            embedding=None,
+        )
 
     async def _retrieve_memory_context(
         self,
@@ -158,7 +161,14 @@ class ConversationService:
 
         logger.debug(f"Persisting tool context messages ({context_label})")
         for tool_message in tool_context_messages:
-            await self.memory.add_tool_message_async(tool_message)
+            await self.memory.add_context_message_async(
+                tool_message,
+                role="system",
+                message_type="tool_call",
+                include_in_turn_count=False,
+                include_in_summary=False,
+                embedding=None,
+            )
 
     async def _persist_conversation_events(
         self, conversation_events: List[Dict[str, str]], *, context_label: str
@@ -181,7 +191,14 @@ class ConversationService:
                         f"Created new summary (ID: {summary_id}) during {context_label}"
                     )
             elif role == "system":
-                await self.memory.add_tool_message_async(content)
+                await self.memory.add_context_message_async(
+                    content,
+                    role="system",
+                    message_type="tool_call",
+                    include_in_turn_count=False,
+                    include_in_summary=False,
+                    embedding=None,
+                )
 
     async def process_message(
         self,
@@ -372,97 +389,3 @@ class ConversationService:
                 "(Error occurred while processing, please check logs)"
             )
 
-    async def process_system_event(
-        self,
-        event_message: str,
-        *,
-        intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
-    ) -> str:
-        """Process a system event message through the LLM and memory."""
-        try:
-            logger.debug(f"Wrapped system event message: {event_message[:100]}...")
-            logger.debug("Step 1: Persisting system event message")
-            await self._persist_system_event_message(event_message)
-
-            logger.debug("Step 2: Getting current context for system event")
-            current_context = self.memory.get_context_messages()
-
-            logger.debug("Step 3: Retrieving relevant memories for system event")
-            event_embedding = await self.embedding_client.get_embedding_async(
-                event_message
-            )
-            retrieved_summaries, retrieved_conversations, recent_summaries = (
-                await self._retrieve_memory_context(
-                    query_text=event_message,
-                    current_context=current_context,
-                    embedding=event_embedding,
-                    log_suffix=" for system event",
-                )
-            )
-            llm_result = await self._run_with_memory_search_tool(
-                lambda: self.llm_client.chat_with_custom_message_async_detailed(
-                    current_context=current_context,
-                    retrieved_summaries=retrieved_summaries,
-                    retrieved_conversations=retrieved_conversations,
-                    recent_summaries=recent_summaries,
-                    custom_user_message=event_message,
-                    custom_message_role="system",
-                    current_session_id=self.memory.get_current_session_id(),
-                    intermediate_callback=intermediate_callback,
-                ),
-                enable_log="Step 4: Enabling memory search tool",
-                disable_log="Step 7: Disabling memory search tool",
-                mcp_log="Step 4.5: Ensuring MCP is connected",
-            )
-
-            assistant_messages = llm_result.get("assistant_messages", [])
-            tool_context_messages = llm_result.get("tool_context_messages", [])
-            conversation_events = llm_result.get("conversation_events", [])
-            response_text = llm_result.get("final_text", "")
-
-            if self.config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(
-                    "LLM detailed result for system event: "
-                    f"assistant_messages={len(assistant_messages)}"
-                )
-            else:
-                logger.debug(
-                    "LLM detailed result for system event: "
-                    f"assistant_messages={len(assistant_messages)}, "
-                    f"final_text={self.preview_text(llm_result.get('final_text', ''))}"
-                )
-                for idx, assistant_message in enumerate(assistant_messages, start=1):
-                    logger.debug(
-                        "System event assistant message "
-                        f"{idx}/{len(assistant_messages)} to persist: "
-                        f"{self.preview_text(assistant_message)}"
-                    )
-
-            logger.debug("Step 8: Adding assistant responses to memory (system event)")
-            if conversation_events:
-                await self._persist_conversation_events(
-                    conversation_events,
-                    context_label="system event processing",
-                )
-            else:
-                await self._persist_tool_context_messages(
-                    tool_context_messages,
-                    context_label="system event processing",
-                )
-                await self._persist_assistant_messages(
-                    assistant_messages,
-                    context_label="system event processing",
-                )
-
-            if not self.config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(
-                    "System event processing complete, returning combined response: "
-                    f"{self.preview_text(response_text)}"
-                )
-            return response_text
-        except Exception as e:
-            logger.error(f"Error in process_system_event: {e}", exc_info=True)
-            return (
-                f"[System Event] {event_message}\n\n"
-                "(Error occurred while processing, please check logs)"
-            )
