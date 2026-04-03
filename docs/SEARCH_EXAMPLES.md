@@ -26,6 +26,13 @@ search_memories(query="Anna")
 ```
 Finds memories containing `Anna`.
 
+### 1b. Bare Multiple Keywords
+```python
+search_memories(query="Anna 电影")
+```
+Bare multiple keywords are interpreted by SQLite FTS5. In practice, they usually behave like `AND`.
+Prefer `Anna AND 电影` for clarity and predictability.
+
 ### 2. AND Operator
 ```python
 search_memories(query="Anna AND 电影")

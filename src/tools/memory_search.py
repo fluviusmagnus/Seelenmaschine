@@ -40,6 +40,7 @@ WHEN TO USE:
 
 QUERY SYNTAX (FTS5):
 - Single keyword: coffee
+- Multiple bare keywords separated by spaces usually behave like AND in FTS5; prefer explicit AND/OR for clarity
 - AND (both required): coffee AND morning
 - OR (either acceptable): tea OR coffee
 - Exact phrase: "morning routine"
@@ -74,6 +75,7 @@ COMMON PATTERNS:
 
 Examples:
 - "coffee" - find conversations about coffee
+- "coffee morning" - bare multiple keywords usually behave like AND in FTS5; prefer "coffee AND morning" for clarity
 - "coffee AND morning" - both keywords must appear
 - "tea OR coffee" - either keyword is acceptable
 - '"morning routine"' - exact phrase match
