@@ -234,6 +234,32 @@ class TestMemorySearchTool:
         assert result.count("[session_id=") == 2
 
     @pytest.mark.asyncio
+    async def test_execute_can_optionally_rerank_summary_candidates(self, mock_db):
+        reranker_client = Mock()
+        reranker_client.is_enabled = Mock(return_value=True)
+        reranker_client.rerank_async = AsyncMock(
+            return_value=[
+                {"text": "第二条摘要", "row_index": 1},
+                {"text": "第一条摘要", "row_index": 0},
+            ]
+        )
+        mock_db.search_summaries_by_keyword.return_value = [
+            (1, 100, "第一条摘要", 1, 100, 0.0),
+            (2, 101, "第二条摘要", 2, 90, 0.0),
+        ]
+        mock_db.search_conversations_by_keyword.return_value = []
+        tool = MemorySearchTool(
+            session_id="123",
+            db=mock_db,
+            reranker_client=reranker_client,
+        )
+
+        result = await tool.execute(query="请找更相关的摘要", search_target="summaries")
+
+        reranker_client.rerank_async.assert_awaited_once()
+        assert result.index("第二条摘要") < result.index("第一条摘要")
+
+    @pytest.mark.asyncio
     async def test_execute_disabled(self, memory_search_tool):
         """Test executing search when tool is disabled."""
         memory_search_tool.disable()

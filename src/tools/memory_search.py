@@ -507,6 +507,68 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
             return sorted_results[:limit]
         return sorted_results
 
+    async def _maybe_rerank_summary_results(
+        self,
+        summary_results: list[tuple[Any, ...]],
+        *,
+        query: str,
+        limit: int,
+        search_target: str,
+    ) -> list[tuple[Any, ...]]:
+        """Optionally rerank top summary candidates with an external reranker."""
+        if search_target not in {"all", "summaries"}:
+            return summary_results
+        if not query or len(summary_results) < 2 or not self.reranker_client:
+            return summary_results
+
+        is_enabled = getattr(self.reranker_client, "is_enabled", None)
+        if callable(is_enabled) and not is_enabled():
+            return summary_results
+
+        target_limit = limit if search_target == "summaries" else max(1, limit // 2)
+        candidate_limit = min(len(summary_results), max(target_limit * 2, target_limit + 2), 12)
+        candidates = summary_results[:candidate_limit]
+        documents = [
+            {
+                "text": row[2],
+                "row_index": index,
+            }
+            for index, row in enumerate(candidates)
+        ]
+
+        rerank_async = getattr(self.reranker_client, "rerank_async", None)
+        rerank = getattr(self.reranker_client, "rerank", None)
+
+        if callable(rerank_async):
+            reranked_docs = await rerank_async(query, documents, top_n=min(target_limit, len(documents)))
+        elif callable(rerank):
+            reranked_docs = rerank(query, documents, top_n=min(target_limit, len(documents)))
+        else:
+            return summary_results
+
+        if not reranked_docs:
+            return summary_results
+
+        reranked_indices = [
+            doc.get("row_index") for doc in reranked_docs if doc.get("row_index") is not None
+        ]
+        seen_indices = set()
+        reranked_rows = []
+        for row_index in reranked_indices:
+            if row_index in seen_indices or not (0 <= row_index < len(candidates)):
+                continue
+            reranked_rows.append(candidates[row_index])
+            seen_indices.add(row_index)
+
+        if not reranked_rows:
+            return summary_results
+
+        remaining_candidates = [
+            row for index, row in enumerate(candidates) if index not in seen_indices
+        ]
+        tail = summary_results[candidate_limit:]
+        return reranked_rows + remaining_candidates + tail
+
     async def execute(
         self,
         query: str = "",
@@ -611,8 +673,16 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
                 summary_results = self._sort_summary_results(
                     summary_results,
                     query=query,
-                    limit=limit if search_target == "summaries" else limit // 2,
                 )
+                summary_results = await self._maybe_rerank_summary_results(
+                    summary_results,
+                    query=query,
+                    limit=limit,
+                    search_target=search_target,
+                )
+                summary_results = summary_results[
+                    : (limit if search_target == "summaries" else limit // 2)
+                ]
 
             if search_target in {"all", "conversations"}:
                 conversation_results = self._search_with_fts_guard(

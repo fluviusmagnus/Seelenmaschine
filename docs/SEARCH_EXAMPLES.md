@@ -89,6 +89,7 @@ search_memories(query="上次我们讨论预算和旅行安排的时候", search
 For longer natural-language queries, sparse keyword summary matches may be supplemented by vector-retrieved summaries.
 The final summary order now uses weighted fusion across keyword signals, vector similarity, and light recency.
 This means a clearly stronger semantic match can outrank a weaker keyword-only hit, while exact/strong keyword hits still remain competitive.
+If a reranker is configured, the top summary candidates may also be reranked once more before final truncation.
 
 ## Filtering by Time / Role
 
