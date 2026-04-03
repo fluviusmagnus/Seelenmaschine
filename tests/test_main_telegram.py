@@ -4,9 +4,10 @@ This module tests the main entry point for the Telegram bot,
 including argument parsing, initialization, and signal handling.
 """
 
+import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -135,6 +136,50 @@ class TestMainTelegramInitialization:
 
         mock_core_bot.assert_called_once_with()
         mock_controller.assert_called_once_with(core_bot=core_bot_instance)
+
+    def test_main_wires_tool_runtime_warmup_into_post_init(self):
+        """Startup should warm MCP/tool runtime before the app begins handling messages."""
+        test_args = ["main_telegram.py", "test_profile"]
+
+        with patch.object(sys, "argv", test_args):
+            with patch("main_telegram.init_config"):
+                with patch("main_telegram.init_logger"):
+                    with patch("main_telegram.CoreBot") as mock_core_bot:
+                        with patch("main_telegram.TelegramController"):
+                            with patch("main_telegram.TelegramAdapter") as mock_adapter:
+                                with patch("main_telegram.SchedulerRuntime") as mock_runtime:
+                                    with patch("main_telegram.register_stop_signal_handlers"):
+                                        core_bot_instance = Mock()
+                                        core_bot_instance.scheduler = Mock()
+                                        core_bot_instance.warmup_tool_runtime = AsyncMock()
+                                        mock_core_bot.return_value = core_bot_instance
+
+                                        adapter_instance = Mock()
+                                        mock_adapter.return_value = adapter_instance
+
+                                        runtime_instance = Mock()
+                                        scheduler_post_init = AsyncMock()
+                                        runtime_instance.build_post_init.return_value = (
+                                            scheduler_post_init
+                                        )
+                                        runtime_instance.build_post_shutdown.return_value = Mock()
+                                        mock_runtime.return_value = runtime_instance
+
+                                        import main_telegram
+
+                                        main_telegram.main()
+
+                                        post_init = (
+                                            adapter_instance.create_application.call_args.kwargs[
+                                                "post_init"
+                                            ]
+                                        )
+
+                                        application = Mock()
+                                        asyncio.run(post_init(application))
+
+        core_bot_instance.warmup_tool_runtime.assert_awaited_once_with()
+        scheduler_post_init.assert_awaited_once_with(application)
 
 
 class TestMainTelegramBotLifecycle:

@@ -51,6 +51,101 @@ class TestMessageHandlerInitialization:
         assert handler is not None
 
 
+class TestToolRuntimeWarmup:
+    """Test startup-time MCP warmup behavior."""
+
+    @pytest.mark.asyncio
+    async def test_warmup_skips_when_mcp_disabled(self):
+        """Warmup should no-op cleanly when MCP is disabled."""
+        from core.bot import CoreBot
+
+        config = Mock()
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=Mock(),
+        )
+        owner = Mock()
+        owner.core_bot = core_bot
+        owner._preview_text = Mock(return_value="preview")
+        approval_delegate = Mock()
+        approval_delegate.request_approval = AsyncMock(return_value=True)
+        approval_delegate.notify_approved_action_finished = AsyncMock()
+        approval_delegate.notify_approved_action_failed = AsyncMock()
+
+        core_bot.initialize_telegram_runtime(
+            owner,
+            approval_delegate=approval_delegate,
+            preview_text=owner._preview_text,
+        )
+
+        runtime = core_bot.get_tool_runtime()
+        await runtime.warmup()
+
+        assert core_bot.tool_runtime_state.mcp_client is None
+        assert core_bot.tool_runtime_state.mcp_connected is False
+
+    @pytest.mark.asyncio
+    async def test_warmup_falls_back_to_local_tools_when_mcp_connection_fails(self):
+        """Warmup should keep local tools published if MCP startup connection fails."""
+        from core.bot import CoreBot
+
+        config = Mock()
+        config.ENABLE_MCP = True
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+        llm_client = Mock()
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=llm_client,
+        )
+        owner = Mock()
+        owner.core_bot = core_bot
+        owner._preview_text = Mock(return_value="preview")
+        approval_delegate = Mock()
+        approval_delegate.request_approval = AsyncMock(return_value=True)
+        approval_delegate.notify_approved_action_finished = AsyncMock()
+        approval_delegate.notify_approved_action_failed = AsyncMock()
+
+        core_bot.initialize_telegram_runtime(
+            owner,
+            approval_delegate=approval_delegate,
+            preview_text=owner._preview_text,
+        )
+
+        runtime = core_bot.get_tool_runtime()
+        core_bot.tool_runtime_state.mcp_client.__aenter__ = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+
+        await runtime.warmup()
+
+        assert core_bot.tool_runtime_state.mcp_connected is False
+        assert llm_client.set_tools.call_count >= 2
+
+
 class TestToolExecution:
     """Test tool execution functionality"""
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import asyncio
 import sys
 from pathlib import Path
 
@@ -11,6 +12,20 @@ from core.bot import CoreBot
 from core.config import init_config
 from core.runtime import SchedulerRuntime, register_stop_signal_handlers
 from utils.logger import init_logger
+
+
+def _build_post_init(
+    *, core_bot: CoreBot, scheduler_runtime: SchedulerRuntime
+):
+    """Build startup hook that warms tools before starting other background work."""
+
+    scheduler_post_init = scheduler_runtime.build_post_init()
+
+    async def post_init(application):
+        await core_bot.warmup_tool_runtime()
+        await scheduler_post_init(application)
+
+    return post_init
 
 
 def main():
@@ -26,7 +41,10 @@ def main():
     adapter = TelegramAdapter(message_handler=message_handler)
     scheduler_runtime = SchedulerRuntime(core_bot.scheduler)
     adapter.create_application(
-        post_init=scheduler_runtime.build_post_init(),
+        post_init=_build_post_init(
+            core_bot=core_bot,
+            scheduler_runtime=scheduler_runtime,
+        ),
         post_shutdown=scheduler_runtime.build_post_shutdown(),
     )
     register_stop_signal_handlers(adapter.stop)

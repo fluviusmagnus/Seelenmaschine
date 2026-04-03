@@ -327,6 +327,16 @@ class ToolRuntime:
 
         self._publish_tools()
 
+    async def warmup(self) -> None:
+        """Warm up optional runtime integrations during application startup."""
+        state = self._get_runtime_state()
+        if not state.mcp_client:
+            logger.debug("Skipping ToolRuntime warmup because MCP is disabled")
+            return
+
+        logger.info("Warming up ToolRuntime MCP integration")
+        await self.ensure_mcp_connected()
+
     def _publish_tools(self, extra_tools: Optional[List[Dict[str, Any]]] = None) -> None:
         """Publish local tools plus optional remote tools to the LLM client."""
         core_bot = self._get_core_bot()
