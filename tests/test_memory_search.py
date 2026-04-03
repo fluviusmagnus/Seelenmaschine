@@ -21,6 +21,7 @@ def mock_db():
     db = Mock()
     db.search_summaries_by_keyword = Mock(return_value=[])
     db.search_conversations_by_keyword = Mock(return_value=[])
+    db.search_summaries = Mock(return_value=[])
     return db
 
 
@@ -127,6 +128,110 @@ class TestMemorySearchTool:
         result = await memory_search_tool.execute(query="nonexistent term")
 
         assert "No relevant memories found" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_can_use_vector_summary_fallback_for_natural_language_query(
+        self, mock_db
+    ):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+        mock_db.search_summaries.return_value = [
+            (7, 999, "Vector matched summary", 10, 20, 0.12)
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(query="上次我们讨论预算和旅行安排的时候")
+
+        assert "Vector matched summary" in result
+        embedding_client.get_embedding_async.assert_awaited_once()
+        mock_db.search_summaries.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_does_not_use_vector_fallback_for_boolean_query(
+        self, mock_db
+    ):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        await tool.execute(query="预算 AND 旅行")
+
+        embedding_client.get_embedding_async.assert_not_called()
+        mock_db.search_summaries.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_sorts_keyword_summary_before_vector_fallback(self, mock_db):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = [
+            (1, 100, "预算和旅行安排摘要", 1, 100, 0.0)
+        ]
+        mock_db.search_conversations_by_keyword.return_value = []
+        mock_db.search_summaries.return_value = [
+            (2, 101, "较弱的语义相关摘要", 2, 200, 0.15)
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(query="预算和旅行安排的那次讨论", search_target="summaries")
+
+        keyword_index = result.index("预算和旅行安排摘要")
+        vector_index = result.index("较弱的语义相关摘要")
+        assert keyword_index < vector_index
+
+    @pytest.mark.asyncio
+    async def test_execute_weighted_fusion_can_promote_stronger_vector_match(self, mock_db):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = [
+            (1, 100, "简短行程条目", 1, 100, 0.0)
+        ]
+        mock_db.search_conversations_by_keyword.return_value = []
+        mock_db.search_summaries.return_value = [
+            (2, 101, "我们详细讨论了旅行计划和预算安排", 2, 50, 0.05)
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(query="旅行计划和预算安排的那次讨论", search_target="summaries")
+
+        vector_index = result.index("我们详细讨论了旅行计划和预算安排")
+        keyword_index = result.index("简短行程条目")
+        assert vector_index < keyword_index
+
+    @pytest.mark.asyncio
+    async def test_execute_weighted_fusion_trims_to_requested_limit(self, mock_db):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+        mock_db.search_summaries.return_value = [
+            (1, 100, "摘要一", 1, 10, 0.01),
+            (2, 101, "摘要二", 2, 20, 0.02),
+            (3, 102, "摘要三", 3, 30, 0.03),
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(
+            query="这是一个比较长的自然语言查询用于触发向量召回",
+            search_target="summaries",
+            limit=2,
+        )
+
+        assert "摘要一" in result or "摘要二" in result or "摘要三" in result
+        assert result.count("[session_id=") == 2
 
     @pytest.mark.asyncio
     async def test_execute_disabled(self, memory_search_tool):

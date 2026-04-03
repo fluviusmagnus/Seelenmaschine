@@ -82,6 +82,14 @@ search_memories(query="Reisekosten AND 東京")
 Queries containing CJK text may automatically use the mixed-language n-gram fallback.
 Boolean operators are still supported in that path.
 
+### 8c. Natural-Language Query With Vector-Assisted Summary Fallback
+```python
+search_memories(query="上次我们讨论预算和旅行安排的时候", search_target="summaries")
+```
+For longer natural-language queries, sparse keyword summary matches may be supplemented by vector-retrieved summaries.
+The final summary order now uses weighted fusion across keyword signals, vector similarity, and light recency.
+This means a clearly stronger semantic match can outrank a weaker keyword-only hit, while exact/strong keyword hits still remain competitive.
+
 ## Filtering by Time / Role
 
 ### 9. Keywords + Time Period

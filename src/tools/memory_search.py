@@ -21,6 +21,8 @@ class MemorySearchTool:
     ):
         self.session_id = int(session_id)
         self.db = db
+        self.embedding_client = embedding_client
+        self.reranker_client = reranker_client
         self._disabled = False
 
     @property
@@ -51,6 +53,10 @@ MIXED-LANGUAGE QUERY NOTES:
 - Queries containing CJK text may use a mixed-language n-gram fallback instead of raw FTS tokenization
 - In that fallback path, boolean operators like AND/OR/NOT and parentheses are still supported
 - Longer CJK phrases and explicit operators are usually more predictable than very short ambiguous terms
+
+VECTOR-ASSISTED RECALL:
+- For longer natural-language queries, this tool may supplement keyword matches with vector-retrieved summaries when keyword results are sparse
+- Vector recall is used as a fallback supplement, not as a replacement for exact keyword / boolean filtering
 
 BEST PRACTICES:
 1. Use specific keywords relevant to the topic
@@ -339,6 +345,168 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
 
         return '"'.join(new_parts)
 
+    @staticmethod
+    def _looks_like_natural_language_query(query: str) -> bool:
+        """Heuristically detect longer natural-language style queries."""
+        if not query:
+            return False
+
+        operators = {"AND", "OR", "NOT", "(", ")", '"'}
+        if any(operator in query for operator in operators):
+            return False
+
+        return len(query) >= 12 or len(query.split()) >= 3
+
+    async def _get_query_embedding(self, query: str) -> list[float] | None:
+        """Get an embedding for vector-assisted fallback if available."""
+        if not self.embedding_client or not query:
+            return None
+
+        get_embedding_async = getattr(self.embedding_client, "get_embedding_async", None)
+        if callable(get_embedding_async):
+            return await get_embedding_async(query)
+
+        get_embedding = getattr(self.embedding_client, "get_embedding", None)
+        if callable(get_embedding):
+            return get_embedding(query)
+
+        return None
+
+    async def _maybe_add_vector_summary_results(
+        self,
+        summary_results: list[tuple[Any, ...]],
+        *,
+        query: str,
+        limit: int,
+        search_target: str,
+    ) -> list[tuple[Any, ...]]:
+        """Supplement sparse keyword summary results with vector-retrieved summaries."""
+        if search_target not in {"all", "summaries"}:
+            return summary_results
+
+        if not self._looks_like_natural_language_query(query):
+            return summary_results
+
+        target_limit = limit if search_target == "summaries" else max(1, limit // 2)
+        if len(summary_results) >= target_limit:
+            return summary_results
+
+        embedding = await self._get_query_embedding(query)
+        if embedding is None:
+            return summary_results
+
+        exclude_ids = [row[0] for row in summary_results]
+        candidate_limit = min(max(target_limit * 2, target_limit + 2), 20)
+        vector_results = self.db.search_summaries(
+            embedding,
+            limit=candidate_limit,
+            exclude_ids=exclude_ids or None,
+        )
+        if not vector_results:
+            return summary_results
+
+        combined = list(summary_results)
+        combined.extend(vector_results)
+        return combined
+
+    @staticmethod
+    def _summary_vector_similarity(rank: float) -> float:
+        """Convert stored rank/distance into a bounded similarity-like score."""
+        if rank is None or rank <= 0:
+            return 0.0
+        return 1.0 / (1.0 + max(float(rank), 0.0))
+
+    @staticmethod
+    def _summary_keyword_features(
+        summary_text: str,
+        *,
+        lowered_query: str,
+        query_tokens: list[str],
+        rank: float,
+    ) -> tuple[float, float, float, float]:
+        """Extract simple keyword-oriented features for weighted fusion."""
+        summary_lower = str(summary_text).lower()
+        exact_match = 1.0 if lowered_query and lowered_query in summary_lower else 0.0
+        token_coverage = 0.0
+        if query_tokens:
+            matched = sum(1 for token in query_tokens if token and token in summary_lower)
+            token_coverage = matched / max(len(query_tokens), 1)
+
+        lexical_overlap = 0.0
+        if lowered_query:
+            query_units = DatabaseManager._extract_search_units(lowered_query)
+            if query_units:
+                matched_units = sum(
+                    1 for unit in query_units if unit and unit in summary_lower
+                )
+                lexical_overlap = matched_units / max(len(query_units), 1)
+
+        keyword_origin = 1.0 if rank is not None and rank <= 0 else 0.0
+        return keyword_origin, token_coverage, exact_match, lexical_overlap
+
+    @staticmethod
+    def _normalized_recency(last_ts: int, *, min_ts: int, max_ts: int) -> float:
+        """Normalize recency into a 0..1 score."""
+        if max_ts <= min_ts:
+            return 1.0
+        return (int(last_ts) - min_ts) / (max_ts - min_ts)
+
+    @staticmethod
+    def _sort_summary_results(
+        summary_results: list[tuple[Any, ...]],
+        *,
+        query: str,
+        limit: int | None = None,
+    ) -> list[tuple[Any, ...]]:
+        """Apply weighted fusion across keyword, vector, and recency signals."""
+        if not summary_results:
+            return summary_results
+
+        lowered_query = (query or "").lower()
+        query_tokens = [token for token in lowered_query.split() if token not in {"and", "or", "not"}]
+
+        last_timestamps = [int(row[4]) for row in summary_results]
+        min_ts = min(last_timestamps)
+        max_ts = max(last_timestamps)
+
+        def score(row: tuple[Any, ...]) -> tuple[float, float, float, float, int]:
+            _summary_id, _session_id, summary, _first_ts, last_ts, rank = row
+            keyword_origin, token_coverage, exact_match, lexical_overlap = (
+                MemorySearchTool._summary_keyword_features(
+                    summary,
+                    lowered_query=lowered_query,
+                    query_tokens=query_tokens,
+                    rank=rank,
+                )
+            )
+            vector_similarity = MemorySearchTool._summary_vector_similarity(rank)
+            recency = MemorySearchTool._normalized_recency(
+                int(last_ts),
+                min_ts=min_ts,
+                max_ts=max_ts,
+            )
+
+            fusion_score = (
+                0.22 * keyword_origin
+                + 0.18 * token_coverage
+                + 0.18 * exact_match
+                + 0.32 * lexical_overlap
+                + 0.28 * vector_similarity
+                + 0.05 * recency
+            )
+            return (
+                fusion_score,
+                lexical_overlap,
+                exact_match,
+                token_coverage,
+                int(last_ts),
+            )
+
+        sorted_results = sorted(summary_results, key=score, reverse=True)
+        if limit is not None:
+            return sorted_results[:limit]
+        return sorted_results
+
     async def execute(
         self,
         query: str = "",
@@ -434,6 +602,17 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
                 )
                 if isinstance(summary_results, str):
                     return summary_results
+                summary_results = await self._maybe_add_vector_summary_results(
+                    summary_results,
+                    query=query,
+                    limit=limit,
+                    search_target=search_target,
+                )
+                summary_results = self._sort_summary_results(
+                    summary_results,
+                    query=query,
+                    limit=limit if search_target == "summaries" else limit // 2,
+                )
 
             if search_target in {"all", "conversations"}:
                 conversation_results = self._search_with_fts_guard(

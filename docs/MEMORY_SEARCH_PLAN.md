@@ -93,9 +93,17 @@ When inserting conversations or summaries:
 - FTS results: existing FTS ordering
 - n-gram results: recency-first ordering
 
-### Phase 2 (future)
+### Phase 2A (implemented)
 
-- weighted fusion across FTS, n-gram, vector, and recency signals
+- minimal vector-assisted recall now supplements sparse summary keyword results for longer natural-language queries
+- vector recall is appended conservatively and does not override explicit boolean filtering behavior
+- a simple coarse ranking step now keeps stronger keyword summary hits ahead of weaker fallback-only vector additions
+
+### Phase 2 (implemented)
+
+- summary retrieval now uses a weighted fusion stage across keyword-origin, token coverage, exact substring match, vector similarity, and light recency
+- vector fallback now fetches a slightly broader candidate set and trims only after fusion ranking
+- this allows strong semantic matches to outrank weaker keyword-only hits while still preserving transparent keyword signals in the score
 
 ### Phase 3 (future)
 
