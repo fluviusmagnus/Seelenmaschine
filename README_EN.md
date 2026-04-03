@@ -190,7 +190,7 @@ start-telegram.bat hy
 
 ### Advanced Search Features
 
-The system supports FTS5 full-text search. You can let the LLM call the `search_memories` tool through natural language:
+The system now supports an upgraded memory search pipeline. You can let the LLM call the `search_memories` tool through natural language:
 
 Example queries:
 ```
@@ -199,12 +199,52 @@ Find what I said last week
 Look for conversations containing "machine learning" or "AI"
 ```
 
-Supported search syntax:
+Currently implemented memory-search capabilities:
+- **FTS5 full-text retrieval** for boolean / phrase / prefix queries
+- **mixed-language n-gram fallback** for Chinese, Japanese, and mixed-script queries
+- **vector-assisted recall** to supplement sparse natural-language summary results
+- **weighted fusion** to rank summary candidates using both keyword and vector signals
+- **optional rerank** to refine a small set of top summary candidates when a reranker is configured
+
+Supported search syntax and filters:
 - Boolean operators: `AND`, `OR`, `NOT`
 - Exact phrases: `"exact phrase"`
 - Time filters: `last_day`, `last_week`, `last_month`
 - Role filters: `role='user'` or `role='assistant'`
 - Date ranges: `start_date`, `end_date`
+
+#### Summary Ranking Rules (Weighted Scoring)
+
+For summaries returned from `search_target="summaries"` or the summary portion of `search_target="all"`, ranking is performed in stages rather than by a single source:
+
+1. **Coarse retrieval**
+   - keyword retrieval first via FTS5 or the n-gram fallback
+   - vector-retrieved summary candidates may be added when the query looks like natural language and keyword hits are sparse
+
+2. **Weighted fusion**
+   - each summary is scored using multiple signals:
+     - **keyword_origin**: whether the row came from an explicit keyword-hit path
+     - **token_coverage**: how much of the query token set is covered in the summary
+     - **exact_match**: whether the whole query appears as a direct substring
+     - **lexical_overlap**: overlap based on mixed-language search units (CJK bigrams / non-CJK tokens)
+     - **vector_similarity**: similarity converted from vector distance
+     - **recency**: a light recency bonus
+   - the current implementation uses approximate weights of:
+     - `keyword_origin`: **0.22**
+     - `token_coverage`: **0.18**
+     - `exact_match`: **0.18**
+     - `lexical_overlap`: **0.32**
+     - `vector_similarity`: **0.28**
+     - `recency`: **0.05**
+
+3. **Optional rerank**
+   - if a reranker is configured, the system reranks a small top candidate set after weighted fusion
+   - rerank is **best-effort**: if no reranker is configured, or the call fails, the fused order is kept
+
+In practice this means:
+- strong keyword hits usually remain near the top
+- stronger semantic matches can still outrank weaker keyword-only results
+- Chinese / Japanese / mixed-language queries are more robust than with plain FTS5 alone
 
 See [Search Examples Documentation](docs/SEARCH_EXAMPLES.md) for details.
 

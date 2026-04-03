@@ -190,7 +190,7 @@ start-telegram.bat hy
 
 ### 高级搜索功能
 
-系统支持 FTS5 全文搜索，可通过自然语言让 LLM 调用 `search_memories` 工具：
+系统支持增强版记忆搜索，可通过自然语言让 LLM 调用 `search_memories` 工具：
 
 示例查询：
 ```
@@ -199,12 +199,52 @@ start-telegram.bat hy
 查找包含"机器学习"或"AI"的对话
 ```
 
-支持的搜索语法：
+当前已实现的记忆搜索能力：
+- **FTS5 全文检索**：支持布尔运算符、短语搜索、前缀匹配等经典全文检索语法
+- **mixed-language n-gram fallback**：当 query 含中文 / 日文 / 混合脚本内容时，自动切换到更稳健的 n-gram 路径
+- **vector-assisted recall**：当自然语言 query 的关键词结果稀疏时，可补充向量召回的 summary 候选
+- **weighted fusion**：对 summary 结果综合关键词与向量信号进行统一排序
+- **optional rerank**：若配置了 reranker，会在粗排后对小规模 summary 候选再做一次精排
+
+支持的搜索语法与过滤条件：
 - 布尔运算符：`AND`, `OR`, `NOT`
 - 精确短语：`"exact phrase"`
 - 时间过滤：`last_day`, `last_week`, `last_month`
 - 角色过滤：`role='user'` 或 `role='assistant'`
 - 日期范围：`start_date`, `end_date`
+
+#### Summary 排序规则（加权评分）
+
+对于 `search_target="summaries"` 或 `search_target="all"` 中的 summary 部分，当前排序不是只看单一来源，而是分阶段进行：
+
+1. **粗召回**
+   - 优先走 FTS5 或 n-gram 关键词召回
+   - 若 query 更像自然语言且关键词结果偏少，则补充向量召回的 summary 候选
+
+2. **加权融合（weighted fusion）**
+   - 系统会为每条 summary 计算多个信号：
+     - **keyword_origin**：该结果是否来自明确的关键词命中路径
+     - **token_coverage**：query 中拆分 token 在 summary 中的覆盖比例
+     - **exact_match**：query 是否作为完整子串直接出现在 summary 中
+     - **lexical_overlap**：基于 mixed-language 搜索单元（CJK bigram / 非 CJK token）的词法重叠度
+     - **vector_similarity**：向量距离换算后的相似度
+     - **recency**：轻量时间新鲜度
+   - 当前实现中的融合权重大致为：
+     - `keyword_origin`: **0.22**
+     - `token_coverage`: **0.18**
+     - `exact_match`: **0.18**
+     - `lexical_overlap`: **0.32**
+     - `vector_similarity`: **0.28**
+     - `recency`: **0.05**
+
+3. **可选 rerank**
+   - 如果配置了 reranker，系统会对加权融合后的前一小批 summary 候选再做一次精排
+   - rerank 是 **best-effort**：未配置或调用失败时，会自动退回融合排序结果
+
+这意味着：
+- 强关键词命中通常仍然会排得很靠前
+- 更强的语义匹配在必要时也可以超过较弱的关键词命中
+- 对中文 / 日文 / 混合语言 query 的表现会比纯 FTS5 更稳健
 
 详见 [搜索示例文档](docs/SEARCH_EXAMPLES.md)。
 
