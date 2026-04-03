@@ -296,12 +296,70 @@ class TestGetCacheableSystemPrompt:
         assert "<system_instruction>" in prompt
         assert "<user_profile>" in prompt
         assert "Location: Berlin" in prompt
+        assert "- Not specified" in prompt
         assert "Use related memories only when helpful" in prompt
         assert "Keep user-facing replies clean and lightweight" in prompt
         assert "Lightweight Markdown is allowed" in prompt
         assert "never wrap your final reply in tags such as" in prompt
         assert "## Your Self-Awareness" not in prompt
         assert "## User Profile" not in prompt
+
+    def test_get_cacheable_system_prompt_formats_language_style_examples_as_list(
+        self, tmp_path, monkeypatch
+    ):
+        """Language style examples should render as bullet list items, not comma-joined text."""
+        seele_path = tmp_path / "seele.json"
+        seele_data = {
+            "bot": {
+                "name": "TestBot",
+                "gender": "neutral",
+                "role": "AI Assistant",
+                "likes": [],
+                "dislikes": [],
+                "language_style": {
+                    "description": "warm and concise",
+                    "examples": ["Hello there.", "Let me handle that."],
+                },
+                "personality": {
+                    "mbti": "",
+                    "description": "",
+                    "worldview_and_values": "",
+                },
+                "emotions_and_needs": {"long_term": "", "short_term": ""},
+                "relationship_with_user": "",
+            },
+            "user": {
+                "name": "",
+                "gender": "",
+                "location": "Berlin",
+                "personal_facts": [],
+                "abilities": [],
+                "likes": [],
+                "dislikes": [],
+                "personality": {
+                    "mbti": "",
+                    "description": "",
+                    "worldview_and_values": "",
+                },
+                "emotions_and_needs": {"long_term": "", "short_term": ""},
+            },
+            "memorable_events": {},
+            "commands_and_agreements": [],
+        }
+        seele_path.write_text(json.dumps(seele_data, indent=2), encoding="utf-8")
+
+        from core.config import Config
+        import prompts as system
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+        system._seele_json_cache = {}
+
+        prompt = get_cacheable_system_prompt([])
+
+        assert "**Language Style:**" in prompt
+        assert "- Examples:\n- Hello there.\n- Let me handle that." in prompt
+        assert "Hello there., Let me handle that." not in prompt
 
 class TestGetSummaryPrompt:
     """Test get_summary_prompt functionality."""

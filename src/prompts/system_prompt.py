@@ -33,6 +33,14 @@ def get_current_time_str(timezone: Any, logger: Any) -> str:
         return format_current_time_str(ZoneInfo("UTC"))
 
 
+def _format_bullet_list(items: List[str], empty_fallback: str) -> str:
+    """Format a string list as markdown bullets with a fallback value."""
+    normalized_items = [str(item).strip() for item in items if str(item).strip()]
+    if not normalized_items:
+        return f"- {empty_fallback}"
+    return "\n".join(f"- {item}" for item in normalized_items)
+
+
 def build_cacheable_system_prompt(
     seele_data: Dict[str, Any],
     workspace_dir: Any,
@@ -94,7 +102,8 @@ Core principles to follow in this conversation:
 
 **Language Style:**
 - Description: {bot.get("language_style", {}).get("description", "concise and helpful")}
-- Examples: {", ".join(bot.get("language_style", {}).get("examples", []))}
+- Examples:
+{_format_bullet_list(bot.get("language_style", {}).get("examples", []), "Not specified")}
 
 **Preferences:**
 - Likes: {", ".join(bot.get("likes", [])) if bot.get("likes") else "Not specified"}
