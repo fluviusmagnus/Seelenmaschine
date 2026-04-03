@@ -33,7 +33,7 @@ class TelegramFiles:
         self,
         update: Update,
         context: Any,
-        process_message: Callable[[str], Awaitable[str]],
+        process_message: Callable[..., Awaitable[str]],
         response_sender: Any,
         preview_text: Callable[[str, int], str],
         format_exception_for_user: Callable[[Exception], str],
@@ -83,7 +83,10 @@ class TelegramFiles:
                     "Built synthetic file event message for LLM: "
                     f"{preview_text(user_message)}"
                 )
-                response = await process_message(user_message)
+                response = await process_message(
+                    user_message,
+                    message_for_embedding=file_info.get("caption") or user_message,
+                )
 
                 await response_sender.send_reply_text(
                     reply_text=update.message.reply_text,

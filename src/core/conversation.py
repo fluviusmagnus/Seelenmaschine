@@ -204,12 +204,22 @@ class ConversationService:
         self,
         user_message: str,
         *,
+        message_for_embedding: Optional[str] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> str:
         """Process a normal user message through memory and the LLM."""
         try:
             logger.debug("Step 1: Adding user message to memory")
-            _, user_embedding = await self.memory.add_user_message_async(user_message)
+            embedding = None
+            if message_for_embedding is not None:
+                embedding = await self.embedding_client.get_embedding_async(
+                    message_for_embedding
+                )
+
+            _, user_embedding = await self.memory.add_user_message_async(
+                user_message,
+                embedding=embedding,
+            )
 
             logger.debug("Step 2: Getting current context")
             current_context = self.memory.get_context_messages()

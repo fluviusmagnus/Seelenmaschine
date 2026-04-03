@@ -41,6 +41,7 @@ def mock_embedding_client():
     """Mock EmbeddingClient"""
     client = Mock()
     client.get_embedding.return_value = [0.1] * 1536
+    client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
     return client
 
 
@@ -146,12 +147,32 @@ async def test_process_message(
     # Verify memory operations were called (async methods)
     # Note: handler.memory is the actual instance returned by mock_memory.return_value
     handler.core_bot.memory.add_user_message_async.assert_called_once_with(
-        "Hello, how are you?"
+        "Hello, how are you?",
+        embedding=None,
     )
     handler.core_bot.memory.get_context_messages.assert_called_once()
     handler.core_bot.memory.process_user_input_async.assert_called_once()
     handler.core_bot.memory.add_assistant_message_async.assert_called_once_with(
         "This is a test response"
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_message_with_embedding_override(
+    core_bot,
+):
+    """Test message processing forwards explicit embedding text override."""
+    handler = TelegramController(core_bot=core_bot)
+
+    response = await handler.messages.process_message(
+        "Hello, how are you?",
+        message_for_embedding="caption text",
+    )
+
+    assert response == "This is a test response"
+    handler.core_bot.memory.add_user_message_async.assert_called_once_with(
+        "Hello, how are you?",
+        embedding=[0.1] * 1536,
     )
 
 

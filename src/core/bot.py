@@ -149,6 +149,7 @@ class CoreBot:
         self,
         user_message: str,
         *,
+        message_for_embedding: Optional[str] = None,
         intermediate_callback: Optional[Callable[[str], Any]] = None,
     ) -> str:
         """Process a normal user message via the core conversation pipeline."""
@@ -156,6 +157,7 @@ class CoreBot:
             raise RuntimeError("Conversation service has not been initialized")
         return await self.conversation_service.process_message(
             user_message,
+            message_for_embedding=message_for_embedding,
             intermediate_callback=intermediate_callback,
         )
 

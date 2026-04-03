@@ -119,7 +119,14 @@ class TestMemoryManager:
         mock_db.insert_conversation.return_value = 20
 
         memory_manager.context_window.add_message("user", "Hello", timestamp=100)
-        memory_manager.add_scheduled_task_message("[Scheduled Task Trigger]\n提醒喝水")
+        memory_manager.add_context_message(
+            "[Scheduled Task Trigger]\n提醒喝水",
+            role="system",
+            message_type="scheduled_task",
+            include_in_turn_count=False,
+            include_in_summary=False,
+            embedding=None,
+        )
         memory_manager.context_window.add_message("assistant", "Hi there", timestamp=130)
 
         with patch.object(

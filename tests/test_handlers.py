@@ -252,7 +252,6 @@ class TestMessageProcessing:
         handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
         handler.memory.get_recent_summaries = Mock(return_value=[])
         handler.memory.add_assistant_message_async = AsyncMock(return_value=(2, None))
-        handler.memory.add_tool_message_async = AsyncMock(return_value=3)
 
         handler.memory_search_tool = Mock()
         handler.memory_search_tool.enable = Mock()
@@ -277,7 +276,10 @@ class TestMessageProcessing:
         response = await core_bot.process_message("帮我总结一下")
 
         assert response == "这是最后答复"
-        handler.memory.add_user_message_async.assert_awaited_once_with("帮我总结一下")
+        handler.memory.add_user_message_async.assert_awaited_once_with(
+            "帮我总结一下",
+            embedding=None,
+        )
         handler.memory.process_user_input_async.assert_awaited_once_with(
             user_input="帮我总结一下",
             last_bot_message=None,
@@ -316,8 +318,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
-        handler.memory.add_scheduled_task_message_async = AsyncMock(return_value=4)
-        handler.memory.add_tool_message_async = AsyncMock(return_value=4)
+        handler.memory.add_context_message_async = AsyncMock(return_value=4)
 
         handler.memory_search_tool = Mock()
         handler.memory_search_tool.enable = Mock()
@@ -349,16 +350,23 @@ class TestMessageProcessing:
         response = await core_bot.process_message("你好")
 
         assert response == "最终答复"
-        handler.memory.add_tool_message_async.assert_awaited_once()
+        handler.memory.add_context_message_async.assert_awaited_once()
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我先查一下")
         handler.memory.add_assistant_message_async.assert_any_await("最终答复")
         assert handler.memory.add_assistant_message_async.await_args_list[0].args == (
             "我先查一下",
         )
-        assert handler.memory.add_tool_message_async.await_args_list[0].args == (
+        assert handler.memory.add_context_message_async.await_args_list[0].args == (
             '[Tool Call]\ntrace_id: 1\nstatus: "success"\ntool_name: "search_memories"\narguments_preview: {"query": "test"}\nresult_preview: "ok"',
         )
+        assert handler.memory.add_context_message_async.await_args_list[0].kwargs == {
+            "role": "system",
+            "message_type": "tool_call",
+            "include_in_turn_count": False,
+            "include_in_summary": False,
+            "embedding": None,
+        }
         assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
             "最终答复",
         )
@@ -376,8 +384,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
-        handler.memory.add_scheduled_task_message_async = AsyncMock(return_value=4)
-        handler.memory.add_tool_message_async = AsyncMock(return_value=4)
+        handler.memory.add_context_message_async = AsyncMock(return_value=4)
 
         handler.embedding_client = Mock()
         handler.embedding_client.get_embedding_async = AsyncMock(
@@ -418,18 +425,23 @@ class TestMessageProcessing:
         )
 
         assert response == "别忘了喝水。"
-        handler.memory.add_scheduled_task_message_async.assert_awaited_once()
-        scheduled_trigger_message = (
-            handler.memory.add_scheduled_task_message_async.await_args.args[0]
-        )
+        first_context_call = handler.memory.add_context_message_async.await_args_list[0]
+        scheduled_trigger_message = first_context_call.args[0]
         assert "[Scheduled Task]" in scheduled_trigger_message
         assert "task_id: task-123" in scheduled_trigger_message
         assert "name: 喝水提醒" in scheduled_trigger_message
         assert "message: 提醒喝水" in scheduled_trigger_message
         assert (
-            "This is a trigger message. Now execute the task described above and then continue the current conversation."
+            "This is a trigger message. Now execute the task described below and then continue the current conversation."
             in scheduled_trigger_message
         )
+        assert first_context_call.kwargs == {
+            "role": "system",
+            "message_type": "scheduled_task",
+            "include_in_turn_count": False,
+            "include_in_summary": False,
+            "embedding": None,
+        }
         handler.llm_client.chat_with_custom_message_async_detailed.assert_awaited_once()
         assert (
             handler.llm_client.chat_with_custom_message_async_detailed.await_args.kwargs[
@@ -443,9 +455,16 @@ class TestMessageProcessing:
         assert handler.memory.add_assistant_message_async.await_args_list[0].args == (
             "我提醒你一下",
         )
-        assert handler.memory.add_tool_message_async.await_args_list[0].args == (
+        assert handler.memory.add_context_message_async.await_args_list[1].args == (
             '[Tool Call]\ntrace_id: 2\nstatus: "success"\ntool_name: "scheduled_task"\narguments_preview: {"message": "提醒喝水"}\nresult_preview: "ok"',
         )
+        assert handler.memory.add_context_message_async.await_args_list[1].kwargs == {
+            "role": "system",
+            "message_type": "tool_call",
+            "include_in_turn_count": False,
+            "include_in_summary": False,
+            "embedding": None,
+        }
         assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
             "别忘了喝水。",
         )

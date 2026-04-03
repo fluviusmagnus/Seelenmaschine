@@ -163,9 +163,15 @@ class TelegramMessages:
             format_exception_for_user=self.format_exception_for_user,
         )
 
-    async def process_message(self, user_message: str) -> str:
+    async def process_message(
+        self,
+        user_message: str,
+        *,
+        message_for_embedding: str | None = None,
+    ) -> str:
         return await self.core_bot.process_message(
             user_message,
+            message_for_embedding=message_for_embedding,
             intermediate_callback=self.intermediate_callback,
         )
 

@@ -120,7 +120,8 @@ class TestTelegramMessages:
 
         message = files_helper.build_received_file_event_message(file_info, saved_path)
 
-        assert "[System Event] The user has sent a file." in message
+        assert "[File Event]" in message
+        assert "The user has sent a file." in message
         assert "Original filename: report.pdf" in message
         assert f"Saved to: {saved_path.resolve()}" in message
         assert "MIME type: application/pdf" in message
@@ -146,9 +147,12 @@ class TestTelegramMessages:
         mock_context.bot.get_file.assert_called_once_with("file-id")
         message_handler.core_bot.process_message.assert_awaited_once()
         processed_message = message_handler.core_bot.process_message.await_args.args[0]
-        assert "[System Event] The user has sent a file." in processed_message
+        process_kwargs = message_handler.core_bot.process_message.await_args.kwargs
+        assert "[File Event]" in processed_message
+        assert "The user has sent a file." in processed_message
         assert "Original filename: report.pdf" in processed_message
         assert "Saved to:" in processed_message
+        assert process_kwargs["message_for_embedding"] == "这是附件说明"
         mock_update_with_document.message.reply_text.assert_called_once_with(
             "LLM file response", parse_mode="HTML"
         )
@@ -165,6 +169,25 @@ class TestTelegramMessages:
         assert response == "reply"
         message_handler.core_bot.process_message.assert_awaited_once_with(
             "hello",
+            message_for_embedding=None,
+            intermediate_callback=messages_helper.intermediate_callback,
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_message_passes_embedding_override(
+        self, messages_helper, message_handler
+    ):
+        message_handler.core_bot.process_message = AsyncMock(return_value="reply")
+
+        response = await messages_helper.process_message(
+            "hello",
+            message_for_embedding="caption text",
+        )
+
+        assert response == "reply"
+        message_handler.core_bot.process_message.assert_awaited_once_with(
+            "hello",
+            message_for_embedding="caption text",
             intermediate_callback=messages_helper.intermediate_callback,
         )
 
