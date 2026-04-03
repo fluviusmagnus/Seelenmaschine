@@ -379,6 +379,7 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
         query: str,
         limit: int,
         search_target: str,
+        query_embedding: list[float] | None = None,
     ) -> list[tuple[Any, ...]]:
         """Supplement sparse keyword summary results with vector-retrieved summaries."""
         if search_target not in {"all", "summaries"}:
@@ -391,7 +392,7 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
         if len(summary_results) >= target_limit:
             return summary_results
 
-        embedding = await self._get_query_embedding(query)
+        embedding = query_embedding if query_embedding is not None else await self._get_query_embedding(query)
         if embedding is None:
             return summary_results
 
@@ -406,6 +407,57 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
             return summary_results
 
         combined = list(summary_results)
+        combined.extend(vector_results)
+        return combined
+
+    async def _maybe_add_vector_conversation_results(
+        self,
+        conversation_results: list[tuple[Any, ...]],
+        *,
+        query: str,
+        limit: int,
+        search_target: str,
+        session_id: int | None,
+        exclude_session_id: int | None,
+        exclude_recent_from_session_id: int | None,
+        exclude_recent_limit: int,
+        role: str | None,
+        start_timestamp: int | None,
+        end_timestamp: int | None,
+        query_embedding: list[float] | None = None,
+    ) -> list[tuple[Any, ...]]:
+        """Supplement sparse keyword conversation results with vector-retrieved conversations."""
+        if search_target not in {"all", "conversations"}:
+            return conversation_results
+        if not self._looks_like_natural_language_query(query):
+            return conversation_results
+
+        target_limit = limit if search_target == "conversations" else max(1, limit // 2)
+        if len(conversation_results) >= target_limit:
+            return conversation_results
+
+        embedding = query_embedding if query_embedding is not None else await self._get_query_embedding(query)
+        if embedding is None:
+            return conversation_results
+
+        exclude_ids = [row[0] for row in conversation_results]
+        candidate_limit = min(max(target_limit * 2, target_limit + 2), 20)
+        vector_results = self.db.search_conversations(
+            embedding,
+            limit=candidate_limit,
+            exclude_ids=exclude_ids or None,
+            session_id=session_id,
+            exclude_session_id=exclude_session_id,
+            exclude_recent_from_session_id=exclude_recent_from_session_id,
+            exclude_recent_limit=exclude_recent_limit,
+            role=role,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+        )
+        if not vector_results:
+            return conversation_results
+
+        combined = list(conversation_results)
         combined.extend(vector_results)
         return combined
 
@@ -506,6 +558,128 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
         if limit is not None:
             return sorted_results[:limit]
         return sorted_results
+
+    @staticmethod
+    def _conversation_keyword_features(
+        conversation_text: str,
+        *,
+        lowered_query: str,
+        query_tokens: list[str],
+        rank: float,
+    ) -> tuple[float, float, float, float]:
+        """Extract keyword-oriented features for conversation fusion ranking."""
+        text_lower = str(conversation_text).lower()
+        exact_match = 1.0 if lowered_query and lowered_query in text_lower else 0.0
+        token_coverage = 0.0
+        if query_tokens:
+            matched = sum(1 for token in query_tokens if token and token in text_lower)
+            token_coverage = matched / max(len(query_tokens), 1)
+
+        lexical_overlap = 0.0
+        if lowered_query:
+            query_units = DatabaseManager._extract_search_units(lowered_query)
+            if query_units:
+                matched_units = sum(1 for unit in query_units if unit and unit in text_lower)
+                lexical_overlap = matched_units / max(len(query_units), 1)
+
+        keyword_origin = 1.0 if rank is not None and rank <= 0 else 0.0
+        return keyword_origin, token_coverage, exact_match, lexical_overlap
+
+    @staticmethod
+    def _sort_conversation_results(
+        conversation_results: list[tuple[Any, ...]],
+        *,
+        query: str,
+        limit: int | None = None,
+    ) -> list[tuple[Any, ...]]:
+        """Apply weighted fusion across keyword, vector, and recency for conversations."""
+        if not conversation_results:
+            return conversation_results
+
+        lowered_query = (query or "").lower()
+        query_tokens = [token for token in lowered_query.split() if token not in {"and", "or", "not"}]
+
+        timestamps = [int(row[2]) for row in conversation_results]
+        min_ts = min(timestamps)
+        max_ts = max(timestamps)
+
+        def score(row: tuple[Any, ...]) -> tuple[float, float, float, float, int]:
+            _conv_id, _session_id, timestamp, _role, text, rank = row
+            keyword_origin, token_coverage, exact_match, lexical_overlap = (
+                MemorySearchTool._conversation_keyword_features(
+                    text,
+                    lowered_query=lowered_query,
+                    query_tokens=query_tokens,
+                    rank=rank,
+                )
+            )
+            vector_similarity = MemorySearchTool._summary_vector_similarity(rank)
+            recency = MemorySearchTool._normalized_recency(int(timestamp), min_ts=min_ts, max_ts=max_ts)
+            fusion_score = (
+                0.22 * keyword_origin
+                + 0.18 * token_coverage
+                + 0.18 * exact_match
+                + 0.32 * lexical_overlap
+                + 0.28 * vector_similarity
+                + 0.05 * recency
+            )
+            return (fusion_score, lexical_overlap, exact_match, token_coverage, int(timestamp))
+
+        sorted_results = sorted(conversation_results, key=score, reverse=True)
+        if limit is not None:
+            return sorted_results[:limit]
+        return sorted_results
+
+    async def _maybe_rerank_conversation_results(
+        self,
+        conversation_results: list[tuple[Any, ...]],
+        *,
+        query: str,
+        limit: int,
+        search_target: str,
+    ) -> list[tuple[Any, ...]]:
+        """Optionally rerank top conversation candidates with an external reranker."""
+        if search_target not in {"all", "conversations"}:
+            return conversation_results
+        if not query or len(conversation_results) < 2 or not self.reranker_client:
+            return conversation_results
+
+        is_enabled = getattr(self.reranker_client, "is_enabled", None)
+        if callable(is_enabled) and not is_enabled():
+            return conversation_results
+
+        target_limit = limit if search_target == "conversations" else max(1, limit // 2)
+        candidate_limit = min(len(conversation_results), max(target_limit * 2, target_limit + 2), 12)
+        candidates = conversation_results[:candidate_limit]
+        documents = [{"text": row[4], "row_index": index} for index, row in enumerate(candidates)]
+
+        rerank_async = getattr(self.reranker_client, "rerank_async", None)
+        rerank = getattr(self.reranker_client, "rerank", None)
+        if callable(rerank_async):
+            reranked_docs = await rerank_async(query, documents, top_n=min(target_limit, len(documents)))
+        elif callable(rerank):
+            reranked_docs = rerank(query, documents, top_n=min(target_limit, len(documents)))
+        else:
+            return conversation_results
+
+        if not reranked_docs:
+            return conversation_results
+
+        reranked_indices = [doc.get("row_index") for doc in reranked_docs if doc.get("row_index") is not None]
+        seen_indices = set()
+        reranked_rows = []
+        for row_index in reranked_indices:
+            if row_index in seen_indices or not (0 <= row_index < len(candidates)):
+                continue
+            reranked_rows.append(candidates[row_index])
+            seen_indices.add(row_index)
+
+        if not reranked_rows:
+            return conversation_results
+
+        remaining_candidates = [row for index, row in enumerate(candidates) if index not in seen_indices]
+        tail = conversation_results[candidate_limit:]
+        return reranked_rows + remaining_candidates + tail
 
     async def _maybe_rerank_summary_results(
         self,
@@ -651,6 +825,9 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
 
             summary_results = []
             conversation_results = []
+            shared_query_embedding = None
+            if query and self._looks_like_natural_language_query(query):
+                shared_query_embedding = await self._get_query_embedding(query)
 
             if search_target in {"all", "summaries"}:
                 summary_results = self._search_with_fts_guard(
@@ -669,6 +846,7 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
                     query=query,
                     limit=limit,
                     search_target=search_target,
+                    query_embedding=shared_query_embedding,
                 )
                 summary_results = self._sort_summary_results(
                     summary_results,
@@ -699,6 +877,33 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
                 )
                 if isinstance(conversation_results, str):
                     return conversation_results
+                conversation_results = await self._maybe_add_vector_conversation_results(
+                    conversation_results,
+                    query=query,
+                    limit=limit,
+                    search_target=search_target,
+                    session_id=effective_session_id,
+                    exclude_session_id=exclude_session_id,
+                    exclude_recent_from_session_id=exclude_recent_from_session_id,
+                    exclude_recent_limit=exclude_recent_limit,
+                    role=role,
+                    start_timestamp=start_timestamp,
+                    end_timestamp=end_timestamp,
+                    query_embedding=shared_query_embedding,
+                )
+                conversation_results = self._sort_conversation_results(
+                    conversation_results,
+                    query=query,
+                )
+                conversation_results = await self._maybe_rerank_conversation_results(
+                    conversation_results,
+                    query=query,
+                    limit=limit,
+                    search_target=search_target,
+                )
+                conversation_results = conversation_results[
+                    : (limit if search_target == "conversations" else limit // 2)
+                ]
 
             result = []
             self._append_search_criteria(

@@ -105,11 +105,11 @@ When inserting conversations or summaries:
 - vector fallback now fetches a slightly broader candidate set and trims only after fusion ranking
 - this allows strong semantic matches to outrank weaker keyword-only hits while still preserving transparent keyword signals in the score
 
-### Phase 3 (implemented for summaries)
+### Phase 3 (implemented)
 
-- summary retrieval can now optionally call the configured reranker on a small coarse candidate set after weighted fusion
+- summary and conversation retrieval can now optionally call the configured reranker on a small coarse candidate set after weighted fusion
 - rerank is best-effort and automatically falls back to fused ordering when no reranker is configured or the rerank call fails
-- current scope is summary candidates only; conversations can be added later if needed
+- the keyword tool path now applies the same vector-assisted merge idea to conversations as well
 
 ## Testing Plan
 
@@ -129,6 +129,7 @@ Add or update tests for:
 Completed in this iteration:
 
 - weighted score fusion for summary ranking
-- optional rerank integration for summary candidates
+- vector-assisted merge in the keyword tool path
+- optional rerank integration for summary and conversation candidates
 
 These remain explicitly planned future enhancements rather than part of the initial implementation.

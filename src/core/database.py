@@ -865,36 +865,88 @@ class DatabaseManager:
             return summary_id
 
     def search_conversations(
-        self, query_embedding: List[float], limit: int = 10
-    ) -> List[Tuple[int, int, str, str, float]]:
-        """Search conversations by vector similarity."""
+        self,
+        query_embedding: List[float],
+        limit: int = 10,
+        exclude_ids: Optional[List[int]] = None,
+        session_id: Optional[int] = None,
+        exclude_session_id: Optional[int] = None,
+        exclude_recent_from_session_id: Optional[int] = None,
+        exclude_recent_limit: int = 0,
+        role: Optional[str] = None,
+        start_timestamp: Optional[int] = None,
+        end_timestamp: Optional[int] = None,
+    ) -> List[Tuple[int, int, int, str, str, float]]:
+        """Search conversations by vector similarity with optional filters."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
             embedding_blob = self._serialize_embedding(query_embedding)
 
             try:
+                conditions = ["c.message_type = 'conversation'"]
+                params: list[Any] = [embedding_blob, limit]
+
+                if exclude_ids and len(exclude_ids) > 0:
+                    placeholders = ",".join("?" * len(exclude_ids))
+                    conditions.append(f"c.conversation_id NOT IN ({placeholders})")
+                    params.extend(exclude_ids)
+                if session_id is not None:
+                    conditions.append("c.session_id = ?")
+                    params.append(session_id)
+                if exclude_session_id is not None:
+                    conditions.append("c.session_id != ?")
+                    params.append(exclude_session_id)
+                if exclude_recent_from_session_id is not None and exclude_recent_limit > 0:
+                    conditions.append(
+                        """
+                        c.conversation_id NOT IN (
+                            SELECT recent.conversation_id
+                            FROM conversations recent
+                            WHERE recent.session_id = ?
+                              AND recent.message_type = 'conversation'
+                            ORDER BY recent.timestamp DESC, recent.conversation_id DESC
+                            LIMIT ?
+                        )
+                        """
+                    )
+                    params.extend([exclude_recent_from_session_id, exclude_recent_limit])
+                if role is not None:
+                    conditions.append("c.role = ?")
+                    params.append(role)
+                if start_timestamp is not None:
+                    conditions.append("c.timestamp >= ?")
+                    params.append(start_timestamp)
+                if end_timestamp is not None:
+                    conditions.append("c.timestamp <= ?")
+                    params.append(end_timestamp)
+
+                where_clause = "WHERE vec_conversations.embedding MATCH ? AND k = ?"
+                if conditions:
+                    where_clause += " AND " + " AND ".join(conditions)
+
                 cursor.execute(
-                    """
+                    f"""
                     SELECT 
-                        c.conversation_id, c.timestamp, c.role, c.text,
+                        c.conversation_id, c.session_id, c.timestamp, c.role, c.text,
                         distance
                     FROM vec_conversations
                     JOIN conversations c ON vec_conversations.conversation_id = c.conversation_id
-                    WHERE vec_conversations.embedding MATCH ? AND k = ?
+                    {where_clause}
                     ORDER BY distance
                 """,
-                    (embedding_blob, limit),
+                    params,
                 )
 
                 results = []
                 for row in cursor.fetchall():
                     conversation_id = row["conversation_id"]
+                    session_id = row["session_id"]
                     timestamp = row["timestamp"]
                     role = row["role"]
                     text = row["text"]
                     distance = row["distance"]
-                    results.append((conversation_id, timestamp, role, text, distance))
+                    results.append((conversation_id, session_id, timestamp, role, text, distance))
 
                 return results
             except sqlite3.OperationalError as e:

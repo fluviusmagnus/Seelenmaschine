@@ -22,6 +22,7 @@ def mock_db():
     db.search_summaries_by_keyword = Mock(return_value=[])
     db.search_conversations_by_keyword = Mock(return_value=[])
     db.search_summaries = Mock(return_value=[])
+    db.search_conversations = Mock(return_value=[])
     return db
 
 
@@ -258,6 +259,77 @@ class TestMemorySearchTool:
 
         reranker_client.rerank_async.assert_awaited_once()
         assert result.index("第二条摘要") < result.index("第一条摘要")
+
+    @pytest.mark.asyncio
+    async def test_execute_can_use_vector_conversation_fallback_for_natural_language_query(
+        self, mock_db
+    ):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = []
+        mock_db.search_conversations.return_value = [
+            (7, 999, 20, "user", "Vector matched conversation", 0.12)
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(
+            query="上次我们讨论预算和旅行安排的时候",
+            search_target="conversations",
+        )
+
+        assert "Vector matched conversation" in result
+        mock_db.search_conversations.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_weighted_fusion_can_promote_stronger_vector_conversation(self, mock_db):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = [
+            (1, 100, 100, "user", "简短行程条目", 0.0)
+        ]
+        mock_db.search_conversations.return_value = [
+            (2, 101, 50, "user", "我们详细讨论了旅行计划和预算安排", 0.05)
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(
+            query="旅行计划和预算安排的那次讨论",
+            search_target="conversations",
+        )
+
+        assert result.index("我们详细讨论了旅行计划和预算安排") < result.index("简短行程条目")
+
+    @pytest.mark.asyncio
+    async def test_execute_can_optionally_rerank_conversation_candidates(self, mock_db):
+        reranker_client = Mock()
+        reranker_client.is_enabled = Mock(return_value=True)
+        reranker_client.rerank_async = AsyncMock(
+            return_value=[
+                {"text": "第二条对话", "row_index": 1},
+                {"text": "第一条对话", "row_index": 0},
+            ]
+        )
+        mock_db.search_summaries_by_keyword.return_value = []
+        mock_db.search_conversations_by_keyword.return_value = [
+            (1, 100, 100, "user", "第一条对话", 0.0),
+            (2, 101, 90, "assistant", "第二条对话", 0.0),
+        ]
+        tool = MemorySearchTool(
+            session_id="123",
+            db=mock_db,
+            reranker_client=reranker_client,
+        )
+
+        result = await tool.execute(query="请找更相关的对话", search_target="conversations")
+
+        reranker_client.rerank_async.assert_awaited_once()
+        assert result.index("第二条对话") < result.index("第一条对话")
 
     @pytest.mark.asyncio
     async def test_execute_disabled(self, memory_search_tool):
