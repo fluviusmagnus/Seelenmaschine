@@ -439,6 +439,22 @@ class TestGetMemoryUpdatePrompt:
         assert "/user/personal_facts should contain relatively stable facts" in prompt
         assert "Do NOT store temporary states" in prompt
         assert "Store only durable, identity-relevant, or repeatedly confirmed facts" in prompt
+        assert "prefer storing it as stable knowledge/facts/personality/relationship understanding" in prompt
+
+    def test_get_memory_update_prompt_prioritizes_non_event_long_term_updates(self):
+        """Long-term useful information should be framed as facts/knowledge before events."""
+        prompt = get_memory_update_prompt("User: test", self._current_seele_json())
+
+        assert "If the main value is durable understanding" in prompt
+        assert "Keep the number of memorable_events small" in prompt
+        assert "Prefer non-event storage first" in prompt
+
+    def test_get_memory_update_prompt_warns_to_be_extremely_cautious_with_importance_five(self):
+        """Importance 5 should be explicitly described as rare and high-bar."""
+        prompt = get_memory_update_prompt("User: test", self._current_seele_json())
+
+        assert "5 should be used extremely sparingly" in prompt
+        assert "When uncertain between 4 and 5, prefer 4" in prompt
 
     def test_get_complete_memory_json_prompt_includes_boundary_rules(self):
         """Test that full-json prompt includes memorable-event boundary guidance."""
@@ -480,6 +496,30 @@ class TestGetMemoryUpdatePrompt:
         assert "IMPORTANT UPDATE GUIDELINES for user.personal_facts" in prompt
         assert "Store only relatively stable facts" in prompt
         assert "Do NOT include temporary states" in prompt
+        assert "prefer storing it as knowledge/facts/personality/relationship understanding" in prompt
+
+    def test_get_complete_memory_json_prompt_prioritizes_non_event_long_term_updates(self):
+        """Fallback full-json prompt should also prefer stable understanding over event inflation."""
+        prompt = get_complete_memory_json_prompt(
+            "User: test",
+            self._current_seele_json(),
+            "patch failed",
+        )
+
+        assert "Default to non-event storage" in prompt
+        assert "Keep the set small" in prompt
+        assert "prefer that over adding an event" in prompt
+
+    def test_get_complete_memory_json_prompt_warns_about_importance_five(self):
+        """Fallback full-json prompt should set a very high bar for importance 5."""
+        prompt = get_complete_memory_json_prompt(
+            "User: test",
+            self._current_seele_json(),
+            "patch failed",
+        )
+
+        assert "Use importance 5 extremely sparingly" in prompt
+        assert "prefer 4 over 5" in prompt
 
     def test_get_memory_update_prompt_says_tasks_do_not_belong_in_seele(self):
         """Test that memory update prompt clearly excludes tasks/reminders from seele.json."""

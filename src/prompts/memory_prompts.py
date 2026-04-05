@@ -108,6 +108,8 @@ The seele.json structure:
   - /user/personal_facts should contain relatively stable facts about the user that are likely to remain true across time
   - Do NOT store temporary states, short-term plans, one-off arrangements, today's mood, near-term schedules, or transient situation updates in /user/personal_facts
   - If information is temporary, prefer short_term emotions/needs for emotional state, or do not store it in seele.json at all unless it later proves enduring
+  - If information has lasting value, prefer storing it as stable knowledge/facts/personality/relationship understanding instead of turning it into a memorable event
+  - Prefer updating /user/personal_facts, /user/personality, /bot/personality, or /bot/relationship_with_user when the conversation reveals durable understanding rather than one specific commemorative moment
   - /user/personality: {{mbti: string, description: string, worldview_and_values: string}}
   - /user/emotions_and_needs: {{long_term: string, short_term: string}}
 - /memorable_events (object keyed by stable event ids)
@@ -124,6 +126,9 @@ The seele.json structure:
   - Importance scores MAY change later when the meaning of an event becomes clearer
   - You should raise importance if a previously ordinary event later proves important
   - You should lower importance if an event turns out to be less lasting than first expected
+  - Default to NOT creating a memorable event unless the conversation clearly describes something worth commemorating over time
+  - If the main value is durable understanding, store it as knowledge/facts/personality/relationship state instead of as an event
+  - Keep the number of memorable_events small; a concise high-signal set is better than broad coverage of ordinary history
   **HOW TO TELL MEMORABLE EVENTS APART FROM TODO ITEMS:**
   - Memorable events are primarily about the user's life, life changes, losses, gains, breakthroughs, routines that become meaningful, and the development or change of the relationship between user and {bot_name}
   - Memorable events are NOT the same as reminders, schedules, meetings, shopping lists, errands, or temporary tasks
@@ -136,6 +141,8 @@ The seele.json structure:
   - 3 example: "User started a new project that is likely to matter for the next few weeks" -> medium-term meaningful development
   - 4 example: "User officially started a new job" or "user and {bot_name} established a new long-term collaboration pattern" -> important life or relationship milestone
   - 5 example: "User explicitly said they want to keep growing together with {bot_name} for a long time" -> enduring relationship-defining milestone
+  - 5 should be used extremely sparingly; only assign 5 when the event is very likely to remain permanently important to the user's identity, life story, or long-term relationship with {bot_name}
+  - When uncertain between 4 and 5, prefer 4; when uncertain whether something deserves an event at all, prefer not creating one
   **BOUNDARY EXAMPLES:**
   - "Remind me tomorrow at 3pm to join a meeting" -> NOT a memorable event; it is a task/reminder
   - "I am upset today" -> usually NOT a memorable event by itself; better for short_term emotions unless tied to a major life event
@@ -146,6 +153,7 @@ The seele.json structure:
   - Downgrade example: an event first stored as importance 4 may later be reduced to 2 or removed if it turns out to be only a short-lived phase with little lasting significance
   **IMPORTANT UPDATE GUIDELINES for memorable_events:**
   - **Be selective**: Only keep events worth commemorating; ignore daily trivial matters.
+  - **Prefer non-event storage first**: if the lasting value can be captured as a fact, preference, personality trait, worldview, ability, or relationship update, do that instead of adding an event.
   - **Prefer updating existing ids** when refining the meaning, date certainty, importance, or details of an existing event.
   - **Create a new id only for a genuinely new memorable event.**
   - **Merge & Synthesize**: If multiple entries describe the same evolving event, keep one stable id and update it.
@@ -182,6 +190,7 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
    - Store only durable, identity-relevant, or repeatedly confirmed facts
    - Do NOT add temporary conditions like "is busy this week", "is preparing a report tomorrow", "felt tired today", or other short-lived context
    - If an existing personal_facts entry is clearly temporary/outdated, prefer removing it
+   - If a detail remains useful in the long run, prefer expressing it as a stable fact or understanding instead of creating a commemorative event for it
 10. **LANGUAGE REQUIREMENT: All text values in the JSON patch MUST use the SAME LANGUAGE as the main language used in the conversations**
     - If conversations are primarily in Chinese, all "value" fields should be in Chinese
     - If conversations are primarily in English, all "value" fields should be in English
@@ -358,6 +367,7 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
   - Do NOT include temporary states, short-term plans, one-off arrangements, daily moods, near-term schedules, or transient context.
   - Examples that do NOT belong in personal_facts: "User is busy this week", "User has a meeting tomorrow", "User felt sad today".
   - If information is temporary, either place it in a more appropriate short-term field or omit it from seele.json.
+  - If information has durable value, prefer storing it as knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
   "memorable_events": {{
     "evt_20260329_project_commitment": {{
       "date": "YYYY-MM-DD",
@@ -367,6 +377,8 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
   }},
   **IMPORTANT UPDATE GUIDELINES for memorable_events:**
   - **Be selective**: Only keep events worth commemorating; ignore daily trivial matters.
+  - **Default to non-event storage**: if long-term value can be captured as a fact, preference, personality trait, worldview, ability, or relationship update, prefer that over adding an event.
+  - **Keep the set small**: memorable_events should stay sparse and high-signal rather than trying to represent all notable conversation history.
   - **Use stable event ids as object keys**; do not use arrays or numeric indexes.
   - **Importance scoring**: 1=1 day, 2=1 week, 3=1 month, 4=6 months, 5=permanent.
   - **Memorable events are mainly about the user's life and the development or change of the relationship with {bot_name}, not ordinary tasks or reminders.**
@@ -378,6 +390,8 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
     - 3: a meaningful life development likely to matter for weeks
     - 4: an important life milestone or clear relationship shift
     - 5: a lasting relationship-defining or identity-shaping event
+  - **Use importance 5 extremely sparingly**: only when the event is highly likely to remain permanently important to identity, life story, or the long-term relationship with {bot_name}.
+  - **When uncertain, score lower**: prefer 4 over 5, and prefer omitting the event entirely over adding a weak event with an inflated score.
   - **Boundary examples**:
     - "Remind me tomorrow to call someone" is not a memorable event and should not be written into seele.json
     - "I trust you with things I tell no one else" is a memorable relationship event and likely deserves high importance
