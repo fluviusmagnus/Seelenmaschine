@@ -264,6 +264,50 @@ The system integrates the following tool capabilities:
 
 Control the enabling status of each tool through configuration files. Dangerous commands require user approval before execution.
 
+### Advanced Usage
+
+#### Dynamically inject extra rules via workspace `AGENTS.md`
+
+If you want to provide extra runtime constraints for a specific profile / workspace, you can place an `AGENTS.md` file at the workspace root. When building the system prompt, the project will automatically append an `<agents_md>...</agents_md>` block after `commands_and_agreements`, injecting that file content into the model context.
+
+Behavior:
+
+- **Inject when present**: if `WORKSPACE_DIR/AGENTS.md` exists and is readable, it will be added to the system prompt automatically
+- **Ignore when absent**: no error is raised, and the normal conversation flow is unaffected
+- **Takes effect on the next request immediately**: after editing or deleting `AGENTS.md`, no bot restart is required; the next prompt build / next request will read the latest content automatically
+- **Scoped to the current workspace**: useful for setting different coding rules, project constraints, or tool-usage agreements for different profiles
+
+Example:
+
+```markdown
+# AGENTS.md
+
+## Workspace Rules
+- Prefer small, low-risk changes
+- Add tests before refactoring
+- Avoid changing the `adapter` boundary unless necessary
+```
+
+If your profile uses the default workspace, the path is typically:
+
+```text
+data/<profile>/workspace/AGENTS.md
+```
+
+If you explicitly set `WORKSPACE_DIR` in `<profile>.env`, place `AGENTS.md` at the root of that directory instead.
+
+#### Advanced MCP usage
+
+This project provides **MCP integration capability** for connecting external tools and data sources, but it does **not provide native skills support**. In other words, the project itself does not implement the kind of built-in skills mechanism found in some AI coding tools.
+
+However, **some MCP services may themselves provide skills-like capabilities, or even support subagent invocation**. Whether that is available depends on the specific MCP service you choose to connect, not on Seelenmaschine core itself.
+
+Please note:
+
+- **You need to find and choose a suitable implementation yourself**: connect MCP services that match your own needs
+- **This project only provides MCP integration**: it does not bundle these extended capabilities
+- **This project does not recommend any specific MCP service or solution**: please evaluate compatibility, stability, and security yourself
+
 ## Project Structure
 
 ```
