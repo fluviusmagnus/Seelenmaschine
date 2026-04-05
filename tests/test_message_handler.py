@@ -214,17 +214,36 @@ async def test_handle_new_session(
     """Test /new command handler"""
     handler = TelegramController(core_bot=core_bot)
 
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _new_session_side_effect():
+        started.set()
+        await release.wait()
+        return 2
+
+    handler.core_bot.memory.new_session_async = AsyncMock(
+        side_effect=_new_session_side_effect
+    )
+
     # Mock Telegram update with AsyncMock
     update = Mock()
     update.effective_user.id = 12345
     update.message.reply_text = AsyncMock()
 
     context = Mock()
+    context.bot = Mock()
+    context.bot.send_chat_action = AsyncMock()
 
-    await handler.commands.handle_new_session(update, context)
+    task = asyncio.create_task(handler.commands.handle_new_session(update, context))
+    await started.wait()
+    await asyncio.sleep(0.05)
+    release.set()
+    await task
 
     handler.core_bot.memory.new_session_async.assert_called_once()
     update.message.reply_text.assert_called_once()
+    context.bot.send_chat_action.assert_awaited()
 
 
 @pytest.mark.asyncio

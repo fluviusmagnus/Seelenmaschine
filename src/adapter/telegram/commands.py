@@ -6,7 +6,7 @@ from telegram import BotCommand
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from adapter.telegram.delivery import TelegramAccessGuard
+from adapter.telegram.delivery import TelegramAccessGuard, typing_indicator
 from core.approval import ApprovalService
 from utils.logger import get_logger
 
@@ -95,7 +95,6 @@ class TelegramCommands:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Archive the current session and start a new one."""
-        del context
         if not update.effective_user or not update.message:
             return
         if await self.access_guard.reject_unauthorized(
@@ -105,11 +104,17 @@ class TelegramCommands:
             return
 
         try:
-            await self.core_bot.create_new_session()
-            await update.message.reply_text(
-                "✓ New session created! Previous conversations have been summarized and archived.\n\n"
-                "I still remember our history and can recall it when relevant."
-            )
+            async with typing_indicator(
+                lambda: context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action="typing"
+                ),
+                "Typing indicator failed during /new",
+            ):
+                await self.core_bot.create_new_session()
+                await update.message.reply_text(
+                    "✓ New session created! Previous conversations have been summarized and archived.\n\n"
+                    "I still remember our history and can recall it when relevant."
+                )
         except Exception as error:
             logger.error(f"Error creating new session: {error}", exc_info=True)
             await update.message.reply_text("Error creating new session.")
