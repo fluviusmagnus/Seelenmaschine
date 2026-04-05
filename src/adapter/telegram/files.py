@@ -60,43 +60,56 @@ class TelegramFiles:
         )
 
         try:
-            async with typing_indicator(
-                lambda: context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id, action="typing"
-                ),
-                "Typing indicator failed during file handling",
-            ):
-                destination = self.build_media_file_path(
-                    original_name=file_info.get("original_name"),
-                    file_unique_id=file_info["file_unique_id"],
-                    mime_type=file_info.get("mime_type"),
-                    file_type=file_info["file_type"],
-                )
-                saved_path = await self.download_telegram_file(
-                    context, file_info["file_id"], destination
+            process_message_owner = getattr(process_message, "__self__", None)
+            core_bot = getattr(process_message_owner, "core_bot", None)
+            processing_lock = getattr(core_bot, "get_processing_lock", None)
+            run_summary_check = getattr(core_bot, "run_post_response_summary_check", None)
+            if processing_lock is None or run_summary_check is None:
+                raise RuntimeError(
+                    "process_message owner does not expose sequencing helpers"
                 )
 
-                user_message = self.build_received_file_event_message(
-                    file_info, saved_path
-                )
-                logger.info(
-                    "Built synthetic file event message for LLM: "
-                    f"{preview_text(user_message)}"
-                )
-                response = await process_message(
-                    user_message,
-                    message_for_embedding=file_info.get("caption") or user_message,
-                )
-
-                await response_sender.send_reply_text(
-                    reply_text=update.message.reply_text,
-                    text=response,
-                    html_warning_template=(
-                        "HTML parsing failed for file segment {index}, "
-                        "sending as plain text: {error}"
+            async with core_bot.get_processing_lock():
+                async with typing_indicator(
+                    lambda: context.bot.send_chat_action(
+                        chat_id=update.effective_chat.id, action="typing"
                     ),
-                    preview_text=preview_text,
-                    debug_prefix="Sending Telegram file segment",
+                    "Typing indicator failed during file handling",
+                ):
+                    destination = self.build_media_file_path(
+                        original_name=file_info.get("original_name"),
+                        file_unique_id=file_info["file_unique_id"],
+                        mime_type=file_info.get("mime_type"),
+                        file_type=file_info["file_type"],
+                    )
+                    saved_path = await self.download_telegram_file(
+                        context, file_info["file_id"], destination
+                    )
+
+                    user_message = self.build_received_file_event_message(
+                        file_info, saved_path
+                    )
+                    logger.info(
+                        "Built synthetic file event message for LLM: "
+                        f"{preview_text(user_message)}"
+                    )
+                    response = await process_message(
+                        user_message,
+                        message_for_embedding=file_info.get("caption") or user_message,
+                    )
+
+                    await response_sender.send_reply_text(
+                        reply_text=update.message.reply_text,
+                        text=response,
+                        html_warning_template=(
+                            "HTML parsing failed for file segment {index}, "
+                            "sending as plain text: {error}"
+                        ),
+                        preview_text=preview_text,
+                        debug_prefix="Sending Telegram file segment",
+                    )
+                await core_bot.run_post_response_summary_check(
+                    context_label="file reply delivery"
                 )
         except Exception as error:
             logger.error(f"Error handling file: {error}", exc_info=True)

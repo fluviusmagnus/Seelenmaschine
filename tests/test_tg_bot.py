@@ -476,6 +476,7 @@ class TestTelegramAdapterScheduledMessages:
                 application=mock_app,
                 message="Test scheduled message",
                 task_name="Scheduled Task",
+                task_id=None,
             )
 
     @pytest.mark.asyncio

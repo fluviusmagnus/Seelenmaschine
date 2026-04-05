@@ -252,6 +252,7 @@ class TestMessageProcessing:
         handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
         handler.memory.get_recent_summaries = Mock(return_value=[])
         handler.memory.add_assistant_message_async = AsyncMock(return_value=(2, None))
+        handler.memory.run_summary_check_async = AsyncMock(return_value=None)
 
         handler.memory_search_tool = Mock()
         handler.memory_search_tool.enable = Mock()
@@ -290,6 +291,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async.assert_awaited_once_with(
             "这是最后答复"
         )
+        handler.memory.run_summary_check_async.assert_not_called()
 
     def test_format_exception_for_user_truncates_long_messages(self):
         """User-facing error summaries should stay concise."""
@@ -318,6 +320,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
+        handler.memory.run_summary_check_async = AsyncMock(return_value=None)
         handler.memory.add_context_message_async = AsyncMock(return_value=4)
 
         handler.memory_search_tool = Mock()
@@ -370,6 +373,7 @@ class TestMessageProcessing:
         assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
             "最终答复",
         )
+        handler.memory.run_summary_check_async.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_scheduled_task_saves_intermediate_assistant_messages(self):
@@ -384,6 +388,7 @@ class TestMessageProcessing:
         handler.memory.add_assistant_message_async = AsyncMock(
             side_effect=[(2, None), (3, None)]
         )
+        handler.memory.run_summary_check_async = AsyncMock(return_value=None)
         handler.memory.add_context_message_async = AsyncMock(return_value=4)
 
         handler.embedding_client = Mock()
@@ -468,6 +473,170 @@ class TestMessageProcessing:
         assert handler.memory.add_assistant_message_async.await_args_list[1].args == (
             "别忘了喝水。",
         )
+        handler.memory.run_summary_check_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_message_runs_summary_check_after_reply(self):
+        """Telegram handler should run summary check after delivering the reply."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock(return_value="处理完成")
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=42)
+        handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+        handler._send_intermediate_response = AsyncMock()
+        response_sender = Mock()
+        response_sender.send_reply_text = AsyncMock()
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=None,
+            files=Mock(),
+            response_sender=response_sender,
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "你好"
+        update.message.reply_text = AsyncMock()
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        await handler.handle_message(update, context)
+
+        response_sender.send_reply_text.assert_awaited_once()
+        handler.core_bot.run_post_response_summary_check.assert_awaited_once_with(
+            context_label="message reply delivery"
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_message_waits_for_processing_lock(self):
+        """A second message should wait for the lock before entering processing."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        shared_lock = asyncio.Lock()
+        await shared_lock.acquire()
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock(return_value="处理完成")
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
+        handler.core_bot.get_processing_lock = Mock(return_value=shared_lock)
+        handler._send_intermediate_response = AsyncMock()
+        response_sender = Mock()
+        response_sender.send_reply_text = AsyncMock()
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=None,
+            files=Mock(),
+            response_sender=response_sender,
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "你好"
+        update.message.reply_text = AsyncMock()
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        task = asyncio.create_task(handler.handle_message(update, context))
+        await asyncio.sleep(0.05)
+
+        handler.core_bot.process_message.assert_not_awaited()
+        assert context.bot.send_chat_action.await_count == 0
+
+        shared_lock.release()
+        await task
+
+        handler.core_bot.process_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_handle_message_summary_phase_does_not_keep_typing(self):
+        """After reply delivery, summary work should continue without active typing."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        release_summary = asyncio.Event()
+
+        async def _summary_check(**_: object) -> None:
+            await release_summary.wait()
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock(return_value="处理完成")
+        handler.core_bot.run_post_response_summary_check = AsyncMock(side_effect=_summary_check)
+        handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+        handler._send_intermediate_response = AsyncMock()
+        response_sender = Mock()
+        response_sender.send_reply_text = AsyncMock()
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=None,
+            files=Mock(),
+            response_sender=response_sender,
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "你好"
+        update.message.reply_text = AsyncMock()
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        task = asyncio.create_task(handler.handle_message(update, context))
+        await asyncio.sleep(0.05)
+
+        response_sender.send_reply_text.assert_awaited_once()
+        send_count_after_reply = context.bot.send_chat_action.await_count
+        await asyncio.sleep(0.2)
+        assert context.bot.send_chat_action.await_count == send_count_after_reply
+
+        release_summary.set()
+        await task
 
     @pytest.mark.asyncio
     async def test_handle_message_returns_error_details_on_failure(self):
@@ -483,6 +652,8 @@ class TestMessageProcessing:
         handler.core_bot.process_message = AsyncMock(
             side_effect=RuntimeError("maximum context length exceeded")
         )
+        handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
         handler._send_intermediate_response = AsyncMock()
         handler._format_exception_for_user = (
             TelegramController._format_exception_for_user
@@ -536,6 +707,8 @@ class TestMessageProcessing:
         handler.core_bot.process_message = AsyncMock(
             side_effect=RuntimeError("Request timed out.")
         )
+        handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
         handler._send_intermediate_response = AsyncMock()
         handler.messages = TelegramMessages(
             core_bot=handler.core_bot,

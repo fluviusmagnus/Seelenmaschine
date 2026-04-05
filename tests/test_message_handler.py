@@ -1,5 +1,6 @@
 """Test for TelegramController with message processing."""
 
+import asyncio
 import sys
 import json
 from pathlib import Path
@@ -66,6 +67,7 @@ def mock_memory():
     memory.add_user_message_async = AsyncMock(return_value=(1, [0.1] * 1536))
     memory.process_user_input_async = AsyncMock(return_value=([], []))
     memory.add_assistant_message_async = AsyncMock(return_value=(1, None))
+    memory.run_summary_check_async = AsyncMock(return_value=None)
     memory.new_session = Mock(return_value=2)
     memory.new_session_async = AsyncMock(return_value=2)
     memory.reset_session = Mock()
@@ -155,6 +157,7 @@ async def test_process_message(
     handler.core_bot.memory.add_assistant_message_async.assert_called_once_with(
         "This is a test response"
     )
+    handler.core_bot.memory.run_summary_check_async.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -191,6 +194,8 @@ async def test_handle_message(
     update.message.reply_text = AsyncMock()
 
     context = Mock()
+    context.bot = Mock()
+    context.bot.send_chat_action = AsyncMock()
 
     # Handle message
     await handler.handle_message(update, context)
@@ -199,6 +204,7 @@ async def test_handle_message(
     update.message.reply_text.assert_called_once()
     call_args = update.message.reply_text.call_args
     assert "This is a test response" in str(call_args)
+    handler.core_bot.memory.run_summary_check_async.assert_awaited_once()
 
 
 @pytest.mark.asyncio

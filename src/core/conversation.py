@@ -1,5 +1,6 @@
 """Conversation orchestration service."""
 
+import asyncio
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from utils.logger import get_logger
@@ -31,6 +32,12 @@ class ConversationService:
         self.mcp_client = mcp_client
         self.ensure_mcp_connected = ensure_mcp_connected
         self.preview_text = preview_text or self._default_preview_text
+        self._processing_lock = asyncio.Lock()
+
+    @property
+    def processing_lock(self) -> asyncio.Lock:
+        """Expose the conversation processing lock for adapter-level sequencing."""
+        return self._processing_lock
 
     @staticmethod
     def _default_preview_text(text: Optional[str], max_length: int = 120) -> str:
@@ -199,6 +206,17 @@ class ConversationService:
                     include_in_summary=False,
                     embedding=None,
                 )
+
+    async def run_post_response_summary_check(self, *, context_label: str) -> Optional[int]:
+        """Run an explicit summary check after a reply has been delivered."""
+        summary_id = await self.memory.run_summary_check_async()
+        if summary_id is not None:
+            logger.info(
+                f"Created new summary (ID: {summary_id}) after {context_label}"
+            )
+        else:
+            logger.debug(f"No summary created after {context_label}")
+        return summary_id
 
     async def process_message(
         self,

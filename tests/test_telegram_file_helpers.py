@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -45,6 +46,8 @@ def message_handler(config, memory):
     handler.core_bot.memory = memory
     handler.core_bot.process_message = AsyncMock(return_value="LLM file response")
     handler.core_bot.process_scheduled_task = AsyncMock(return_value="LLM scheduled")
+    handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+    handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
     handler._send_intermediate_response = AsyncMock()
     handler._preview_text = Mock(
         side_effect=lambda text, max_length=120: text[:max_length]
@@ -156,6 +159,47 @@ class TestTelegramMessages:
         mock_update_with_document.message.reply_text.assert_called_once_with(
             "LLM file response", parse_mode="HTML"
         )
+        message_handler.core_bot.run_post_response_summary_check.assert_awaited_once_with(
+            context_label="file reply delivery"
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_file_summary_phase_does_not_keep_typing(
+        self, messages_helper, message_handler, mock_context, mock_update_with_document
+    ):
+        telegram_file = Mock()
+        telegram_file.download_to_drive = AsyncMock()
+        mock_context.bot.get_file.return_value = telegram_file
+
+        async def download_side_effect(custom_path):
+            Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(custom_path).write_text("dummy", encoding="utf-8")
+
+        telegram_file.download_to_drive.side_effect = download_side_effect
+
+        release_summary = asyncio.Event()
+
+        async def _summary_check(**_: object) -> None:
+            await release_summary.wait()
+
+        message_handler.core_bot.run_post_response_summary_check = AsyncMock(
+            side_effect=_summary_check
+        )
+
+        task = asyncio.create_task(
+            messages_helper.handle_file(mock_update_with_document, mock_context)
+        )
+        await asyncio.sleep(0.05)
+
+        mock_update_with_document.message.reply_text.assert_called_once_with(
+            "LLM file response", parse_mode="HTML"
+        )
+        send_count_after_reply = mock_context.bot.send_chat_action.await_count
+        await asyncio.sleep(0.2)
+        assert mock_context.bot.send_chat_action.await_count == send_count_after_reply
+
+        release_summary.set()
+        await task
 
     @pytest.mark.asyncio
     async def test_process_message_uses_core_bot_entrypoint(

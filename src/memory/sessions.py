@@ -154,8 +154,6 @@ class SessionMemory:
         self,
         session_id: int,
         text: str,
-        check_and_create_summary: Callable[[], Any],
-        update_long_term_memory: Callable[[int, List[Message]], Any],
         embedding: Optional[List[float]] = None,
     ) -> Tuple[int, Optional[int]]:
         """Shared implementation for storing assistant messages."""
@@ -175,16 +173,8 @@ class SessionMemory:
             embedding=embedding,
         )
 
-        summary_id, summarized_messages = await self._resolve_maybe_awaitable(
-            check_and_create_summary()
-        )
-        if summary_id is not None and summarized_messages is not None:
-            await self._resolve_maybe_awaitable(
-                update_long_term_memory(summary_id, summarized_messages)
-            )
-
         logger.debug(f"Added assistant message: conversation_id={conversation_id}")
-        return conversation_id, summary_id
+        return conversation_id, None
 
     async def _check_and_create_summary_impl(
         self,
@@ -483,13 +473,9 @@ class SessionMemory:
         self,
         session_id: int,
         text: str,
-        check_and_create_summary: Callable[
-            [], Tuple[Optional[int], Optional[List[Message]]]
-        ],
-        update_long_term_memory: Callable[[int, List[Message]], bool],
         embedding: Optional[List[float]] = None,
     ) -> Tuple[int, Optional[int]]:
-        """Store an assistant message and trigger summarization when needed."""
+        """Store an assistant message without triggering summarization."""
         timestamp = get_current_timestamp()
         text_for_storage = self._assistant_text_for_storage(text)
 
@@ -504,31 +490,19 @@ class SessionMemory:
             embedding=embedding,
         )
 
-        summary_id, summarized_messages = check_and_create_summary()
-        if summary_id is not None and summarized_messages is not None:
-            update_long_term_memory(summary_id, summarized_messages)
-
         logger.debug(f"Added assistant message: conversation_id={conversation_id}")
-        return conversation_id, summary_id
+        return conversation_id, None
 
     async def add_assistant_message_async(
         self,
         session_id: int,
         text: str,
-        check_and_create_summary_async: Callable[
-            [], Awaitable[Tuple[Optional[int], Optional[List[Message]]]]
-        ],
-        update_long_term_memory_async: Callable[
-            [int, List[Message]], Awaitable[bool]
-        ],
         embedding: Optional[List[float]] = None,
     ) -> Tuple[int, Optional[int]]:
         """Async version of add_assistant_message."""
         return await self._add_assistant_message_impl(
             session_id,
             text,
-            check_and_create_summary_async,
-            update_long_term_memory_async,
             embedding,
         )
 

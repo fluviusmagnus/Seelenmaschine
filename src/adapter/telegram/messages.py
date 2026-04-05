@@ -61,33 +61,40 @@ class TelegramMessages:
             return
 
         try:
-            async with typing_indicator(
-                lambda: application.bot.send_chat_action(
-                    chat_id=self.core_bot.config.TELEGRAM_USER_ID,
-                    action="typing",
-                ),
-                "Scheduled typing indicator failed",
-            ):
-                logger.info(
-                    f"Processing scheduled task '{task_name}': {message[:50]}..."
-                )
-                response = await self.process_scheduled_task(message, task_name, task_id)
-                await self.response_sender.send_bot_text(
-                    telegram_bot=application.bot,
-                    chat_id=self.core_bot.config.TELEGRAM_USER_ID,
-                    text=response,
-                    html_warning_template=(
-                        "HTML parsing failed for scheduled segment {index}, "
-                        "sending plain text: {error}"
+            async with self.core_bot.get_processing_lock():
+                async with typing_indicator(
+                    lambda: application.bot.send_chat_action(
+                        chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                        action="typing",
                     ),
-                    fatal_error_template=(
-                        "Failed to send scheduled segment {index}: {error}"
-                    ),
-                    preview_text=self.preview_text,
-                    debug_prefix="Sent scheduled segment",
+                    "Scheduled typing indicator failed",
+                ):
+                    logger.info(
+                        f"Processing scheduled task '{task_name}': {message[:50]}..."
+                    )
+                    response = await self.process_scheduled_task(
+                        message, task_name, task_id
+                    )
+                    await self.response_sender.send_bot_text(
+                        telegram_bot=application.bot,
+                        chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                        text=response,
+                        html_warning_template=(
+                            "HTML parsing failed for scheduled segment {index}, "
+                            "sending plain text: {error}"
+                        ),
+                        fatal_error_template=(
+                            "Failed to send scheduled segment {index}: {error}"
+                        ),
+                        preview_text=self.preview_text,
+                        debug_prefix="Sent scheduled segment",
+                    )
+                await self.core_bot.run_post_response_summary_check(
+                    context_label="scheduled task response delivery"
                 )
                 logger.debug(
-                    "Scheduled task response sent: " f"{self.preview_text(response)}"
+                    "Scheduled task response sent: "
+                    f"{self.preview_text(response)}"
                 )
         except Exception as error:
             logger.error(
@@ -125,23 +132,27 @@ class TelegramMessages:
             return
 
         try:
-            async with typing_indicator(
-                lambda: context.bot.send_chat_action(
-                    chat_id=update.effective_chat.id, action="typing"
-                ),
-                "Typing indicator failed",
-            ):
-                response = await self.process_message(user_message)
-                await self.response_sender.send_reply_text(
-                    reply_text=update.message.reply_text,
-                    text=response,
-                    html_warning_template=(
-                        "HTML parsing failed for segment {index}, "
-                        "sending as plain text: {error}"
+            async with self.core_bot.get_processing_lock():
+                async with typing_indicator(
+                    lambda: context.bot.send_chat_action(
+                        chat_id=update.effective_chat.id, action="typing"
                     ),
-                    fatal_error_template="Failed to send segment {index}: {error}",
-                    preview_text=self.preview_text,
-                    debug_prefix="Sending Telegram text segment",
+                    "Typing indicator failed",
+                ):
+                    response = await self.process_message(user_message)
+                    await self.response_sender.send_reply_text(
+                        reply_text=update.message.reply_text,
+                        text=response,
+                        html_warning_template=(
+                            "HTML parsing failed for segment {index}, "
+                            "sending as plain text: {error}"
+                        ),
+                        fatal_error_template="Failed to send segment {index}: {error}",
+                        preview_text=self.preview_text,
+                        debug_prefix="Sending Telegram text segment",
+                    )
+                await self.core_bot.run_post_response_summary_check(
+                    context_label="message reply delivery"
                 )
         except Exception as error:
             logger.error(f"Error handling message: {error}", exc_info=True)

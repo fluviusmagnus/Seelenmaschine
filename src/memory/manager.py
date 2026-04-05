@@ -150,8 +150,6 @@ class MemoryManager:
         return self.sessions.add_assistant_message(
             session_id=session_id,
             text=text,
-            check_and_create_summary=self._check_and_create_summary,
-            update_long_term_memory=self._update_long_term_memory,
             embedding=embedding,
         )
 
@@ -163,10 +161,15 @@ class MemoryManager:
         return await self.sessions.add_assistant_message_async(
             session_id=session_id,
             text=text,
-            check_and_create_summary_async=self._check_and_create_summary_async,
-            update_long_term_memory_async=self._update_long_term_memory_async,
             embedding=embedding,
         )
+
+    async def run_summary_check_async(self) -> Optional[int]:
+        """Explicitly check whether the current context should be summarized."""
+        summary_id, summarized_messages = await self._check_and_create_summary_async()
+        if summary_id is not None and summarized_messages is not None:
+            await self._update_long_term_memory_async(summary_id, summarized_messages)
+        return summary_id
 
     def add_context_message(
         self,

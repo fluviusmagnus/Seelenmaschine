@@ -1,5 +1,6 @@
 """Core application bot assembly."""
 
+import asyncio
 from typing import Any, Callable, Optional
 
 from core.approval import ApprovalService
@@ -177,6 +178,20 @@ class CoreBot:
             task_name,
             task_id,
             intermediate_callback=intermediate_callback,
+        )
+
+    def get_processing_lock(self) -> asyncio.Lock:
+        """Expose the shared conversation sequencing lock."""
+        if self.conversation_service is None:
+            raise RuntimeError("Conversation service has not been initialized")
+        return self.conversation_service.processing_lock
+
+    async def run_post_response_summary_check(self, *, context_label: str) -> Optional[int]:
+        """Run the explicit post-reply summary check."""
+        if self.conversation_service is None:
+            raise RuntimeError("Conversation service has not been initialized")
+        return await self.conversation_service.run_post_response_summary_check(
+            context_label=context_label
         )
 
     async def create_new_session(self) -> int:
