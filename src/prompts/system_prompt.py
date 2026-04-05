@@ -1,6 +1,7 @@
 """System prompt builders."""
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -41,6 +42,18 @@ def _format_bullet_list(items: List[str], empty_fallback: str) -> str:
     return "\n".join(f"- {item}" for item in normalized_items)
 
 
+def _load_workspace_agents_md(workspace_dir: Any) -> str:
+    """Load AGENTS.md from the workspace root if it exists."""
+    agents_path = Path(workspace_dir) / "AGENTS.md"
+
+    try:
+        if not agents_path.is_file():
+            return ""
+        return agents_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def build_cacheable_system_prompt(
     seele_data: Dict[str, Any],
     workspace_dir: Any,
@@ -51,6 +64,7 @@ def build_cacheable_system_prompt(
     user = seele_data.get("user", {})
     memorable_events = seele_data.get("memorable_events", {})
     commands_and_agreements = seele_data.get("commands_and_agreements", [])
+    agents_md = _load_workspace_agents_md(workspace_dir)
 
     bot_name = bot.get("name", "AI Assistant")
     user_name = user.get("name", "User")
@@ -170,6 +184,14 @@ Core principles to follow in this conversation:
 {commands_text}
 
 </commands_and_agreements>"""
+        )
+
+    if agents_md:
+        sections.append(
+            f"""<agents_md>
+{agents_md}
+
+</agents_md>"""
         )
 
     if recent_summaries:

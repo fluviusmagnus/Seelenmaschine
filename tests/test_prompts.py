@@ -227,11 +227,9 @@ class TestGetCurrentTimeStr:
 class TestGetCacheableSystemPrompt:
     """Test get_cacheable_system_prompt functionality."""
 
-    def test_get_cacheable_system_prompt_no_summaries(self, tmp_path, monkeypatch):
-        """Test getting system prompt without summaries."""
-        # Create a temporary seele.json with valid structure
-        seele_path = tmp_path / "seele.json"
-        seele_data = {
+    @staticmethod
+    def _build_seele_data(commands_and_agreements=None):
+        return {
             "bot": {
                 "name": "TestBot",
                 "gender": "neutral",
@@ -269,8 +267,14 @@ class TestGetCacheableSystemPrompt:
                     "details": "Shared a long-term collaboration commitment",
                 }
             },
-            "commands_and_agreements": [],
+            "commands_and_agreements": commands_and_agreements or [],
         }
+
+    def test_get_cacheable_system_prompt_no_summaries(self, tmp_path, monkeypatch):
+        """Test getting system prompt without summaries."""
+        # Create a temporary seele.json with valid structure
+        seele_path = tmp_path / "seele.json"
+        seele_data = self._build_seele_data()
         seele_path.write_text(json.dumps(seele_data, indent=2))
 
         # Patch Config
@@ -303,6 +307,121 @@ class TestGetCacheableSystemPrompt:
         assert "never wrap your final reply in tags such as" in prompt
         assert "## Your Self-Awareness" not in prompt
         assert "## User Profile" not in prompt
+
+    def test_get_cacheable_system_prompt_includes_workspace_agents_md_after_commands(
+        self, tmp_path, monkeypatch
+    ):
+        """Workspace AGENTS.md should be included after commands_and_agreements."""
+        seele_path = tmp_path / "seele.json"
+        seele_data = self._build_seele_data(commands_and_agreements=["Call me by my name"])
+        seele_path.write_text(json.dumps(seele_data, indent=2), encoding="utf-8")
+
+        agents_md_path = tmp_path / "AGENTS.md"
+        agents_md_path.write_text("# Workspace Rules\n\n- Keep changes small", encoding="utf-8")
+
+        from core.config import Config
+        import prompts as system
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(Config, "WORKSPACE_DIR", tmp_path)
+        system._seele_json_cache = {}
+
+        prompt = get_cacheable_system_prompt([])
+
+        assert "<commands_and_agreements>" in prompt
+        assert "- Call me by my name" in prompt
+        assert "<agents_md>" in prompt
+        assert "# Workspace Rules" in prompt
+        assert "- Keep changes small" in prompt
+        assert prompt.index("</commands_and_agreements>") < prompt.index("<agents_md>")
+
+    def test_get_cacheable_system_prompt_ignores_missing_workspace_agents_md(
+        self, tmp_path, monkeypatch
+    ):
+        """Missing workspace AGENTS.md should be ignored."""
+        seele_path = tmp_path / "seele.json"
+        seele_data = self._build_seele_data(commands_and_agreements=["Be concise"])
+        seele_path.write_text(json.dumps(seele_data, indent=2), encoding="utf-8")
+
+        from core.config import Config
+        import prompts as system
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(Config, "WORKSPACE_DIR", tmp_path)
+        system._seele_json_cache = {}
+
+        prompt = get_cacheable_system_prompt([])
+
+        assert "<commands_and_agreements>" in prompt
+        assert "- Be concise" in prompt
+        assert "<agents_md>" not in prompt
+
+    def test_get_cacheable_system_prompt_reloads_agents_md_on_next_call(
+        self, tmp_path, monkeypatch
+    ):
+        """Updating workspace AGENTS.md should affect the next prompt build immediately."""
+        seele_path = tmp_path / "seele.json"
+        seele_data = self._build_seele_data(commands_and_agreements=["Follow workspace rules"])
+        seele_path.write_text(json.dumps(seele_data, indent=2), encoding="utf-8")
+
+        agents_md_path = tmp_path / "AGENTS.md"
+        agents_md_path.write_text("# Version 1\n\n- old rule", encoding="utf-8")
+
+        from core.config import Config
+        import prompts as system
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(Config, "WORKSPACE_DIR", tmp_path)
+        system._seele_json_cache = {}
+
+        first_prompt = get_cacheable_system_prompt([])
+
+        agents_md_path.write_text("# Version 2\n\n- new rule", encoding="utf-8")
+
+        second_prompt = get_cacheable_system_prompt([])
+
+        assert "# Version 1" in first_prompt
+        assert "- old rule" in first_prompt
+        assert "# Version 2" not in first_prompt
+
+        assert "# Version 2" in second_prompt
+        assert "- new rule" in second_prompt
+        assert "# Version 1" not in second_prompt
+        assert "- old rule" not in second_prompt
+
+    def test_get_cacheable_system_prompt_removes_agents_md_on_next_call_after_delete(
+        self, tmp_path, monkeypatch
+    ):
+        """Deleting workspace AGENTS.md should remove the block on the next prompt build."""
+        seele_path = tmp_path / "seele.json"
+        seele_data = self._build_seele_data(commands_and_agreements=["Follow workspace rules"])
+        seele_path.write_text(json.dumps(seele_data, indent=2), encoding="utf-8")
+
+        agents_md_path = tmp_path / "AGENTS.md"
+        agents_md_path.write_text("# Temporary Rules\n\n- transient", encoding="utf-8")
+
+        from core.config import Config
+        import prompts as system
+
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(Config, "WORKSPACE_DIR", tmp_path)
+        system._seele_json_cache = {}
+
+        prompt_with_agents = get_cacheable_system_prompt([])
+
+        agents_md_path.unlink()
+
+        prompt_without_agents = get_cacheable_system_prompt([])
+
+        assert "<agents_md>" in prompt_with_agents
+        assert "# Temporary Rules" in prompt_with_agents
+
+        assert "<agents_md>" not in prompt_without_agents
+        assert "# Temporary Rules" not in prompt_without_agents
 
     def test_get_cacheable_system_prompt_formats_language_style_examples_as_list(
         self, tmp_path, monkeypatch
