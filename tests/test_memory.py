@@ -205,7 +205,7 @@ class TestMemoryManager:
                 timestamp=1000 + i * 100,
             )
 
-        # Mock both summary generation and memory update
+        # add_assistant_message 本身不再自动触发 summary，需显式执行 summary check
         with patch.object(
             memory_manager, "_generate_summary", return_value="Test summary"
         ):
@@ -217,9 +217,14 @@ class TestMemoryManager:
                 with patch.object(
                     memory_manager, "update_long_term_memory", return_value=True
                 ):
-                    conv_id, summary_id = memory_manager.add_assistant_message(
-                        "Response"
+                    conv_id, summary_id = memory_manager.add_assistant_message("Response")
+                    summary_id, summarized_messages = (
+                        memory_manager._check_and_create_summary()
                     )
+                    if summary_id is not None and summarized_messages is not None:
+                        memory_manager._update_long_term_memory(
+                            summary_id, summarized_messages
+                        )
 
                     assert summary_id is not None
                     assert mock_db.insert_summary.called
@@ -470,7 +475,8 @@ def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_
             "dislikes": [],
             "language_style": {"description": "", "examples": []},
             "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
-            "emotions_and_needs": {"long_term": "", "short_term": ""},
+            "emotions": {"long_term": "", "short_term": ""},
+            "needs": {"long_term": "", "short_term": ""},
             "relationship_with_user": "",
         },
         "user": {
@@ -483,7 +489,8 @@ def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_
             "likes": [],
             "dislikes": [],
             "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
-            "emotions_and_needs": {"long_term": "", "short_term": ""},
+            "emotions": {"long_term": "", "short_term": ""},
+            "needs": {"long_term": "", "short_term": ""},
         },
         "memorable_events": {},
         "commands_and_agreements": [],

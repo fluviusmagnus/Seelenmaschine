@@ -35,7 +35,11 @@ CURRENT_SEELE_TEMPLATE_FALLBACK = {
             "description": "",
             "worldview_and_values": "",
         },
-        "emotions_and_needs": {
+        "emotions": {
+            "long_term": "",
+            "short_term": "",
+        },
+        "needs": {
             "long_term": "",
             "short_term": "",
         },
@@ -55,7 +59,11 @@ CURRENT_SEELE_TEMPLATE_FALLBACK = {
             "description": "",
             "worldview_and_values": "",
         },
-        "emotions_and_needs": {
+        "emotions": {
+            "long_term": "",
+            "short_term": "",
+        },
+        "needs": {
             "long_term": "",
             "short_term": "",
         },

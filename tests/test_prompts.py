@@ -242,7 +242,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions_and_needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": ""},
+                "needs": {"long_term": "", "short_term": ""},
                 "relationship_with_user": "",
             },
             "user": {
@@ -258,7 +259,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions_and_needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": ""},
+                "needs": {"long_term": "", "short_term": ""},
             },
             "memorable_events": {
                 "evt_20260329_project_commitment": {
@@ -444,7 +446,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions_and_needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": ""},
+                "needs": {"long_term": "", "short_term": ""},
                 "relationship_with_user": "",
             },
             "user": {
@@ -460,7 +463,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions_and_needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": ""},
+                "needs": {"long_term": "", "short_term": ""},
             },
             "memorable_events": {},
             "commands_and_agreements": [],

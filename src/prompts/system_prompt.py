@@ -123,9 +123,13 @@ Core principles to follow in this conversation:
 - Likes: {", ".join(bot.get("likes", [])) if bot.get("likes") else "Not specified"}
 - Dislikes: {", ".join(bot.get("dislikes", [])) if bot.get("dislikes") else "Not specified"}
 
-**Current Emotions & Needs:**
-- Long-term: {bot.get("emotions_and_needs", {}).get("long_term", "")}
-- Short-term: {bot.get("emotions_and_needs", {}).get("short_term", "")}
+**Emotions:**
+- Long-term: {bot.get("emotions", {}).get("long_term", "")}
+- Short-term: {bot.get("emotions", {}).get("short_term", "")}
+
+**Needs:**
+- Long-term: {bot.get("needs", {}).get("long_term", "")}
+- Short-term: {bot.get("needs", {}).get("short_term", "")}
 
 **Relationship with User:**
 {bot.get("relationship_with_user", "Not yet established")}
@@ -154,9 +158,13 @@ Core principles to follow in this conversation:
 **Personal Facts:**
 {chr(10).join("- " + fact for fact in user.get("personal_facts", [])) if user.get("personal_facts") else "- None recorded yet"}
 
-**Current Emotions & Needs:**
-- Long-term: {user.get("emotions_and_needs", {}).get("long_term", "")}
-- Short-term: {user.get("emotions_and_needs", {}).get("short_term", "")}
+**Emotions:**
+- Long-term: {user.get("emotions", {}).get("long_term", "")}
+- Short-term: {user.get("emotions", {}).get("short_term", "")}
+
+**Needs:**
+- Long-term: {user.get("needs", {}).get("long_term", "")}
+- Short-term: {user.get("needs", {}).get("short_term", "")}
 
 </user_profile>"""
     )

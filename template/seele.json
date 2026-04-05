@@ -19,7 +19,11 @@
             "description": "",
             "worldview_and_values": ""
         },
-        "emotions_and_needs": {
+        "emotions": {
+            "long_term": "",
+            "short_term": ""
+        },
+        "needs": {
             "long_term": "",
             "short_term": ""
         },
@@ -39,7 +43,11 @@
             "description": "",
             "worldview_and_values": ""
         },
-        "emotions_and_needs": {
+        "emotions": {
+            "long_term": "",
+            "short_term": ""
+        },
+        "needs": {
             "long_term": "",
             "short_term": ""
         }

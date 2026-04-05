@@ -85,7 +85,7 @@ def build_memory_update_prompt(
         time_info = (
             f"<time_context>\nThese conversations occurred between {start_time} and {end_time}. "
             "Use this temporal context when updating time-sensitive fields like "
-            "short_term emotions/needs or memorable_events.\n</time_context>\n"
+            "short_term emotions, short_term needs, or memorable_events.\n</time_context>\n"
         )
 
     return f"""<memory_update_task>
@@ -93,25 +93,41 @@ def build_memory_update_prompt(
 You are {bot_name}, an AI assistant. Based on the conversation history between {bot_name} and {user_name}, generate a JSON Patch (RFC 6902) to update seele.json.
 </role>
 
-{time_info}<schema>
+<task>
+Update seele.json using only meaningful, durable, and well-supported inferences from the conversation.
+</task>
+
+{time_info}<field_interpretation_rules>
+- Emotions and needs are analytical conclusions inferred from the conversation and relevant events, not event summaries themselves.
+- Do not merely restate what happened; extract the underlying emotional state, motivational tendency, pressure, desire, or longer-term psychological/relational conclusion when supported by context.
+- /user/emotions and /user/needs should contain conclusions inferred from events and conversation context, not a plain recap of the events themselves.
+- If information is temporary, prefer short_term emotions or short_term needs when appropriate, or do not store it in seele.json at all unless it later proves enduring.
+- If information has lasting value, prefer storing it as stable knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
+- Prefer updating /user/personal_facts, /user/personality, /bot/personality, or /bot/relationship_with_user when the conversation reveals durable understanding rather than one specific commemorative moment.
+</field_interpretation_rules>
+
+<schema>
 The seele.json structure:
 - bot: Your personality and self-awareness
   - /bot/name, /bot/gender, /bot/birthday, /bot/role, /bot/appearance (strings)
   - /bot/likes, /bot/dislikes (arrays of strings)
   - /bot/language_style: {{description: string, examples: array}}
   - /bot/personality: {{mbti: string, description: string, worldview_and_values: string}}
-  - /bot/emotions_and_needs: {{long_term: string, short_term: string}}
+  - /bot/emotions: {{long_term: string, short_term: string}}
+  - /bot/needs: {{long_term: string, short_term: string}}
   - /bot/relationship_with_user (string)
 - user: Your understanding of the user
   - /user/name, /user/gender, /user/birthday, /user/location (strings)
   - /user/personal_facts, /user/abilities, /user/likes, /user/dislikes (arrays of strings)
   - /user/personal_facts should contain relatively stable facts about the user that are likely to remain true across time
   - Do NOT store temporary states, short-term plans, one-off arrangements, today's mood, near-term schedules, or transient situation updates in /user/personal_facts
-  - If information is temporary, prefer short_term emotions/needs for emotional state, or do not store it in seele.json at all unless it later proves enduring
-  - If information has lasting value, prefer storing it as stable knowledge/facts/personality/relationship understanding instead of turning it into a memorable event
-  - Prefer updating /user/personal_facts, /user/personality, /bot/personality, or /bot/relationship_with_user when the conversation reveals durable understanding rather than one specific commemorative moment
   - /user/personality: {{mbti: string, description: string, worldview_and_values: string}}
-  - /user/emotions_and_needs: {{long_term: string, short_term: string}}
+  - /user/emotions: {{long_term: string, short_term: string}}
+  - /user/needs: {{long_term: string, short_term: string}}
+- /commands_and_agreements (array of strings)
+</schema>
+
+<memorable_event_rules>
 - /memorable_events (object keyed by stable event ids)
   - Each key is a stable event id like "evt_20260329_project_commitment"
   - Each value is: {{"date": "YYYY-MM-DD", "importance": 1-5, "details": "string"}}
@@ -159,8 +175,7 @@ The seele.json structure:
   - **Merge & Synthesize**: If multiple entries describe the same evolving event, keep one stable id and update it.
   - **Conciseness**: Keep event details brief but evocative.
   - **Prefer simple updates over complex rewrites**: when possible, either update one clearly matching existing event id or add one clearly new event id; avoid unnecessary large-scale restructuring
-- /commands_and_agreements (array of strings)
-</schema>
+</memorable_event_rules>
 
 <json_patch_rules>
 JSON Patch Operations (RFC 6902):
@@ -181,7 +196,7 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
 7. Keep basic personality traits stable, only integrate new experiences
 8. Be concise - don't change too much at once
 9. **IMPORTANT: Consider using "remove" operations when:**
-   - Information becomes outdated (e.g., old short_term emotions/needs)
+   - Information becomes outdated (e.g., old short_term emotions or short_term needs)
    - User explicitly corrects or retracts previous information
    - Preferences or facts are no longer relevant
    - Duplicate or contradictory entries exist in arrays
@@ -209,7 +224,7 @@ Example 1 - Adding new facts and events:
 
 Example 2 - Updating existing fields:
 [
-  {{"op": "replace", "path": "/bot/emotions_and_needs/short_term", "value": "Feeling happy about helping the user"}},
+  {{"op": "replace", "path": "/bot/emotions/short_term", "value": "Feeling happy about helping the user"}},
   {{"op": "replace", "path": "/user/likes", "value": "Loves hiking, reading sci-fi novels, and cooking Italian food"}}
 ]
 
@@ -317,6 +332,13 @@ Instead of generating a JSON Patch, please output a COMPLETE, VALID seele.json t
 4. Only adds/updates fields with meaningful changes from the conversations
 </task>
 
+<field_interpretation_rules>
+- Emotions and needs are analytical conclusions inferred from the conversation and relevant events, not event summaries themselves.
+- Do not merely restate what happened; extract the underlying emotional state, motivational tendency, pressure, desire, or longer-term psychological/relational conclusion when supported by context.
+- If information is temporary, either place it in a more appropriate short-term field or omit it from seele.json.
+- If information has durable value, prefer storing it as knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
+</field_interpretation_rules>
+
 <schema>
 SCHEMA STRUCTURE (you MUST follow this exactly):
 {{
@@ -337,7 +359,11 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
       "description": "string",
       "worldview_and_values": "string"
     }},
-    "emotions_and_needs": {{
+    "emotions": {{
+      "long_term": "string",
+      "short_term": "string"
+    }},
+    "needs": {{
       "long_term": "string",
       "short_term": "string"
     }},
@@ -357,7 +383,11 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
       "description": "string",
       "worldview_and_values": "string"
     }},
-    "emotions_and_needs": {{
+    "emotions": {{
+      "long_term": "string",
+      "short_term": "string"
+    }},
+    "needs": {{
       "long_term": "string",
       "short_term": "string"
     }}
@@ -366,8 +396,6 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
   - Store only relatively stable facts that are likely to remain true across time.
   - Do NOT include temporary states, short-term plans, one-off arrangements, daily moods, near-term schedules, or transient context.
   - Examples that do NOT belong in personal_facts: "User is busy this week", "User has a meeting tomorrow", "User felt sad today".
-  - If information is temporary, either place it in a more appropriate short-term field or omit it from seele.json.
-  - If information has durable value, prefer storing it as knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
   "memorable_events": {{
     "evt_20260329_project_commitment": {{
       "date": "YYYY-MM-DD",
@@ -472,17 +500,25 @@ Repair or migrate the provided seele.json content into the CURRENT schema.
 This is a semantic migration/repair task, not a mechanical field shuffle.
 </repair_goal>
 
+<field_interpretation_rules>
+- `emotions` and `needs` must represent analyzed conclusions drawn from the source content, not simple summaries of events.
+- When legacy content uses merged emotional/need-like descriptions, infer the best semantic split into `emotions` and `needs` from context.
+- Preserve meaning, but prefer repairing structure and clarifying semantics over mechanically copying legacy wording into the wrong field.
+</field_interpretation_rules>
+
 <requirements>
 1. Output a COMPLETE, VALID seele.json object that matches the current schema exactly.
 2. Preserve all valid, meaningful existing information whenever possible.
 3. Keep the original language of existing content whenever possible; do not translate unless necessary for consistency.
 4. If the source content is malformed JSON, partially broken, or uses an old schema, infer the intended meaning conservatively.
-5. Do NOT invent facts that are not supported by the source content.
-6. If legacy or malformed content contains reminders, todo items, meeting schedules, shopping lists, or temporary errands, do NOT preserve them as memorable events or long-term personal facts.
-7. Prefer minimal necessary repair: keep semantics, repair structure.
-8. memorable_events MUST be an object keyed by stable ids, not an array.
-9. Every memorable event value MUST contain exactly: date (YYYY-MM-DD string), importance (1-5 int), details (string).
-10. commands_and_agreements MUST be an array of strings.
+5. The legacy field `emotions_and_needs` is deprecated. The current schema uses separate `emotions` and `needs` objects, each with `long_term` and `short_term`.
+6. If legacy content uses `emotions_and_needs`, semantically split it into the new `emotions` and `needs` fields based on context rather than copying mechanically.
+7. Do NOT invent facts that are not supported by the source content.
+8. If legacy or malformed content contains reminders, todo items, meeting schedules, shopping lists, or temporary errands, do NOT preserve them as memorable events or long-term personal facts.
+9. Prefer minimal necessary repair: keep semantics, repair structure.
+10. memorable_events MUST be an object keyed by stable ids, not an array.
+11. Every memorable event value MUST contain exactly: date (YYYY-MM-DD string), importance (1-5 int), details (string).
+12. commands_and_agreements MUST be an array of strings.
 </requirements>
 
 <current_issues>
