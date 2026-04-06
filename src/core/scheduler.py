@@ -141,10 +141,17 @@ class TaskScheduler:
         elif trigger_type == "interval":
             interval = trigger_config.get("interval", 3600)
             next_run_at = last_run_at + interval
-            self.db.update_task_next_run(
-                task_id, next_run_at=next_run_at, last_run_at=last_run_at
-            )
-            logger.info(f"Interval task {task_id} rescheduled for {next_run_at}")
+            end_timestamp = trigger_config.get("end_timestamp")
+            if end_timestamp is not None and next_run_at > end_timestamp:
+                self.db.update_task_status_and_last_run(task_id, "completed", last_run_at)
+                logger.info(
+                    f"Interval task {task_id} reached end time {end_timestamp} and was completed"
+                )
+            else:
+                self.db.update_task_next_run(
+                    task_id, next_run_at=next_run_at, last_run_at=last_run_at
+                )
+                logger.info(f"Interval task {task_id} rescheduled for {next_run_at}")
 
     def add_task(
         self, name: str, trigger_type: str, trigger_config: Dict[str, Any], message: str
@@ -158,8 +165,12 @@ class TaskScheduler:
             if timestamp:
                 next_run_at = timestamp
         elif trigger_type == "interval":
-            interval = trigger_config.get("interval", 3600)
-            next_run_at = created_at + interval
+            start_timestamp = trigger_config.get("start_timestamp")
+            if start_timestamp is not None:
+                next_run_at = start_timestamp
+            else:
+                interval = trigger_config.get("interval", 3600)
+                next_run_at = created_at + interval
 
         self.db.insert_scheduled_task(
             task_id=task_id,
@@ -177,3 +188,7 @@ class TaskScheduler:
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         return self.db.get_task(task_id)
+
+    @staticmethod
+    def get_current_timestamp() -> int:
+        return get_current_timestamp()

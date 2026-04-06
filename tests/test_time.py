@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime
 import time
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from utils.time import (
     format_relative_time,
     validate_timestamp,
     parse_duration_to_seconds,
+    parse_timezone,
     parse_time_expression,
     format_timestamp,
 )
@@ -283,6 +285,34 @@ class TestParseTimeExpression:
         result1 = parse_time_expression("in 5 minutes")
         result2 = parse_time_expression("  in  5  minutes  ")
         assert result1 == result2
+
+    def test_iso_datetime_with_explicit_timezone(self):
+        """Test naive datetime parsing with explicit timezone override."""
+        berlin_result = parse_time_expression(
+            "2026-04-07 08:00:00", tz=ZoneInfo("Europe/Berlin")
+        )
+        shanghai_result = parse_time_expression(
+            "2026-04-07 08:00:00", tz=ZoneInfo("Asia/Shanghai")
+        )
+
+        assert berlin_result is not None
+        assert shanghai_result is not None
+        assert berlin_result != shanghai_result
+
+
+class TestParseTimezone:
+    """Test parse_timezone helper."""
+
+    def test_parse_timezone_valid(self):
+        result = parse_timezone("Asia/Shanghai")
+        assert result == ZoneInfo("Asia/Shanghai")
+
+    def test_parse_timezone_blank(self):
+        assert parse_timezone("") is None
+
+    def test_parse_timezone_invalid(self):
+        with pytest.raises(ValueError, match="Invalid timezone"):
+            parse_timezone("Mars/OlympusMons")
 
 
 class TestDurationHelpers:

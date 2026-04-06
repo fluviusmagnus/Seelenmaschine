@@ -55,6 +55,9 @@ AI: [Calls scheduled_task tool]
     Name: Daily Water Reminder
     Type: Recurring
     Interval: 1d
+    First run: 2026-01-29 08:00:00
+    End time: 2026-02-28 08:00:00
+    Timezone: Asia/Shanghai
     Message: Suggest user drink a glass of water to start the day hydrated
 ```
 
@@ -73,6 +76,9 @@ AI: [Calls scheduled_task tool]
     • Daily Water Reminder (ID: def456...)
       Type: interval
       Interval: 1d
+      First run: 2026-01-29 08:00:00
+      End time: 2026-02-28 08:00:00
+      Timezone: Asia/Shanghai
       Next run: 2026-01-29 08:00:00
       Message: Suggest user drink a glass of water...
 ```
@@ -113,7 +119,16 @@ Simple interval expressions:
 - `5m` - Every 5 minutes
 - `1h` - Every hour
 - `1d` - Every day
-- `1w` - Every week
+
+Recurring tasks can also specify an explicit **first run time**:
+- `time="1d", start_time="2026-01-29 08:00:00"` - start at the specified time, then repeat daily
+- `time="1d", start_time="2026-01-29 08:00:00", end_time="2026-02-28 08:00:00"` - start at the specified time, repeat daily, and stop at the end time
+
+### Timezone support
+
+- You may specify an explicit IANA timezone such as `Asia/Shanghai` or `Europe/Berlin`
+- If the provided datetime string has no timezone, it will be interpreted in `timezone`
+- If `timezone` is omitted, the configured `TIMEZONE` is used
 
 ## Task Field Explanation
 
@@ -129,6 +144,27 @@ Simple interval expressions:
     - ✅ "Ask user about progress on the quarterly report"
     - ❌ "Remember to drink water" (too vague, AI cannot provide context)
     - ❌ "Check something" (too ambiguous)
+
+### `time` / `start_time` / `timezone`
+
+- **`time`**:
+  - for `once`, it is the trigger time
+  - for `interval`, it is the repeat interval
+- **`start_time`**:
+  - only for `interval`
+  - defines the first execution time
+- **`timezone`**:
+  - optional
+  - used to interpret timezone-naive datetime strings in `time` / `start_time`
+
+More precisely, `timezone` is also used to interpret timezone-naive `end_time` values.
+
+### `end_time`
+
+- only for `interval`
+- defines the stop time of the recurring task
+- a run exactly at `end_time` is still allowed
+- if the next scheduled run would be later than `end_time`, the task is automatically completed
 
 ## Current Implementation Notes
 
@@ -242,7 +278,12 @@ task_id = scheduler.add_task(
 task_id = scheduler.add_task(
     name="Hourly Check",
     trigger_type="interval",
-    trigger_config={"interval": 3600},  # Every hour
+    trigger_config={
+        "interval": 3600,
+        "start_timestamp": 1738137600,
+        "end_timestamp": 1740729600,
+        "timezone": "Asia/Shanghai",
+    },
     message="Ask user if they need anything or want to chat"
 )
 

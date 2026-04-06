@@ -2,7 +2,7 @@ import re
 import time
 from datetime import datetime
 from typing import Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.config import Config
 
@@ -59,6 +59,33 @@ _SPECIAL_TIME_EXPRESSIONS = {
 
 def _resolve_timezone(tz: Optional[ZoneInfo] = None) -> ZoneInfo:
     return Config.TIMEZONE if tz is None else tz
+
+
+def parse_timezone(timezone_name: Optional[str]) -> Optional[ZoneInfo]:
+    """Parse an IANA timezone string into ZoneInfo.
+
+    Args:
+        timezone_name: IANA timezone string like ``Asia/Shanghai``.
+
+    Returns:
+        Parsed ZoneInfo instance, or None when timezone_name is None/empty.
+
+    Raises:
+        ValueError: If the timezone string is invalid.
+    """
+    if timezone_name is None:
+        return None
+
+    normalized_name = timezone_name.strip()
+    if not normalized_name:
+        return None
+
+    try:
+        return ZoneInfo(normalized_name)
+    except ZoneInfoNotFoundError as e:
+        raise ValueError(
+            f"Invalid timezone '{timezone_name}'. Use an IANA timezone like 'Asia/Shanghai'."
+        ) from e
 
 
 def get_current_timestamp() -> int:
@@ -146,7 +173,7 @@ def format_duration_seconds(seconds: int) -> str:
     return f"{seconds}s"
 
 
-def parse_time_expression(time_expr: str) -> Optional[int]:
+def parse_time_expression(time_expr: str, tz: Optional[ZoneInfo] = None) -> Optional[int]:
     """Parse a time expression to Unix timestamp
 
     Supports:
@@ -178,7 +205,7 @@ def parse_time_expression(time_expr: str) -> Optional[int]:
         dt = datetime.fromisoformat(time_expr)
         # If no timezone, assume local timezone
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=Config.TIMEZONE)
+            dt = dt.replace(tzinfo=_resolve_timezone(tz))
         return datetime_to_timestamp(dt)
     except ValueError:
         pass
@@ -203,7 +230,10 @@ def parse_time_expression(time_expr: str) -> Optional[int]:
 
 
 def format_timestamp(
-    timestamp: int, include_date: bool = True, include_time: bool = True
+    timestamp: int,
+    include_date: bool = True,
+    include_time: bool = True,
+    tz: Optional[ZoneInfo] = None,
 ) -> str:
     """Format timestamp to human-readable string
 
@@ -219,11 +249,11 @@ def format_timestamp(
         return "N/A"
 
     if include_date and include_time:
-        return timestamp_to_str(timestamp, "%Y-%m-%d %H:%M:%S")
+        return timestamp_to_str(timestamp, "%Y-%m-%d %H:%M:%S", tz=tz)
     elif include_date:
-        return timestamp_to_str(timestamp, "%Y-%m-%d")
+        return timestamp_to_str(timestamp, "%Y-%m-%d", tz=tz)
     elif include_time:
-        return timestamp_to_str(timestamp, "%H:%M:%S")
+        return timestamp_to_str(timestamp, "%H:%M:%S", tz=tz)
     else:
         return str(timestamp)
 

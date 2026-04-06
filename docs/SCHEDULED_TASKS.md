@@ -55,6 +55,9 @@ AI: [调用 scheduled_task 工具]
     Name: Daily Water Reminder
     Type: Recurring
     Interval: 1d
+    First run: 2026-01-29 08:00:00
+    End time: 2026-02-28 08:00:00
+    Timezone: Asia/Shanghai
     Message: Suggest user drink a glass of water to start the day hydrated
 ```
 
@@ -73,6 +76,9 @@ AI: [调用 scheduled_task 工具]
     • Daily Water Reminder (ID: def456...)
       Type: interval
       Interval: 1d
+      First run: 2026-01-29 08:00:00
+      End time: 2026-02-28 08:00:00
+      Timezone: Asia/Shanghai
       Next run: 2026-01-29 08:00:00
       Message: Suggest user drink a glass of water...
 ```
@@ -115,6 +121,16 @@ AI: [调用 scheduled_task 工具]
 - `1d` - 每天
 - `1w` - 每周
 
+也支持为周期性任务单独指定**首次执行时间**：
+- `time="1d", start_time="2026-01-29 08:00:00"` - 从指定时间开始，每天执行一次
+- `time="1d", start_time="2026-01-29 08:00:00", end_time="2026-02-28 08:00:00"` - 从指定时间开始，每天执行一次，直到结束时间
+
+### 时区支持
+
+- 可通过 `timezone` 显式指定 IANA 时区，例如 `Asia/Shanghai`、`Europe/Berlin`
+- 若时间字符串本身不带时区，则按 `timezone` 解释
+- 若未提供 `timezone`，默认使用配置中的 `TIMEZONE`
+
 ## 任务字段说明
 
 ### `name` vs `message`
@@ -129,6 +145,27 @@ AI: [调用 scheduled_task 工具]
     - ✅ "Ask user about progress on the quarterly report"
     - ❌ "记得喝水" (太笼统，AI 无法提供上下文)
     - ❌ "Check something" (太模糊)
+
+### `time` / `start_time` / `timezone`
+
+- **`time`**:
+  - `once` 任务时表示触发时间
+  - `interval` 任务时表示重复间隔
+- **`start_time`**:
+  - 仅对 `interval` 任务有效
+  - 表示第一次执行时间
+- **`timezone`**:
+  - 可选
+  - 用于解释 `time` / `start_time` 中不带时区的时间字符串
+
+更完整地说，`timezone` 也会用于解释 `end_time` 中不带时区的时间字符串。
+
+### `end_time`
+
+- 仅对 `interval` 任务有效
+- 表示循环任务的截止时间
+- 若某次执行时间恰好等于 `end_time`，该次执行仍允许
+- 若下一次执行时间会晚于 `end_time`，任务将自动结束并标记为 `completed`
 
 ## 当前实现说明
 
@@ -242,7 +279,12 @@ task_id = scheduler.add_task(
 task_id = scheduler.add_task(
     name="Hourly Check",
     trigger_type="interval",
-    trigger_config={"interval": 3600},  # 每小时
+    trigger_config={
+        "interval": 3600,
+        "start_timestamp": 1738137600,
+        "end_timestamp": 1740729600,
+        "timezone": "Asia/Shanghai",
+    },
     message="Ask user if they need anything or want to chat"
 )
 

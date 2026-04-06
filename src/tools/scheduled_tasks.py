@@ -1,12 +1,14 @@
-from typing import Dict, Any, Optional
 import json
+from typing import Any, Dict, Optional
 
 from utils.logger import get_logger
 from utils.time import (
     format_duration_seconds,
     format_timestamp,
+    get_current_timestamp,
     parse_duration_to_seconds,
     parse_time_expression,
+    parse_timezone,
 )
 
 logger = get_logger()
@@ -75,7 +77,19 @@ TIME FORMATS:
                 },
                 "time": {
                     "type": "string",
-                    "description": "When the task should trigger. Required for 'add' action.\n\nFor 'once' tasks:\n- Duration: '30s' (30 sec), '5m' (5 min), '2h' (2 hours), '1d' (1 day), '1w' (1 week)\n- Specific time: ISO datetime like '2026-02-01 14:30:00'\n\nFor 'interval' (recurring) tasks:\n- Use interval format: '30s', '5m', '1h', '1d', '7d' (weekly), etc.\n\nExamples: '30m' (in 30 min), '1d' (in 1 day), '24h' (every 24 hours)",
+                    "description": "Primary time field for 'add'. Required for 'add' action.\n\nFor 'once' tasks:\n- The execution time\n- Supports duration like '30s', '5m', '2h', '1d', '1w'\n- Supports specific datetime like '2026-02-01 14:30:00'\n\nFor 'interval' tasks:\n- The repeat interval only, such as '30s', '5m', '1h', '1d', '7d'\n- Use 'start_time' if the recurring task should begin at a specific datetime\n\nExamples: '30m' (in 30 min for once), '1d' (every 1 day for interval)",
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "Optional first execution time for recurring 'interval' tasks. Use this when the task should start at a specific datetime and then repeat according to 'time'. Example: start_time='2026-02-01 08:00:00' with time='1d' means first run at 8 AM, then every day.",
+                },
+                "end_time": {
+                    "type": "string",
+                    "description": "Optional stop time for recurring 'interval' tasks. The task will keep running at the configured interval until this time is reached. A run exactly at end_time is still allowed, but no future run after end_time will be scheduled.",
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Optional IANA timezone name used to interpret time fields, such as 'Asia/Shanghai' or 'Europe/Berlin'. If omitted, the system default timezone is used.",
                 },
                 "message": {
                     "type": "string",
@@ -109,6 +123,9 @@ TIME FORMATS:
             name = kwargs.get("name", "Unnamed Task")
             trigger_type = kwargs.get("trigger_type")
             time_expr = kwargs.get("time")
+            start_time_expr = kwargs.get("start_time")
+            end_time_expr = kwargs.get("end_time")
+            timezone_name = kwargs.get("timezone")
             message = kwargs.get("message", "")
 
             if not trigger_type:
@@ -120,15 +137,24 @@ TIME FORMATS:
             if not message:
                 return "Error: message is required"
 
+            try:
+                timezone = parse_timezone(timezone_name)
+            except ValueError as e:
+                return f"Error: {e}"
+
             trigger_config = {}
 
             if trigger_type == "once":
+                if end_time_expr:
+                    return "Error: end_time is only supported for interval tasks"
                 # Parse time for one-time task
-                timestamp = parse_time_expression(time_expr)
+                timestamp = parse_time_expression(time_expr, tz=timezone)
                 if timestamp is None:
                     return f"Error: Could not parse time expression '{time_expr}'"
 
                 trigger_config = {"timestamp": timestamp}
+                if timezone_name:
+                    trigger_config["timezone"] = timezone_name.strip()
 
             elif trigger_type == "interval":
                 # Parse interval duration
@@ -137,6 +163,44 @@ TIME FORMATS:
                     return f"Error: Invalid interval '{time_expr}'. Use format like '1h', '30m', '1d'"
 
                 trigger_config = {"interval": interval}
+                if start_time_expr:
+                    start_timestamp = parse_time_expression(start_time_expr, tz=timezone)
+                    if start_timestamp is None:
+                        return (
+                            f"Error: Could not parse start_time expression '{start_time_expr}'"
+                        )
+                    trigger_config["start_timestamp"] = start_timestamp
+                if end_time_expr:
+                    end_timestamp = parse_time_expression(end_time_expr, tz=timezone)
+                    if end_timestamp is None:
+                        return f"Error: Could not parse end_time expression '{end_time_expr}'"
+                    trigger_config["end_timestamp"] = end_timestamp
+
+                start_timestamp = trigger_config.get("start_timestamp")
+                end_timestamp = trigger_config.get("end_timestamp")
+                if (
+                    start_timestamp is not None
+                    and end_timestamp is not None
+                    and end_timestamp < start_timestamp
+                ):
+                    return "Error: end_time must be greater than or equal to start_time"
+
+                current_timestamp_getter = getattr(
+                    self._scheduler, "get_current_timestamp", None
+                )
+                if callable(current_timestamp_getter):
+                    current_timestamp = current_timestamp_getter()
+                    if not isinstance(current_timestamp, int):
+                        current_timestamp = get_current_timestamp()
+                else:
+                    current_timestamp = get_current_timestamp()
+
+                first_run_timestamp = start_timestamp or current_timestamp + interval
+                if end_timestamp is not None and end_timestamp < first_run_timestamp:
+                    return "Error: end_time must be greater than or equal to the first scheduled run"
+
+                if timezone_name:
+                    trigger_config["timezone"] = timezone_name.strip()
 
             else:
                 return f"Error: Invalid trigger_type '{trigger_type}'"
@@ -151,10 +215,36 @@ TIME FORMATS:
 
             # Format response
             if trigger_type == "once":
-                time_str = format_timestamp(trigger_config["timestamp"])
-                return f"✓ Task created (Task ID: {task_id})\nName: {name}\nType: One-time\nTrigger at: {time_str}\nMessage: {message}"
+                time_str = format_timestamp(trigger_config["timestamp"], tz=timezone)
+                response = (
+                    f"✓ Task created (Task ID: {task_id})\n"
+                    f"Name: {name}\n"
+                    f"Type: One-time\n"
+                    f"Trigger at: {time_str}"
+                )
+                if timezone_name:
+                    response += f"\nTimezone: {timezone_name.strip()}"
+                response += f"\nMessage: {message}"
+                return response
             else:
-                return f"✓ Task created (Task ID: {task_id})\nName: {name}\nType: Recurring\nInterval: {time_expr}\nMessage: {message}"
+                response = (
+                    f"✓ Task created (Task ID: {task_id})\n"
+                    f"Name: {name}\n"
+                    f"Type: Recurring\n"
+                    f"Interval: {time_expr}"
+                )
+                if trigger_config.get("start_timestamp"):
+                    response += (
+                        f"\nFirst run: {format_timestamp(trigger_config['start_timestamp'], tz=timezone)}"
+                    )
+                if trigger_config.get("end_timestamp"):
+                    response += (
+                        f"\nEnd time: {format_timestamp(trigger_config['end_timestamp'], tz=timezone)}"
+                    )
+                if timezone_name:
+                    response += f"\nTimezone: {timezone_name.strip()}"
+                response += f"\nMessage: {message}"
+                return response
 
         except Exception as e:
             logger.error(f"Error adding task: {e}")
@@ -174,19 +264,37 @@ TIME FORMATS:
                 trigger_config = task["trigger_config"]
                 if isinstance(trigger_config, str):
                     trigger_config = json.loads(trigger_config)
+                task_tz = self._get_task_timezone(trigger_config)
 
                 result += f"• {task['name']}\n"
                 result += f"  Task ID: {task['task_id']}\n"
                 result += f"  Type: {task['trigger_type']}\n"
 
                 if task["trigger_type"] == "once":
-                    time_str = format_timestamp(trigger_config.get("timestamp", 0))
+                    time_str = format_timestamp(
+                        trigger_config.get("timestamp", 0), tz=task_tz
+                    )
                     result += f"  Trigger at: {time_str}\n"
                 else:
                     interval = trigger_config.get("interval", 0)
                     result += f"  Interval: {self._format_interval(interval)}\n"
-                    next_run = format_timestamp(task["next_run_at"])
+                    if trigger_config.get("start_timestamp"):
+                        first_run = format_timestamp(
+                            trigger_config.get("start_timestamp", 0), tz=task_tz
+                        )
+                        result += f"  First run: {first_run}\n"
+                    if trigger_config.get("end_timestamp"):
+                        end_time = format_timestamp(
+                            trigger_config.get("end_timestamp", 0), tz=task_tz
+                        )
+                        result += f"  End time: {end_time}\n"
+                    if trigger_config.get("timezone"):
+                        result += f"  Timezone: {trigger_config['timezone']}\n"
+                    next_run = format_timestamp(task["next_run_at"], tz=task_tz)
                     result += f"  Next run: {next_run}\n"
+
+                if task["trigger_type"] == "once" and trigger_config.get("timezone"):
+                    result += f"  Timezone: {trigger_config['timezone']}\n"
 
                 result += f"  Message: {task['message'][:50]}...\n\n"
 
@@ -210,6 +318,7 @@ TIME FORMATS:
             trigger_config = task["trigger_config"]
             if isinstance(trigger_config, str):
                 trigger_config = json.loads(trigger_config)
+            task_tz = self._get_task_timezone(trigger_config)
 
             result = f"Name: {task['name']}\n"
             result += f"Task ID: {task['task_id']}\n"
@@ -217,16 +326,31 @@ TIME FORMATS:
             result += f"Status: {task['status']}\n"
 
             if task["trigger_type"] == "once":
-                time_str = format_timestamp(trigger_config.get("timestamp", 0))
+                time_str = format_timestamp(trigger_config.get("timestamp", 0), tz=task_tz)
                 result += f"Trigger at: {time_str}\n"
             else:
                 interval = trigger_config.get("interval", 0)
                 result += f"Interval: {self._format_interval(interval)}\n"
-                next_run = format_timestamp(task["next_run_at"])
+                if trigger_config.get("start_timestamp"):
+                    first_run = format_timestamp(
+                        trigger_config.get("start_timestamp", 0), tz=task_tz
+                    )
+                    result += f"First run: {first_run}\n"
+                if trigger_config.get("end_timestamp"):
+                    end_time = format_timestamp(
+                        trigger_config.get("end_timestamp", 0), tz=task_tz
+                    )
+                    result += f"End time: {end_time}\n"
+                if trigger_config.get("timezone"):
+                    result += f"Timezone: {trigger_config['timezone']}\n"
+                next_run = format_timestamp(task["next_run_at"], tz=task_tz)
                 result += f"Next run: {next_run}\n"
 
+            if task["trigger_type"] == "once" and trigger_config.get("timezone"):
+                result += f"Timezone: {trigger_config['timezone']}\n"
+
             if task["last_run_at"]:
-                last_run = format_timestamp(task["last_run_at"])
+                last_run = format_timestamp(task["last_run_at"], tz=task_tz)
                 result += f"Last run: {last_run}\n"
 
             result += f"Message: {task['message']}"
@@ -308,3 +432,14 @@ TIME FORMATS:
     def _format_interval(self, seconds: int) -> str:
         """Format interval in seconds to human-readable string"""
         return format_duration_seconds(seconds)
+
+    def _get_task_timezone(self, trigger_config: Dict[str, Any]):
+        timezone_name = trigger_config.get("timezone")
+        if not timezone_name:
+            return None
+
+        try:
+            return parse_timezone(timezone_name)
+        except ValueError:
+            logger.warning(f"Invalid task timezone stored in trigger_config: {timezone_name}")
+            return None

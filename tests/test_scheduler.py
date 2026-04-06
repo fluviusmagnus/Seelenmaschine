@@ -67,6 +67,46 @@ def test_add_interval_task(scheduler):
     assert task["trigger_config"]["interval"] == 3600
 
 
+def test_add_interval_task_with_start_timestamp(scheduler):
+    """Test adding an interval task with explicit first run time."""
+    current_time = get_current_timestamp()
+    start_timestamp = current_time + 7200
+
+    task_id = scheduler.add_task(
+        name="Recurring Task With Start",
+        trigger_type="interval",
+        trigger_config={"interval": 3600, "start_timestamp": start_timestamp},
+        message="Hourly reminder",
+    )
+
+    task = scheduler.get_task(task_id)
+    assert task is not None
+    assert task["next_run_at"] == start_timestamp
+
+
+@pytest.mark.asyncio
+async def test_interval_task_completes_after_end_time(scheduler):
+    """Test that interval task stops after end_time is exceeded."""
+    current_time = get_current_timestamp()
+    task_id = scheduler.add_task(
+        name="Bounded Interval Task",
+        trigger_type="interval",
+        trigger_config={
+            "interval": 60,
+            "start_timestamp": current_time - 120,
+            "end_timestamp": current_time - 30,
+        },
+        message="Test",
+    )
+
+    await scheduler._check_and_run_tasks()
+
+    task = scheduler.get_task(task_id)
+    assert task is not None
+    assert task["status"] == "completed"
+    assert task["last_run_at"] is not None
+
+
 def test_get_due_tasks(scheduler, temp_db):
     """Test retrieving due tasks"""
     current_time = get_current_timestamp()
@@ -218,8 +258,8 @@ async def test_task_execution_flow(scheduler):
     """Test the full task execution flow"""
     messages_sent = []
 
-    def callback(message, task_name="Scheduled Task"):
-        messages_sent.append((message, task_name))
+    def callback(message, task_name="Scheduled Task", task_id=None):
+        messages_sent.append((message, task_name, task_id))
 
     scheduler.set_message_callback(callback)
 
@@ -237,7 +277,7 @@ async def test_task_execution_flow(scheduler):
 
     # Verify callback was called
     assert len(messages_sent) == 1
-    assert messages_sent[0] == ("Execute now!", "Immediate Task")
+    assert messages_sent[0] == ("Execute now!", "Immediate Task", task_id)
 
     # Verify task was marked as completed
     task = scheduler.get_task(task_id)
