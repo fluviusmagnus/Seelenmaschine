@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.approval import ApprovalService
+from core.stop import ToolLoopAbortedError
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -127,7 +128,7 @@ class TelegramMessages:
 
         if pending_request is not None:
             await self._safe_reply_text(
-                update.message.reply_text, "❌ Pending action aborted."
+                update.message.reply_text, "❌ Pending action declined."
             )
             return
 
@@ -154,6 +155,12 @@ class TelegramMessages:
                 await self.core_bot.run_post_response_summary_check(
                     context_label="message reply delivery"
                 )
+        except ToolLoopAbortedError as error:
+            logger.info(f"Tool loop aborted by user request: {error}")
+            await self._safe_reply_text(
+                update.message.reply_text,
+                "🛑 Current tool loop stopped.",
+            )
         except Exception as error:
             logger.error(f"Error handling message: {error}", exc_info=True)
             await self._safe_reply_text(

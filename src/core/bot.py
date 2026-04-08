@@ -11,6 +11,7 @@ from core.file_artifact_service import FileArtifactService
 from core.file_delivery_service import FileDeliveryService
 from core.scheduler import TaskScheduler
 from core.session_service import SessionService
+from core.stop import StopController
 from core.tools import (
     ToolExecutor,
     ToolRuntime,
@@ -58,6 +59,7 @@ class CoreBot:
         self._approval_delegate: Optional[Any] = None
         self._tool_runtime: Optional[ToolRuntime] = None
         self._tool_executor_service: Optional[ToolExecutor] = None
+        self._stop_controller = StopController()
 
     def create_tool_runtime_state(
         self,
@@ -141,6 +143,9 @@ class CoreBot:
             mcp_client=self.tool_runtime_state.mcp_client,
             ensure_mcp_connected=self.ensure_mcp_connected,
             preview_text=preview_text,
+            begin_run=self.begin_tool_loop_run,
+            end_run=self.end_tool_loop_run,
+            check_stop_requested=self.check_stop_requested,
         )
         self.session_service = SessionService(
             memory=self.memory,
@@ -188,6 +193,30 @@ class CoreBot:
         if self.conversation_service is None:
             raise RuntimeError("Conversation service has not been initialized")
         return self.conversation_service.processing_lock
+
+    def begin_tool_loop_run(self) -> None:
+        """Mark the start of a conversation/tool loop run."""
+        self._stop_controller.begin_run()
+
+    def end_tool_loop_run(self) -> None:
+        """Mark the end of a conversation/tool loop run and clear stop state."""
+        self._stop_controller.end_run()
+
+    def request_stop_current_run(self, reason: str = "User requested stop.") -> bool:
+        """Request a cooperative stop for the currently active conversation/tool loop."""
+        return self._stop_controller.request_stop(reason)
+
+    def check_stop_requested(self) -> None:
+        """Raise if the active run has been asked to stop."""
+        self._stop_controller.check_stop_requested()
+
+    def has_running_conversation(self) -> bool:
+        """Return whether a conversation/tool loop is currently running."""
+        return self._stop_controller.has_running_run()
+
+    def is_stop_requested(self) -> bool:
+        """Return whether the current active run has a pending stop request."""
+        return self._stop_controller.is_stop_requested()
 
     async def run_post_response_summary_check(self, *, context_label: str) -> Optional[int]:
         """Run the explicit post-reply summary check."""

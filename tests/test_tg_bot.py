@@ -122,6 +122,7 @@ class TestTelegramAdapterApplication:
         commands.handle_help = AsyncMock()
         commands.handle_new_session = AsyncMock()
         commands.handle_reset_session = AsyncMock()
+        commands.handle_stop = AsyncMock()
         commands.handle_approve = AsyncMock()
         handler.commands = commands
         return handler
@@ -199,7 +200,7 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.read_timeout.assert_called_once_with(30.0)
                 mock_builder_instance.write_timeout.assert_called_once_with(30.0)
                 mock_builder_instance.pool_timeout.assert_called_once_with(15.0)
-                assert mock_application.add_handler.call_count == 7
+                assert mock_application.add_handler.call_count == 8
 
     def test_create_application_enables_concurrent_updates(
         self, mock_config, mock_message_handler, mock_application

@@ -20,6 +20,7 @@ class PendingApprovalRequest:
     reason: str
     future: asyncio.Future
     created_at: float
+    abort_reason: Optional[str] = None
 
 
 class ApprovalService:
@@ -131,14 +132,18 @@ class ApprovalService:
             return pending_request
         return None
 
-    def abort_pending(self) -> Optional[PendingApprovalRequest]:
+    def abort_pending(
+        self, reason: str = "User declined this action."
+    ) -> Optional[PendingApprovalRequest]:
         """Abort the current pending action if one exists."""
         pending_request = self._pending_request
         if pending_request and not pending_request.future.done():
+            pending_request.abort_reason = reason
             pending_request.future.set_result(False)
             logger.info(
-                "Pending approval aborted by non-/approve user message: "
-                f"tool={pending_request.tool_name}, reason={pending_request.reason}"
+                "Pending approval aborted: "
+                f"tool={pending_request.tool_name}, reason={pending_request.reason}, "
+                f"abort_reason={reason}"
             )
             return pending_request
         return None

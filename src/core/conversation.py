@@ -23,6 +23,9 @@ class ConversationService:
         mcp_client: Any,
         ensure_mcp_connected: Optional[Callable[[], Awaitable[None]]] = None,
         preview_text: Optional[Callable[[Optional[str], int], str]] = None,
+        begin_run: Optional[Callable[[], None]] = None,
+        end_run: Optional[Callable[[], None]] = None,
+        check_stop_requested: Optional[Callable[[], None]] = None,
     ) -> None:
         self.config = config
         self.memory = memory
@@ -32,6 +35,9 @@ class ConversationService:
         self.mcp_client = mcp_client
         self.ensure_mcp_connected = ensure_mcp_connected
         self.preview_text = preview_text or self._default_preview_text
+        self.begin_run = begin_run or (lambda: None)
+        self.end_run = end_run or (lambda: None)
+        self.check_stop_requested = check_stop_requested or (lambda: None)
         self._processing_lock = asyncio.Lock()
 
     @property
@@ -232,7 +238,9 @@ class ConversationService:
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> str:
         """Process a normal user message through memory and the LLM."""
+        self.begin_run()
         try:
+            self.check_stop_requested()
             logger.debug("Step 1: Adding user message to memory")
             embedding = None
             if message_for_embedding is not None:
@@ -256,6 +264,7 @@ class ConversationService:
                     embedding=user_embedding,
                 )
             )
+            self.check_stop_requested()
             llm_result = await self._run_with_memory_search_tool(
                 lambda: self.llm_client.chat_async_detailed(
                     current_context=current_context,
@@ -264,11 +273,13 @@ class ConversationService:
                     recent_summaries=recent_summaries,
                     current_session_id=self.memory.get_current_session_id(),
                     intermediate_callback=intermediate_callback,
+                    abort_check=self.check_stop_requested,
                 ),
                 enable_log="Step 5: Enabling memory search tool",
                 disable_log="Step 7: Disabling memory search tool",
                 mcp_log="Step 5.5: Ensuring MCP is connected",
             )
+            self.check_stop_requested()
 
             assistant_messages = llm_result.get("assistant_messages", [])
             tool_context_messages = llm_result.get("tool_context_messages", [])
@@ -317,6 +328,8 @@ class ConversationService:
         except Exception as e:
             logger.error(f"Error in process_message: {e}", exc_info=True)
             raise
+        finally:
+            self.end_run()
 
     async def process_scheduled_task(
         self,
@@ -327,7 +340,9 @@ class ConversationService:
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> str:
         """Process a scheduled task message through the LLM and memory."""
+        self.begin_run()
         try:
+            self.check_stop_requested()
             wrapped_message = self._wrap_scheduled_task_message(
                 task_message,
                 task_name,
@@ -353,6 +368,7 @@ class ConversationService:
                     log_suffix=" for scheduled task",
                 )
             )
+            self.check_stop_requested()
             llm_result = await self._run_with_memory_search_tool(
                 lambda: self.llm_client.chat_with_custom_message_async_detailed(
                     current_context=current_context,
@@ -363,11 +379,13 @@ class ConversationService:
                     custom_message_role="system",
                     current_session_id=self.memory.get_current_session_id(),
                     intermediate_callback=intermediate_callback,
+                    abort_check=self.check_stop_requested,
                 ),
                 enable_log="Step 4: Enabling memory search tool",
                 disable_log="Step 7: Disabling memory search tool",
                 mcp_log="Step 4.5: Ensuring MCP is connected",
             )
+            self.check_stop_requested()
 
             assistant_messages = llm_result.get("assistant_messages", [])
             tool_context_messages = llm_result.get("tool_context_messages", [])
@@ -422,4 +440,6 @@ class ConversationService:
                 f"[Scheduled Task] {task_message}\n\n"
                 "(Error occurred while processing, please check logs)"
             )
+        finally:
+            self.end_run()
 

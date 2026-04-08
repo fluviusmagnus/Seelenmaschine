@@ -280,6 +280,7 @@ class LLMClient:
         custom_message_role: str = "user",
         current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        abort_check: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         """Build prompt messages and execute the tool-aware chat loop."""
         messages = self._build_chat_messages(
@@ -294,6 +295,7 @@ class LLMClient:
         return await self._run_chat_with_tool_loop(
             messages,
             intermediate_callback=intermediate_callback,
+            abort_check=abort_check,
         )
 
     async def _run_chat_messages_final_text(self, **kwargs: Any) -> str:
@@ -305,11 +307,13 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        abort_check: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         """Run chat completion loop with tool execution and collect assistant texts."""
         return await self._tool_loop.run_chat_with_tool_loop(
             messages,
             intermediate_callback=intermediate_callback,
+            abort_check=abort_check,
         )
 
     async def _async_chat(
@@ -359,6 +363,7 @@ class LLMClient:
         recent_summaries: Optional[List[str]] = None,
         current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        abort_check: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         """Async chat returning both final text and intermediate assistant messages."""
         return await self._run_chat_messages(
@@ -368,6 +373,7 @@ class LLMClient:
             recent_summaries=recent_summaries,
             current_session_id=current_session_id,
             intermediate_callback=intermediate_callback,
+            abort_check=abort_check,
         )
 
     async def chat_with_custom_message_async(
@@ -415,6 +421,7 @@ class LLMClient:
         custom_message_role: str = "user",
         current_session_id: Optional[int] = None,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        abort_check: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         """Async chat with custom message, returning detailed assistant outputs."""
         return await self._run_chat_messages(
@@ -425,6 +432,7 @@ class LLMClient:
             custom_user_message=custom_user_message,
             custom_message_role=custom_message_role,
             current_session_id=current_session_id,
+            abort_check=abort_check,
             intermediate_callback=intermediate_callback,
         )
 

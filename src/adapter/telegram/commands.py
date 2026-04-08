@@ -22,7 +22,9 @@ class TelegramCommands:
         "Commands:\n"
         "/help - Show this help message\n"
         "/new - Start a new session (archives current)\n"
-        "/reset - Reset current session\n\n"
+        "/reset - Reset current session\n"
+        "/approve - Approve a pending dangerous action\n"
+        "/stop - Stop the current tool loop\n\n"
         "Just send me a message to start chatting!"
     )
     _HELP_TEXT = (
@@ -30,7 +32,9 @@ class TelegramCommands:
         "/start - Welcome message\n"
         "/help - Show this help\n"
         "/new - Archive current session and start new\n"
-        "/reset - Delete current session and start fresh\n\n"
+        "/reset - Delete current session and start fresh\n"
+        "/approve - Approve a pending dangerous action\n"
+        "/stop - Stop the current tool loop\n\n"
         "Features:\n"
         "• Long-term memory across sessions\n"
         "• Vector-based memory retrieval\n"
@@ -63,6 +67,7 @@ class TelegramCommands:
             BotCommand("new", "Archive current session and start new"),
             BotCommand("reset", "Delete current session and start fresh"),
             BotCommand("approve", "Approve a pending dangerous action"),
+            BotCommand("stop", "Stop the current tool loop"),
             BotCommand("help", "Show help and available commands"),
             BotCommand("start", "Welcome message"),
         ]
@@ -223,6 +228,30 @@ class TelegramCommands:
         pending_request = self.approval_service.approve_pending()
         if pending_request is None:
             await update.message.reply_text("No pending action to approve.")
+
+    async def handle_stop(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Stop the current running tool loop and abort any pending approval."""
+        del context
+        if not update.effective_user or not update.message:
+            return
+        if await self.access_guard.reject_unauthorized(
+            update,
+            log_message="Unauthorized /stop command",
+        ):
+            return
+
+        pending_request = self.approval_service.abort_pending("User requested stop.")
+        stop_requested = self.core_bot.request_stop_current_run("User requested stop.")
+
+        if pending_request is not None or stop_requested:
+            await update.message.reply_text(
+                "🛑 Stop signal sent. The current tool loop will stop at the next safe checkpoint."
+            )
+            return
+
+        await update.message.reply_text("No running tool loop to stop.")
 
     async def _send_status_message(
         self, text: str, parse_mode: str | None = None

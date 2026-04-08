@@ -180,6 +180,7 @@ class TelegramApplicationSetup:
             command_handler_cls("new", commands.handle_new_session),
             command_handler_cls("reset", commands.handle_reset_session),
             command_handler_cls("approve", commands.handle_approve),
+            command_handler_cls("stop", commands.handle_stop),
             message_handler_cls(
                 filters_module.TEXT & ~filters_module.COMMAND,
                 self.telegram_adapter.message_handler.handle_message,

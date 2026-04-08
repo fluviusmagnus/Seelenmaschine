@@ -237,6 +237,9 @@ class TestMessageProcessing:
             mcp_client=handler.mcp_client,
             ensure_mcp_connected=handler._ensure_mcp_connected,
             preview_text=handler._preview_text,
+            begin_run=core_bot.begin_tool_loop_run,
+            end_run=core_bot.end_tool_loop_run,
+            check_stop_requested=core_bot.check_stop_requested,
         )
         return core_bot
 
@@ -980,8 +983,118 @@ class TestMessageProcessing:
 
         assert pending_request.future.done() is True
         assert pending_request.future.result() is False
+        assert pending_request.abort_reason == "User declined this action."
         handler.core_bot.process_message.assert_not_called()
-        update.message.reply_text.assert_awaited_once_with("❌ Pending action aborted.")
+        update.message.reply_text.assert_awaited_once_with("❌ Pending action declined.")
+
+    @pytest.mark.asyncio
+    async def test_process_message_stop_request_aborts_loop_and_clears_flag(self):
+        """A cooperative stop request should abort the active loop and clear the stop flag."""
+        from core.bot import CoreBot
+        from core.stop import ToolLoopAbortedError
+
+        handler = Mock()
+        handler.memory = Mock()
+        handler.memory.add_user_message_async = AsyncMock(return_value=(1, [0.1, 0.2]))
+        handler.memory.get_context_messages = Mock(return_value=[])
+        handler.memory.process_user_input_async = AsyncMock(return_value=([], []))
+        handler.memory.get_recent_summaries = Mock(return_value=[])
+        handler.memory.add_assistant_message_async = AsyncMock(return_value=(2, None))
+        handler.memory.run_summary_check_async = AsyncMock(return_value=None)
+        handler.memory.add_context_message_async = AsyncMock(return_value=4)
+
+        handler.memory_search_tool = Mock()
+        handler.memory_search_tool.enable = Mock()
+        handler.memory_search_tool.disable = Mock()
+
+        handler.mcp_client = None
+        handler._ensure_mcp_connected = AsyncMock()
+        handler._preview_text = Mock(return_value="preview")
+
+        core_bot_holder = {}
+
+        def _chat_side_effect(**kwargs):
+            core_bot_holder["core_bot"].request_stop_current_run("User requested stop.")
+            kwargs["abort_check"]()
+            return {"final_text": "should not reach"}
+
+        handler.llm_client = Mock()
+        handler.llm_client.chat_async_detailed = AsyncMock(side_effect=_chat_side_effect)
+
+        core_bot = self._build_core_bot_for_conversation(handler)
+        core_bot_holder["core_bot"] = core_bot
+
+        with pytest.raises(ToolLoopAbortedError, match=r"User requested stop\."):
+            await core_bot.process_message("停止一下")
+
+        assert core_bot.has_running_conversation() is False
+        assert core_bot.is_stop_requested() is False
+        handler.memory.add_assistant_message_async.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_handle_stop_requests_loop_stop_and_aborts_pending_approval(self):
+        """/stop should abort pending approval and set the cooperative stop flag."""
+        from adapter.telegram.commands import TelegramCommands
+        from core.approval import ApprovalService
+        from core.bot import CoreBot
+
+        config = Mock()
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+        config.TELEGRAM_USER_ID = 123456789
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=Mock(),
+        )
+        core_bot.begin_tool_loop_run()
+
+        approval_service = ApprovalService()
+        loop = asyncio.get_running_loop()
+        pending_request = approval_service.pending_request
+        assert pending_request is None
+        pending_request = __import__("core.approval", fromlist=["PendingApprovalRequest"]).PendingApprovalRequest(
+            tool_name="execute_shell_command",
+            arguments={"command": "rm /etc/passwd"},
+            reason="shell_threat:data_loss",
+            future=loop.create_future(),
+            created_at=loop.time(),
+        )
+        approval_service._update_pending_request(pending_request)
+
+        commands = TelegramCommands(
+            core_bot=core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=approval_service,
+            get_telegram_bot=lambda: None,
+            preview_text=lambda text, max_length=120: text or "",
+            format_exception_for_user=str,
+        )
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.message = Mock()
+        update.message.reply_text = AsyncMock()
+        context = Mock()
+
+        await commands.handle_stop(update, context)
+
+        assert pending_request.future.done() is True
+        assert pending_request.future.result() is False
+        assert pending_request.abort_reason == "User requested stop."
+        assert core_bot.is_stop_requested() is True
+        update.message.reply_text.assert_awaited_once()
 
 
 class TestPathSafetyApproval:

@@ -41,6 +41,7 @@ class ToolLoop:
         self,
         messages: List[Dict[str, str]],
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
+        abort_check: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         """Run chat completion loop with tool execution and collect assistant texts."""
         assistant_messages: List[str] = []
@@ -49,11 +50,15 @@ class ToolLoop:
         iteration = 1
         event_index = 0
 
+        if abort_check is not None:
+            abort_check()
         result = await self.llm_client._async_chat(
             messages, use_tools=True, force_chat_model=True
         )
 
         while result["tool_calls"]:
+            if abort_check is not None:
+                abort_check()
             logger.debug(
                 f"LLM tool loop iteration {iteration}: received {len(result['tool_calls'])} tool call(s)"
             )
@@ -86,6 +91,8 @@ class ToolLoop:
 
             tool_responses = []
             for call in result["tool_calls"]:
+                if abort_check is not None:
+                    abort_check()
                 if Config.DEBUG_SHOW_FULL_PROMPT:
                     logger.debug(
                         "Executing tool call (full):\n"
@@ -170,11 +177,15 @@ class ToolLoop:
             messages.append(assistant_message)
             messages.extend(tool_responses)
 
+            if abort_check is not None:
+                abort_check()
             result = await self.llm_client._async_chat(
                 messages, use_tools=True, force_chat_model=True
             )
             iteration += 1
 
+        if abort_check is not None:
+            abort_check()
         final_text = self.llm_client._extract_assistant_text_from_result(result) or ""
         if final_text:
             assistant_messages.append(final_text)
