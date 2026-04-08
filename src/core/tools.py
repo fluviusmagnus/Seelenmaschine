@@ -319,7 +319,9 @@ class ToolRuntime:
         state = self._get_runtime_state()
         core_bot = self._get_core_bot()
         if core_bot.config.ENABLE_MCP:
-            state.mcp_client = MCPClient()
+            state.mcp_client = MCPClient(
+                file_artifact_service=core_bot.file_artifact_service
+            )
             state.mcp_connected = False
         else:
             state.mcp_client = None
@@ -397,6 +399,7 @@ class ToolExecutor:
         infer_tool_trace_status: Callable[[Any], str],
         notify_approved_action_finished: Callable[[str, str], Awaitable[None]],
         notify_approved_action_failed: Callable[[str, Exception], Awaitable[None]],
+        file_artifact_service: Any,
         preview_text: Callable[[Optional[str], int], str],
         telegram_bot: Any = None,
     ) -> None:
@@ -411,8 +414,21 @@ class ToolExecutor:
         self.infer_tool_trace_status = infer_tool_trace_status
         self.notify_approved_action_finished = notify_approved_action_finished
         self.notify_approved_action_failed = notify_approved_action_failed
+        self.file_artifact_service = file_artifact_service
         self.preview_text = preview_text
         self.telegram_bot = telegram_bot
+
+    def _normalize_result_for_llm(self, result: Any, *, source_label: str) -> str:
+        result_text = str(result)
+        if not result_text or self.file_artifact_service is None:
+            return result_text
+
+        persisted = self.file_artifact_service.maybe_persist_text_base64(
+            result_text,
+            source=source_label.lower(),
+            prefix=f"{source_label.lower()}_tool_output",
+        )
+        return persisted or result_text
 
     @staticmethod
     def _to_json_text(value: Any) -> str:
@@ -505,6 +521,7 @@ class ToolExecutor:
         source_label: str,
     ) -> Dict[str, Any]:
         """Log, trace, and notify for a successful tool execution path."""
+        result = self._normalize_result_for_llm(result, source_label=source_label)
         logger.info(
             f"{source_label} tool execution finished: {tool_name}, "
             f"preview={self.preview_text(result)}"

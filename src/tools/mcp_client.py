@@ -21,11 +21,13 @@ class MCPClient:
     def __init__(
         self,
         config_path: Optional[Path] = None,
+        file_artifact_service: Optional[Any] = None,
     ):
         self.config_path = config_path or Config.MCP_CONFIG_PATH
         self.client: Optional[Client] = None
         self._config = self._load_config()
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
+        self.file_artifact_service = file_artifact_service
 
     def _get_default_roots(self) -> List[str]:
         """Get default roots configuration - using data directory"""
@@ -162,6 +164,17 @@ class MCPClient:
 
         text = self._get_content_block_attr(content_block, "text")
         if text is not None:
+            if self.file_artifact_service is not None:
+                persisted_text = self.file_artifact_service.maybe_persist_text_base64(
+                    str(text),
+                    source="mcp",
+                    filename=self._get_content_block_filename(content_block),
+                    mime_type=mime_type,
+                    content_kind="mcp_text_base64",
+                    prefix="mcp_text_payload",
+                )
+                if persisted_text is not None:
+                    return persisted_text
             return self._sanitize_text_block(
                 str(text), block_type=block_type, mime_type=mime_type
             )
@@ -186,6 +199,65 @@ class MCPClient:
         if isinstance(content_block, dict):
             return content_block.get(key)
         return getattr(content_block, key, None)
+
+    def _get_content_block_filename(self, content_block: Any) -> Optional[str]:
+        for key in ("name", "filename", "fileName", "title"):
+            value = self._get_content_block_attr(content_block, key)
+            if value:
+                return str(value)
+
+        uri = self._get_content_block_attr(content_block, "uri")
+        if uri:
+            path_name = Path(str(uri)).name
+            if path_name:
+                return path_name
+        return None
+
+    def _persist_binary_content_block(
+        self, content_block: Any, block_type: Any, mime_type: Any
+    ) -> Optional[str]:
+        if self.file_artifact_service is None:
+            return None
+
+        filename = self._get_content_block_filename(content_block)
+        source_prefix = str(block_type or "artifact").lower() or "artifact"
+
+        for key in ("data", "blob", "bytes", "base64"):
+            value = self._get_content_block_attr(content_block, key)
+            if value is None and isinstance(content_block, dict):
+                value = content_block.get(key)
+
+            try:
+                if isinstance(value, (bytes, bytearray)):
+                    artifact = self.file_artifact_service.save_bytes_artifact(
+                        bytes(value),
+                        filename=filename,
+                        mime_type=mime_type,
+                        source="mcp",
+                        content_kind=str(block_type or key or "binary"),
+                        prefix=f"mcp_{source_prefix}",
+                    )
+                    return self.file_artifact_service.build_saved_artifact_message(
+                        artifact
+                    )
+
+                if isinstance(value, str):
+                    artifact = self.file_artifact_service.save_base64_artifact(
+                        value,
+                        filename=filename,
+                        mime_type=mime_type,
+                        source="mcp",
+                        content_kind=str(block_type or key or "base64"),
+                        prefix=f"mcp_{source_prefix}",
+                    )
+                    return self.file_artifact_service.build_saved_artifact_message(
+                        artifact
+                    )
+            except Exception as error:
+                logger.warning(f"Failed to persist MCP binary content block: {error}")
+                return None
+
+        return None
 
     def _is_binary_like_content_block(
         self, content_block: Any, block_type: Any, mime_type: Any
@@ -295,6 +367,10 @@ class MCPClient:
         self, content_block: Any, block_type: Any, mime_type: Any
     ) -> str:
         """Return a short summary instead of raw binary/resource content."""
+        persisted = self._persist_binary_content_block(content_block, block_type, mime_type)
+        if persisted is not None:
+            return persisted
+
         details: List[str] = []
 
         uri = self._get_content_block_attr(content_block, "uri")

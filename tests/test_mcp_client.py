@@ -1,9 +1,11 @@
 import pytest
 import tempfile
 import json
+import base64
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
+from core.file_artifact_service import FileArtifactService
 from tools.mcp_client import MCPClient
 
 
@@ -36,6 +38,14 @@ def mcp_config_file(temp_config_dir):
 def mcp_client(mcp_config_file):
     """Create MCPClient with test config."""
     return MCPClient(config_path=mcp_config_file)
+
+
+@pytest.fixture
+def artifact_service(tmp_path):
+    config = Mock()
+    config.MEDIA_DIR = tmp_path / "media"
+    config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    return FileArtifactService(config=config)
 
 
 class TestMCPClient:
@@ -254,6 +264,44 @@ class TestMCPClient:
 
         assert "[tool output truncated, omitted" in result
         assert len(result) < len(text)
+
+    def test_extract_text_from_content_block_saves_binary_payload_to_file(
+        self, mcp_config_file, artifact_service
+    ):
+        client = MCPClient(
+            config_path=mcp_config_file,
+            file_artifact_service=artifact_service,
+        )
+        payload = base64.b64encode(b"fake pdf payload").decode("ascii")
+
+        result = client._extract_text_from_content_block(
+            {
+                "type": "file",
+                "mimeType": "application/pdf",
+                "name": "report.pdf",
+                "data": payload,
+            }
+        )
+
+        assert result.startswith("[Tool Returned File]")
+        assert "mime_type: application/pdf" in result
+        assert "source: mcp" in result
+        assert "content_kind: file" in result
+
+    def test_extract_text_from_text_block_saves_large_base64_payload(
+        self, mcp_config_file, artifact_service
+    ):
+        client = MCPClient(
+            config_path=mcp_config_file,
+            file_artifact_service=artifact_service,
+        )
+        payload = base64.b64encode(b"hello artifact" * 64).decode("ascii")
+
+        result = client._extract_text_from_content_block({"text": payload})
+
+        assert result.startswith("[Tool Returned File]")
+        assert "source: mcp" in result
+        assert "content_kind: mcp_text_base64" in result
 
     @pytest.mark.asyncio
     async def test_call_tool_no_client(self, mcp_client):

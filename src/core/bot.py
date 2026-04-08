@@ -7,6 +7,7 @@ from core.approval import ApprovalService
 from core.config import Config
 from core.conversation import ConversationService
 from core.database import DatabaseManager
+from core.file_artifact_service import FileArtifactService
 from core.file_delivery_service import FileDeliveryService
 from core.scheduler import TaskScheduler
 from core.session_service import SessionService
@@ -51,6 +52,7 @@ class CoreBot:
         self.session_service: Optional[SessionService] = None
         self.tool_runtime_state: Optional[ToolRuntimeState] = None
         self.approval_service = ApprovalService()
+        self.file_artifact_service = FileArtifactService(config=self.config)
         self.file_delivery_service: Optional[FileDeliveryService] = None
         self._tool_owner: Optional[Any] = None
         self._approval_delegate: Optional[Any] = None
@@ -101,6 +103,7 @@ class CoreBot:
                 infer_tool_trace_status=self.tool_runtime_state.tool_trace_service.infer_status,
                 notify_approved_action_finished=self._approval_delegate.notify_approved_action_finished,
                 notify_approved_action_failed=self._approval_delegate.notify_approved_action_failed,
+                file_artifact_service=self.file_artifact_service,
                 preview_text=self._tool_owner._preview_text,
                 telegram_bot=getattr(self._tool_owner, "telegram_bot", None),
             )

@@ -1,6 +1,8 @@
 import pytest
+import base64
 from unittest.mock import Mock, patch, AsyncMock
 
+from core.file_artifact_service import FileArtifactService
 from llm.chat_client import LLMClient
 from llm.request_executor import ChatRequestExecutor
 from llm.tool_loop import ToolLoop
@@ -60,6 +62,19 @@ class TestLLMClient:
 
         assert sanitized.startswith("[tool output omitted: detected large base64")
         assert "A" * 100 not in sanitized
+
+    def test_file_artifact_service_persists_base64_tool_output(self, tmp_path):
+        config = Mock()
+        config.MEDIA_DIR = tmp_path / "media"
+        config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+        service = FileArtifactService(config=config)
+        payload = base64.b64encode(b"artifact data" * 64).decode("ascii")
+
+        result = service.maybe_persist_text_base64(payload, source="local")
+
+        assert result is not None
+        assert result.startswith("[Tool Returned File]")
+        assert "source: local" in result
 
     def test_sanitize_tool_response_for_prompt_truncates_large_text(self, llm_client):
         """Very long tool output should be truncated before re-injection."""
