@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.config import Config
@@ -41,7 +42,12 @@ class ToolLoop:
                 conversation_events.append(
                     {"role": "assistant", "content": assistant_text}
                 )
-                if not Config.DEBUG_SHOW_FULL_PROMPT:
+                if Config.DEBUG_SHOW_FULL_PROMPT:
+                    logger.debug(
+                        "LLM emitted intermediate assistant text before tool execution (full):\n"
+                        f"{assistant_text}"
+                    )
+                else:
                     logger.debug(
                         "LLM emitted intermediate assistant text before tool execution: "
                         f"{self.llm_client._preview_text(assistant_text)}"
@@ -55,7 +61,13 @@ class ToolLoop:
 
             tool_responses = []
             for call in result["tool_calls"]:
-                logger.debug(f"Executing tool: {call['name']}")
+                if Config.DEBUG_SHOW_FULL_PROMPT:
+                    logger.debug(
+                        "Executing tool call (full):\n"
+                        f"{json.dumps(call, ensure_ascii=False, indent=2)}"
+                    )
+                else:
+                    logger.debug(f"Executing tool: {call['name']}")
                 try:
                     response = self.llm_client._tool_executor(
                         call["name"], call["arguments"]
@@ -68,11 +80,24 @@ class ToolLoop:
                     sanitized_response = (
                         self.llm_client._sanitize_tool_response_for_prompt(response_text)
                     )
-                    logger.debug(
-                        f"Tool '{call['name']}' completed with response preview: "
-                        f"{self.llm_client._preview_text(sanitized_response)}"
-                    )
+                    if Config.DEBUG_SHOW_FULL_PROMPT:
+                        logger.debug(
+                            f"Tool '{call['name']}' raw response (full):\n{response_text}"
+                        )
+                        logger.debug(
+                            f"Tool '{call['name']}' sanitized response (full):\n{sanitized_response}"
+                        )
+                    else:
+                        logger.debug(
+                            f"Tool '{call['name']}' completed with response preview: "
+                            f"{self.llm_client._preview_text(sanitized_response)}"
+                        )
                     if isinstance(response, dict) and response.get("context_message"):
+                        if Config.DEBUG_SHOW_FULL_PROMPT:
+                            logger.debug(
+                                f"Tool '{call['name']}' context message (full):\n"
+                                f"{response['context_message']}"
+                            )
                         tool_context_messages.append(response["context_message"])
                         conversation_events.append(
                             {
@@ -118,6 +143,11 @@ class ToolLoop:
             logger.debug(
                 "LLM tool loop finished: "
                 f"assistant_messages={len(assistant_messages)}"
+            )
+            logger.debug(f"LLM tool loop final_text (full):\n{final_text}")
+            logger.debug(
+                "LLM tool loop conversation_events (full):\n"
+                f"{json.dumps(conversation_events, ensure_ascii=False, indent=2)}"
             )
         else:
             logger.debug(

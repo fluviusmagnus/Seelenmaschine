@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
+import json
+
 from core.config import Config
 from utils.logger import get_logger
 
@@ -63,7 +65,7 @@ class ChatRequestExecutor:
         if hasattr(message, "reasoning_content") and message.reasoning_content:
             result["reasoning_content"] = message.reasoning_content
             if Config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(f"Model reasoning: {message.reasoning_content[:200]}...")
+                logger.debug(f"Model reasoning (full):\n{message.reasoning_content}")
 
         if message.tool_calls:
             result["api_tool_calls"] = self.llm_client._format_tool_calls_for_api(
@@ -94,13 +96,27 @@ class ChatRequestExecutor:
             logger.debug(
                 f"LLM response contains {len(tool_names)} tool call(s): {tool_names}"
             )
+            if Config.DEBUG_SHOW_FULL_PROMPT:
+                logger.debug(
+                    "LLM response tool calls (full):\n"
+                    f"{json.dumps(result['tool_calls'], ensure_ascii=False, indent=2)}"
+                )
         else:
             logger.debug("LLM response contains no tool calls")
 
-        if result["content"] and not Config.DEBUG_SHOW_FULL_PROMPT:
+        if result["content"]:
+            if Config.DEBUG_SHOW_FULL_PROMPT:
+                logger.debug(f"LLM response content (full):\n{result['content']}")
+            else:
+                logger.debug(
+                    "LLM response content preview: "
+                    f"{self.llm_client._preview_text(result['content'])}"
+                )
+
+        if Config.DEBUG_SHOW_FULL_PROMPT:
             logger.debug(
-                "LLM response content preview: "
-                f"{self.llm_client._preview_text(result['content'])}"
+                "LLM normalized response (full):\n"
+                f"{json.dumps(result, ensure_ascii=False, indent=2)}"
             )
 
     async def async_chat(

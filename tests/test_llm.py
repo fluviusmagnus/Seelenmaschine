@@ -619,6 +619,38 @@ class TestDebugLogReduction:
                     for message in debug_messages
                 )
 
+    def test_request_executor_logs_full_response_when_full_prompt_enabled(self):
+        llm_client = Mock()
+        executor = ChatRequestExecutor(llm_client)
+
+        with patch("llm.request_executor.Config") as mock_config:
+            with patch("llm.request_executor.logger") as mock_logger:
+                mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                executor._log_response(
+                    {
+                        "tool_calls": [
+                            {"id": "call_1", "name": "demo_tool", "arguments": '{"q": "hi"}'}
+                        ],
+                        "content": "full content",
+                        "api_tool_calls": None,
+                        "reasoning_content": "full reasoning",
+                    }
+                )
+
+                debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
+                assert any(
+                    message.startswith("LLM response tool calls (full):")
+                    for message in debug_messages
+                )
+                assert any(
+                    message.startswith("LLM response content (full):")
+                    for message in debug_messages
+                )
+                assert any(
+                    message.startswith("LLM normalized response (full):")
+                    for message in debug_messages
+                )
+
     @pytest.mark.asyncio
     async def test_tool_loop_skips_intermediate_preview_when_full_prompt_enabled(self):
         llm_client = Mock()
@@ -652,6 +684,61 @@ class TestDebugLogReduction:
                     message.startswith(
                         "LLM emitted intermediate assistant text before tool execution:"
                     )
+                    for message in debug_messages
+                )
+                assert any(
+                    message.startswith(
+                        "LLM emitted intermediate assistant text before tool execution (full):"
+                    )
+                    for message in debug_messages
+                )
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_logs_full_tool_details_when_full_prompt_enabled(self):
+        llm_client = Mock()
+        llm_client._async_chat = AsyncMock(
+            side_effect=[
+                {
+                    "tool_calls": [
+                        {"name": "demo_tool", "arguments": '{"x": 1}', "id": "1"}
+                    ],
+                    "content": "intermediate",
+                },
+                {"tool_calls": None, "content": "final"},
+            ]
+        )
+        llm_client._extract_assistant_text_from_result.side_effect = [
+            "intermediate",
+            "final",
+        ]
+        llm_client._tool_executor = AsyncMock(
+            return_value={"result": "tool output full", "context_message": "context full"}
+        )
+        llm_client._sanitize_tool_response_for_prompt.return_value = "tool output full"
+        llm_client._build_assistant_message_from_result.return_value = {"role": "assistant"}
+
+        tool_loop = ToolLoop(llm_client)
+
+        with patch("llm.tool_loop.Config") as mock_config:
+            with patch("llm.tool_loop.logger") as mock_logger:
+                mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                await tool_loop.run_chat_with_tool_loop([{"role": "user", "content": "hi"}])
+
+                debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
+                assert any(
+                    message.startswith("Executing tool call (full):")
+                    for message in debug_messages
+                )
+                assert any(
+                    message.startswith("Tool 'demo_tool' raw response (full):")
+                    for message in debug_messages
+                )
+                assert any(
+                    message.startswith("Tool 'demo_tool' sanitized response (full):")
+                    for message in debug_messages
+                )
+                assert any(
+                    message.startswith("Tool 'demo_tool' context message (full):")
                     for message in debug_messages
                 )
 
