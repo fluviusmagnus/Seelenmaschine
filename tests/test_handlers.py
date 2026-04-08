@@ -526,7 +526,7 @@ class TestMessageProcessing:
 
     @pytest.mark.asyncio
     async def test_handle_message_waits_for_processing_lock(self):
-        """A second message should wait for the lock before entering processing."""
+        """A second message should show typing even while waiting for the lock."""
         from adapter.telegram.controller import TelegramController
         from adapter.telegram.messages import TelegramMessages
 
@@ -573,7 +573,63 @@ class TestMessageProcessing:
         await asyncio.sleep(0.05)
 
         handler.core_bot.process_message.assert_not_awaited()
-        assert context.bot.send_chat_action.await_count == 0
+        assert context.bot.send_chat_action.await_count > 0
+
+        shared_lock.release()
+        await task
+
+        handler.core_bot.process_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_handle_message_shows_typing_while_previous_summary_holds_lock(self):
+        """A new user message should start typing while the previous turn runs summary work."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        shared_lock = asyncio.Lock()
+        await shared_lock.acquire()
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_message = AsyncMock(return_value="处理完成")
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
+        handler.core_bot.get_processing_lock = Mock(return_value=shared_lock)
+        handler._send_intermediate_response = AsyncMock()
+        response_sender = Mock()
+        response_sender.send_reply_text = AsyncMock()
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=None,
+            files=Mock(),
+            response_sender=response_sender,
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+        )
+        handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
+
+        update = Mock()
+        update.effective_user = Mock()
+        update.effective_user.id = 123456789
+        update.effective_chat = Mock()
+        update.effective_chat.id = 123456789
+        update.message = Mock()
+        update.message.text = "上一轮在做总结时我又发来消息"
+        update.message.reply_text = AsyncMock()
+
+        context = Mock()
+        context.bot = Mock()
+        context.bot.send_chat_action = AsyncMock()
+
+        task = asyncio.create_task(handler.handle_message(update, context))
+        await asyncio.sleep(0.05)
+
+        handler.core_bot.process_message.assert_not_awaited()
+        assert context.bot.send_chat_action.await_count > 0
 
         shared_lock.release()
         await task

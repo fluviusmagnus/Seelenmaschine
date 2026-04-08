@@ -69,13 +69,13 @@ class TelegramFiles:
                     "process_message owner does not expose sequencing helpers"
                 )
 
-            async with core_bot.get_processing_lock():
-                async with typing_indicator(
-                    lambda: context.bot.send_chat_action(
-                        chat_id=update.effective_chat.id, action="typing"
-                    ),
-                    "Typing indicator failed during file handling",
-                ):
+            async with typing_indicator(
+                lambda: context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action="typing"
+                ),
+                "Typing indicator failed during file handling",
+            ):
+                async with core_bot.get_processing_lock():
                     destination = self.build_media_file_path(
                         original_name=file_info.get("original_name"),
                         file_unique_id=file_info["file_unique_id"],

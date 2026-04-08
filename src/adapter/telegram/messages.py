@@ -132,13 +132,13 @@ class TelegramMessages:
             return
 
         try:
-            async with self.core_bot.get_processing_lock():
-                async with typing_indicator(
-                    lambda: context.bot.send_chat_action(
-                        chat_id=update.effective_chat.id, action="typing"
-                    ),
-                    "Typing indicator failed",
-                ):
+            async with typing_indicator(
+                lambda: context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action="typing"
+                ),
+                "Typing indicator failed",
+            ):
+                async with self.core_bot.get_processing_lock():
                     response = await self.process_message(user_message)
                     await self.response_sender.send_reply_text(
                         reply_text=update.message.reply_text,

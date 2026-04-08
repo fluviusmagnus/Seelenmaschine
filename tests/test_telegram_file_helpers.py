@@ -202,6 +202,37 @@ class TestTelegramMessages:
         await task
 
     @pytest.mark.asyncio
+    async def test_handle_file_shows_typing_while_waiting_for_processing_lock(
+        self, messages_helper, message_handler, mock_context, mock_update_with_document
+    ):
+        telegram_file = Mock()
+        telegram_file.download_to_drive = AsyncMock()
+        mock_context.bot.get_file.return_value = telegram_file
+
+        async def download_side_effect(custom_path):
+            Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(custom_path).write_text("dummy", encoding="utf-8")
+
+        telegram_file.download_to_drive.side_effect = download_side_effect
+
+        shared_lock = asyncio.Lock()
+        await shared_lock.acquire()
+        message_handler.core_bot.get_processing_lock = Mock(return_value=shared_lock)
+
+        task = asyncio.create_task(
+            messages_helper.handle_file(mock_update_with_document, mock_context)
+        )
+        await asyncio.sleep(0.05)
+
+        message_handler.core_bot.process_message.assert_not_awaited()
+        assert mock_context.bot.send_chat_action.await_count > 0
+
+        shared_lock.release()
+        await task
+
+        message_handler.core_bot.process_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_process_message_uses_core_bot_entrypoint(
         self, messages_helper, message_handler
     ):
