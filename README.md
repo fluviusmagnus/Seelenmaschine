@@ -25,17 +25,19 @@ Seelenmaschine 是一个具有记忆和人格的 LLM 聊天机器人项目。它
 - 🛠️ **完整的会话管理**：
   - `/new` - 归档当前会话并创建新会话
   - `/reset` - 删除当前会话
+  - `/stop` - 中断当前活跃的工具调用循环
 - 📱 **Telegram Bot 界面**：提供命令菜单、分段回复、文件上传/发送与定时主动消息
 - 🔌 **MCP (Model Context Protocol) 支持**：
   - 动态连接外部工具和数据源
   - 支持多种传输方式（stdio、HTTP、SSE）
-- ⏰ **定时任务**：支持一次性任务和间隔任务
+- ⏰ **定时任务**：支持一次性任务、间隔任务与时区感知调度
 - 🧾 **工具调用追踪**：记录工具执行历史，并支持 `query_tool_history` 查询
 - 🛡️ **内置本地工具集**：
   - 文件操作工具（读取、写入、编辑、追加）
   - 文件搜索工具（Grep内容搜索、Glob模式匹配）
-  - Shell命令执行（带危险命令检测和人工批准）
+  - Shell命令执行（带危险命令检测、人工批准与可配置超时）
 - 📤 **文件发送**：支持将生成的文件直接发送给当前用户
+- 🗂️ **工具 / MCP 产物持久化**：可将二进制或 base64 产物自动保存到 `MEDIA_DIR/tool_artifacts/`
 - 🤝 **人机协作(HITL)**：危险操作需要用户批准，避免意外修改
 
 ## 技术架构
@@ -117,6 +119,7 @@ CHAT_MODEL=gpt-4o
 TOOL_MODEL=gpt-4o
 CHAT_REASONING_EFFORT=low
 TOOL_REASONING_EFFORT=medium
+TOOL_EXECUTION_TIMEOUT_SECONDS=180
 
 # Embedding 配置
 EMBEDDING_API_KEY=your_api_key
@@ -136,15 +139,16 @@ TELEGRAM_USER_ID=your_user_id
 # MCP 配置
 ENABLE_MCP=false
 MCP_CONFIG_PATH=mcp_servers.json
-
-# 工作空间配置（限制本地文件操作范围）
-# 可选，工作空间根目录，默认是 data/<profile>/workspace
-WORKSPACE_DIR=
-# 可选，媒体文件存储目录，默认是 WORKSPACE_DIR/media
-MEDIA_DIR=
 ```
 
 注意：当前配置文件示例**不使用行内 `#` 注释**。如需注释，请单独占一行书写，避免被解析为配置值的一部分。
+
+补充说明：
+
+- `TOOL_EXECUTION_TIMEOUT_SECONDS` 用于限制单次工具调用的默认执行时长
+- `WORKSPACE_DIR` / `MEDIA_DIR` 仍然是**可选高级配置**，即使当前 `.env.example` 未展示，依然支持手动写入 `<profile>.env`
+- `WORKSPACE_DIR` 默认是 `data/<profile>/workspace`
+- `MEDIA_DIR` 默认是 `WORKSPACE_DIR/media`
 
 ### 数据目录结构
 
@@ -187,6 +191,7 @@ start-telegram.bat hy
 - `/new` - 归档当前会话并开始新会话
 - `/reset` - 删除当前会话并创建新会话
 - `/approve` - 批准待执行的危险操作
+- `/stop` - 停止当前活跃的工具调用循环
 
 ### 高级搜索功能
 
@@ -255,7 +260,7 @@ start-telegram.bat hy
 1. **内置本地工具集**
    - 文件操作（读/写/编辑/追加）
    - 文件搜索（Grep内容搜索/Glob模式匹配）
-   - Shell 命令执行（带危险检测和人工批准）
+   - Shell 命令执行（带危险检测、人工批准和默认超时控制）
 2. **MCP (Model Context Protocol)** - 外部工具和数据源
 3. **Memory Search** - 自我查询记忆
 4. **Scheduled Tasks** - 定时任务管理
@@ -263,6 +268,8 @@ start-telegram.bat hy
 6. **Tool Trace Query** - 查询最近的工具执行历史
 
 通过配置文件控制各工具的启用状态。危险命令需要用户批准才能执行。
+
+当工具或 MCP 返回二进制数据、文件内容，或足够长的 base64 文本块时，系统也可能自动将其持久化到 `MEDIA_DIR/tool_artifacts/`，并把保存结果作为文件产物返回给用户。
 
 ### 高级用法
 
@@ -329,10 +336,12 @@ Seelenmaschine/
 │   │   ├── config.py             # 配置管理
 │   │   ├── conversation.py       # 对话编排
 │   │   ├── database.py           # 数据库管理（sqlite-vec）
+│   │   ├── file_artifact_service.py # 工具/MCP 文件产物持久化
 │   │   ├── file_delivery_service.py # 文件发送策略与校验
 │   │   ├── runtime.py            # 运行时生命周期辅助
 │   │   ├── scheduler.py          # 定时任务调度器
 │   │   ├── session_service.py    # 会话生命周期服务
+│   │   ├── stop.py               # 工具循环停止控制
 │   │   └── tools.py              # 工具运行时/注册/执行编排
 │   ├── llm/                      # LLM 模块
 │   │   ├── chat_client.py        # 聊天客户端
@@ -416,6 +425,7 @@ Seelenmaschine/
 - 以结构化 JSON 格式存储在 `seele.json` 中
 - 每次生成新摘要时同步更新
 - 直接嵌入到系统提示词中
+- 当前 schema 已将情绪与需求拆分为独立的 `emotions` / `needs` 字段，并区分 `long_term` / `short_term`
 
 ## 调试与运行说明
 
@@ -424,6 +434,7 @@ Seelenmaschine/
 在 Debug 模式下，程序会：
 - 记录发送给 LLM 的完整提示词（`DEBUG_SHOW_FULL_PROMPT=true`）
 - 记录数据库读写操作（`DEBUG_LOG_DATABASE_OPS=true`）
+- 记录更完整的响应、工具调用与工具结果调试信息
 - 将日志保存在外部文件中
 
 日志级别规则如下：
@@ -439,6 +450,7 @@ Seelenmaschine/
 - `WORKSPACE_DIR` 默认为 `data/<profile>/workspace`
 - `MEDIA_DIR` 默认为 `WORKSPACE_DIR/media`
 - 文件与 Shell 工具会限制在 `WORKSPACE_DIR` / `MEDIA_DIR` 范围内，越界操作需要审批或会被拒绝
+- 工具 / MCP 产物默认会保存到 `MEDIA_DIR/tool_artifacts/`
 
 ## 运行测试
 

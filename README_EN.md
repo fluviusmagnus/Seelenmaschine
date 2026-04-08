@@ -25,17 +25,19 @@ Seelenmaschine is an LLM chatbot project with memory and personality. It uses Te
 - 🛠️ **Complete Session Management**:
   - `/new` - Archive current session and create new session
   - `/reset` - Delete current session
+  - `/stop` - Interrupt the currently active tool loop
 - 📱 **Telegram Bot Interface**: Command menu, segmented replies, file upload/sending, and proactive scheduled messages
 - 🔌 **MCP (Model Context Protocol) Support**:
    - Dynamically connect external tools and data sources
    - Support multiple transport methods (stdio, HTTP, SSE)
-- ⏰ **Scheduled Tasks**: Support for one-time and interval tasks
+- ⏰ **Scheduled Tasks**: Support for one-time tasks, interval tasks, and timezone-aware scheduling
 - 🧾 **Tool Trace Logging**: Records tool execution history and exposes `query_tool_history`
 - 🛡️ **Built-in Local Tools**:
   - File operations (read, write, edit, append)
   - File search (Grep content search, Glob pattern matching)
-  - Shell command execution (with dangerous command detection and human approval)
+  - Shell command execution (with dangerous command detection, human approval, and configurable timeout)
 - 📤 **File Sending**: Support sending generated files directly to the current user
+- 🗂️ **Tool / MCP Artifact Persistence**: Automatically save binary or base64 artifacts into `MEDIA_DIR/tool_artifacts/`
 - 🤝 **Human-in-the-Loop**: Dangerous operations require user approval to prevent accidental modifications
 
 ## Technical Architecture
@@ -117,6 +119,7 @@ CHAT_MODEL=gpt-4o
 TOOL_MODEL=gpt-4o
 CHAT_REASONING_EFFORT=low
 TOOL_REASONING_EFFORT=medium
+TOOL_EXECUTION_TIMEOUT_SECONDS=180
 
 # Embedding Configuration
 EMBEDDING_API_KEY=your_api_key
@@ -136,15 +139,16 @@ TELEGRAM_USER_ID=your_user_id
 # MCP Configuration
 ENABLE_MCP=false
 MCP_CONFIG_PATH=mcp_servers.json
-
-# Workspace Configuration (Restricts local file operations)
-# Optional, workspace root directory, defaults to data/<profile>/workspace
-WORKSPACE_DIR=
-# Optional, media file storage directory, defaults to WORKSPACE_DIR/media
-MEDIA_DIR=
 ```
 
 Note: the current config format **does not use inline `#` comments**. If you need comments, put them on separate lines so they are not parsed as part of the value.
+
+Additional notes:
+
+- `TOOL_EXECUTION_TIMEOUT_SECONDS` controls the default timeout for a single tool call
+- `WORKSPACE_DIR` / `MEDIA_DIR` are still supported as **optional advanced settings**, even though they are no longer shown in the current `.env.example`
+- `WORKSPACE_DIR` defaults to `data/<profile>/workspace`
+- `MEDIA_DIR` defaults to `WORKSPACE_DIR/media`
 
 ### Data Directory Structure
 
@@ -187,6 +191,7 @@ start-telegram.bat hy
 - `/new` - Archive current session and start a new session
 - `/reset` - Delete current session and create a new session
 - `/approve` - Approve a pending dangerous action
+- `/stop` - Stop the currently active tool loop
 
 ### Advanced Search Features
 
@@ -255,7 +260,7 @@ The system integrates the following tool capabilities:
 1. **Built-in Local Tools**
    - File operations (read, write, edit, append)
    - File search (Grep content search/Glob pattern matching)
-   - Shell command execution (with danger detection and human approval)
+   - Shell command execution (with danger detection, human approval, and default timeout control)
 2. **MCP (Model Context Protocol)** - External tools and data sources
 3. **Memory Search** - Self-query memory
 4. **Scheduled Tasks** - Task management
@@ -263,6 +268,8 @@ The system integrates the following tool capabilities:
 6. **Tool Trace Query** - Query recent tool execution history
 
 Control the enabling status of each tool through configuration files. Dangerous commands require user approval before execution.
+
+When a tool or MCP server returns binary content, file-like data, or a sufficiently long base64 text block, the system may automatically persist it into `MEDIA_DIR/tool_artifacts/` and return it back as a saved file artifact.
 
 ### Advanced Usage
 
@@ -329,10 +336,12 @@ Seelenmaschine/
 │   │   ├── config.py             # Configuration management
 │   │   ├── conversation.py       # Conversation orchestration
 │   │   ├── database.py           # Database management (sqlite-vec)
+│   │   ├── file_artifact_service.py # Tool/MCP file artifact persistence
 │   │   ├── file_delivery_service.py # File delivery policy and validation
 │   │   ├── runtime.py            # Runtime lifecycle helpers
 │   │   ├── scheduler.py          # Task scheduler
 │   │   ├── session_service.py    # Session lifecycle service
+│   │   ├── stop.py               # Tool-loop stop control
 │   │   └── tools.py              # Tool runtime/registry/execution orchestration
 │   ├── llm/                      # LLM modules
 │   │   ├── chat_client.py        # Chat client
@@ -416,6 +425,7 @@ Seelenmaschine/
 - Stored in structured JSON format in `seele.json`
 - Synchronized and updated each time a new summary is generated
 - Directly embedded into system prompts
+- The current schema separates `emotions` and `needs`, each with `long_term` and `short_term` fields
 
 ## Debug and Runtime Notes
 
@@ -424,6 +434,7 @@ Seelenmaschine/
 In debug mode, the program will:
 - Log complete prompts sent to LLM (`DEBUG_SHOW_FULL_PROMPT=true`)
 - Log database read/write operations (`DEBUG_LOG_DATABASE_OPS=true`)
+- Log fuller response, tool-call, and tool-result debug details
 - Save logs to external files
 
 Log level rules:
@@ -439,6 +450,7 @@ Recommended usage: treat `DEBUG_MODE` as the main switch, and use `DEBUG_LOG_LEV
 - `WORKSPACE_DIR` defaults to `data/<profile>/workspace`
 - `MEDIA_DIR` defaults to `WORKSPACE_DIR/media`
 - File and shell tools are constrained to `WORKSPACE_DIR` / `MEDIA_DIR`; out-of-bounds actions require approval or are blocked
+- Tool / MCP artifacts are saved under `MEDIA_DIR/tool_artifacts/` by default
 
 ## Running Tests
 
