@@ -11,6 +11,136 @@ from utils.text import strip_blockquotes
 class TelegramResponseFormatter:
     """Format assistant responses for Telegram HTML delivery."""
 
+    _INLINE_TAGS = {
+        "**": "b",
+        "__": "u",
+        "~~": "s",
+        "||": "tg-spoiler",
+        "*": "i",
+        "_": "i",
+    }
+
+    @staticmethod
+    def _is_word_char(char: str) -> bool:
+        """Return whether a character should count as part of a word."""
+        return char.isalnum() or char == "_"
+
+    def _is_valid_single_marker_open(self, text: str, index: int, marker: str) -> bool:
+        """Check whether a single-character emphasis marker can open a span."""
+        if index + 1 >= len(text):
+            return False
+
+        prev_char = text[index - 1] if index > 0 else ""
+        next_char = text[index + 1]
+
+        if next_char.isspace() or next_char == marker:
+            return False
+
+        return not self._is_word_char(prev_char)
+
+    def _is_valid_single_marker_close(self, text: str, index: int, marker: str) -> bool:
+        """Check whether a single-character emphasis marker can close a span."""
+        if index <= 0:
+            return False
+
+        prev_char = text[index - 1]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+
+        if prev_char.isspace():
+            return False
+
+        return not self._is_word_char(next_char)
+
+    def _find_single_marker_close(self, text: str, start: int, marker: str) -> int:
+        """Find the matching close position for a single-character marker."""
+        search_index = start
+        while True:
+            match_index = text.find(marker, search_index)
+            if match_index == -1:
+                return -1
+            if self._is_valid_single_marker_close(text, match_index, marker):
+                return match_index
+            search_index = match_index + 1
+
+    @staticmethod
+    def _find_double_marker_close(text: str, start: int, marker: str) -> int:
+        """Find the matching close position for a double-character marker."""
+        return text.find(marker, start)
+
+    @staticmethod
+    def _try_parse_link(text: str, start: int) -> tuple[str, str, int] | None:
+        """Parse a markdown-style inline link starting at ``start`` when present."""
+        if text[start] != "[":
+            return None
+
+        label_end = text.find("]", start + 1)
+        if label_end == -1 or label_end + 1 >= len(text) or text[label_end + 1] != "(":
+            return None
+
+        url_end = text.find(")", label_end + 2)
+        if url_end == -1:
+            return None
+
+        label = text[start + 1 : label_end]
+        url = text[label_end + 2 : url_end]
+        if not label or not url:
+            return None
+
+        return label, url, url_end + 1
+
+    def _render_inline_markdown(self, text: str) -> str:
+        """Render inline markdown-like syntax into Telegram-safe HTML."""
+        rendered: list[str] = []
+        index = 0
+
+        while index < len(text):
+            link = self._try_parse_link(text, index)
+            if link is not None:
+                label, url, next_index = link
+                rendered.append(
+                    f'<a href="{html.escape(url, quote=True)}">'
+                    f"{self._render_inline_markdown(label)}</a>"
+                )
+                index = next_index
+                continue
+
+            matched = False
+            for marker in ("**", "__", "~~", "||", "*", "_"):
+                if not text.startswith(marker, index):
+                    continue
+
+                if len(marker) == 1:
+                    if not self._is_valid_single_marker_open(text, index, marker):
+                        continue
+                    close_index = self._find_single_marker_close(
+                        text, index + 1, marker
+                    )
+                else:
+                    close_index = self._find_double_marker_close(
+                        text, index + len(marker), marker
+                    )
+
+                if close_index == -1:
+                    continue
+
+                inner = text[index + len(marker) : close_index]
+                if not inner:
+                    continue
+
+                tag = self._INLINE_TAGS[marker]
+                rendered.append(f"<{tag}>{self._render_inline_markdown(inner)}</{tag}>")
+                index = close_index + len(marker)
+                matched = True
+                break
+
+            if matched:
+                continue
+
+            rendered.append(html.escape(text[index]))
+            index += 1
+
+        return "".join(rendered)
+
     def format_response(self, text: str, debug_mode: bool = False) -> str:
         """Convert mixed markdown-like text into Telegram-safe HTML."""
         if not debug_mode:
@@ -94,22 +224,7 @@ class TelegramResponseFormatter:
             text_with_block_placeholders,
         )
 
-        escaped_text = html.escape(text_with_placeholders)
-        escaped_text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", escaped_text)
-        escaped_text = re.sub(
-            r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", r"<i>\1</i>", escaped_text
-        )
-        escaped_text = re.sub(
-            r"(?<!_)_(?!_)(.*?)(?<!_)_(?!_)", r"<i>\1</i>", escaped_text
-        )
-        escaped_text = re.sub(r"__(.*?)__", r"<u>\1</u>", escaped_text)
-        escaped_text = re.sub(r"~~(.*?)~~", r"<s>\1</s>", escaped_text)
-        escaped_text = re.sub(
-            r"\|\|(.*?)\|\|", r"<tg-spoiler>\1</tg-spoiler>", escaped_text
-        )
-        escaped_text = re.sub(
-            r"\[(.*?)\]\((.*?)\)", r'<a href="\2">\1</a>', escaped_text
-        )
+        rendered_text = self._render_inline_markdown(text_with_placeholders)
 
         def restore_placeholder(match):
             idx = int(match.group(1))
@@ -122,7 +237,7 @@ class TelegramResponseFormatter:
         return re.sub(
             r"TGFORMATPLACEHOLDER(\d+)END",
             restore_placeholder,
-            escaped_text,
+            rendered_text,
         )
 
     def split_message_into_segments(

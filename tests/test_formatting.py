@@ -94,6 +94,33 @@ class TestFormatting(unittest.TestCase):
         expected = 'Check <a href="https://google.com">Google</a>.'
         self.assertEqual(formatted, expected)
 
+    def test_format_underscore_filename_not_italicized(self):
+        text = "Files: eleutheria_screenshot.png / google_screenshot.png"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "Files: eleutheria_screenshot.png / google_screenshot.png"
+        self.assertEqual(formatted, expected)
+
+    def test_format_list_with_multiple_bold_filenames_stays_balanced(self):
+        text = (
+            "- **AGENTS.md** — 教训笔记本\n"
+            "- **eleutheria_screenshot.png** / **google_screenshot.png** — 截图们\n"
+            "- **prime_numbers.py** — 去年十月写的素数脚本"
+        )
+
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = (
+            "- <b>AGENTS.md</b> — 教训笔记本\n"
+            "- <b>eleutheria_screenshot.png</b> / <b>google_screenshot.png</b> — 截图们\n"
+            "- <b>prime_numbers.py</b> — 去年十月写的素数脚本"
+        )
+        self.assertEqual(formatted, expected)
+
+    def test_format_link_label_can_contain_bold_without_crossing_tags(self):
+        text = "Check [**Google** docs](https://google.com)."
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = 'Check <a href="https://google.com"><b>Google</b> docs</a>.'
+        self.assertEqual(formatted, expected)
+
     def test_format_strikethrough(self):
         text = "This is ~~bad~~ good."
         formatted = self.formatter.format_response(text, debug_mode=True)
