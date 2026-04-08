@@ -13,7 +13,7 @@ from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter
 from adapter.telegram.delivery import TelegramAccessGuard, TelegramResponseSender
 from adapter.telegram.messages import TelegramMessages
-from core.file_delivery_service import FileDeliveryService
+from core.file_service import FileDeliveryService
 
 
 @pytest.fixture

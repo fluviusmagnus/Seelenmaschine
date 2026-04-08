@@ -3,15 +3,13 @@
 import asyncio
 from typing import Any, Callable, Optional
 
-from core.approval import ApprovalService
 from core.config import Config
 from core.conversation import ConversationService
 from core.database import DatabaseManager
-from core.file_artifact_service import FileArtifactService
-from core.file_delivery_service import FileDeliveryService
+from core.file_service import FileArtifactService, FileDeliveryService
+from core.hitl import ApprovalService, StopController
 from core.scheduler import TaskScheduler
 from core.session_service import SessionService
-from core.stop import StopController
 from core.tools import (
     ToolExecutor,
     ToolRuntime,

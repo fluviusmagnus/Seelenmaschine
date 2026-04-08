@@ -831,7 +831,7 @@ class TestMessageProcessing:
     async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
         """Dangerous shell actions should continue executing after /approve."""
         from adapter.telegram.commands import TelegramCommands
-        from core.approval import ApprovalService
+        from core.hitl import ApprovalService, PendingApprovalRequest
         from core.bot import CoreBot
         from core.tools import ToolSafetyPolicy
 
@@ -931,7 +931,7 @@ class TestMessageProcessing:
         """A non-/approve message should abort the pending dangerous action."""
         from adapter.telegram.controller import TelegramController
         from adapter.telegram.messages import TelegramMessages
-        from core.approval import ApprovalService, PendingApprovalRequest
+        from core.hitl import ApprovalService, PendingApprovalRequest
 
         handler = Mock(spec=TelegramController)
         handler.config = Mock()
@@ -991,7 +991,7 @@ class TestMessageProcessing:
     async def test_process_message_stop_request_aborts_loop_and_clears_flag(self):
         """A cooperative stop request should abort the active loop and clear the stop flag."""
         from core.bot import CoreBot
-        from core.stop import ToolLoopAbortedError
+        from core.hitl import ToolLoopAbortedError
 
         handler = Mock()
         handler.memory = Mock()
@@ -1040,7 +1040,7 @@ class TestMessageProcessing:
     async def test_handle_stop_requests_loop_stop_and_aborts_pending_approval(self):
         """/stop should abort pending approval and set the cooperative stop flag."""
         from adapter.telegram.commands import TelegramCommands
-        from core.approval import ApprovalService
+        from core.hitl import ApprovalService, PendingApprovalRequest
         from core.bot import CoreBot
 
         config = Mock()
@@ -1068,7 +1068,7 @@ class TestMessageProcessing:
         loop = asyncio.get_running_loop()
         pending_request = approval_service.pending_request
         assert pending_request is None
-        pending_request = __import__("core.approval", fromlist=["PendingApprovalRequest"]).PendingApprovalRequest(
+        pending_request = PendingApprovalRequest(
             tool_name="execute_shell_command",
             arguments={"command": "rm /etc/passwd"},
             reason="shell_threat:data_loss",
@@ -1166,7 +1166,7 @@ class TestMessageProcessing:
     async def test_execute_tool_returns_timeout_message_for_approval_timeout(self):
         """Approval timeout should be distinguishable from an explicit user rejection."""
         from adapter.telegram.commands import TelegramCommands
-        from core.approval import ApprovalTimeoutError
+        from core.hitl import ApprovalTimeoutError
         from core.bot import CoreBot
         from core.tools import ToolSafetyPolicy
 

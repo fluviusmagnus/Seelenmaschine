@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.config import Config
-from core.approval import ApprovalTimeoutError
+from core.hitl import ApprovalTimeoutError
 from tools.file_io import (
     AppendFileTool,
     ReadFileTool,

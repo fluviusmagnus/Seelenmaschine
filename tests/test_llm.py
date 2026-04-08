@@ -2,7 +2,7 @@ import pytest
 import base64
 from unittest.mock import Mock, patch, AsyncMock
 
-from core.file_artifact_service import FileArtifactService
+from core.file_service import FileArtifactService
 from llm.chat_client import LLMClient
 from llm.request_executor import ChatRequestExecutor
 from llm.tool_loop import ToolLoop

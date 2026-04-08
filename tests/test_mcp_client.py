@@ -5,7 +5,7 @@ import base64
 from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
-from core.file_artifact_service import FileArtifactService
+from core.file_service import FileArtifactService
 from tools.mcp_client import MCPClient
 
 

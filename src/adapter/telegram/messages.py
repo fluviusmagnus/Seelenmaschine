@@ -8,8 +8,7 @@ from adapter.telegram.delivery import (
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from core.approval import ApprovalService
-from core.stop import ToolLoopAbortedError
+from core.hitl import ApprovalService, ToolLoopAbortedError
 from utils.logger import get_logger
 
 logger = get_logger()

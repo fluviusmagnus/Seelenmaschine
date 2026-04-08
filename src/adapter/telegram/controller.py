@@ -9,7 +9,7 @@ from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter
 from adapter.telegram.messages import TelegramMessages
 from core.bot import CoreBot
-from core.file_delivery_service import FileDeliveryService
+from core.file_service import FileDeliveryService
 from utils.logger import get_logger
 
 logger = get_logger()

@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from adapter.telegram.delivery import TelegramAccessGuard, typing_indicator
-from core.approval import ApprovalService
+from core.hitl import ApprovalService
 from utils.logger import get_logger
 
 logger = get_logger()
