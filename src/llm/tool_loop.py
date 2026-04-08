@@ -17,6 +17,26 @@ class ToolLoop:
     def __init__(self, llm_client: object):
         self.llm_client = llm_client
 
+    @staticmethod
+    def _append_event(
+        conversation_events: List[Dict[str, Any]],
+        *,
+        event_index: int,
+        role: str,
+        content: str,
+        message_type: str,
+    ) -> int:
+        """Append an ordered conversation event and return the next index."""
+        conversation_events.append(
+            {
+                "event_index": event_index,
+                "role": role,
+                "content": content,
+                "message_type": message_type,
+            }
+        )
+        return event_index + 1
+
     async def run_chat_with_tool_loop(
         self,
         messages: List[Dict[str, str]],
@@ -25,8 +45,9 @@ class ToolLoop:
         """Run chat completion loop with tool execution and collect assistant texts."""
         assistant_messages: List[str] = []
         tool_context_messages: List[str] = []
-        conversation_events: List[ConversationEvent] = []
+        conversation_events: List[Dict[str, Any]] = []
         iteration = 1
+        event_index = 0
 
         result = await self.llm_client._async_chat(
             messages, use_tools=True, force_chat_model=True
@@ -39,8 +60,12 @@ class ToolLoop:
             assistant_text = self.llm_client._extract_assistant_text_from_result(result)
             if assistant_text:
                 assistant_messages.append(assistant_text)
-                conversation_events.append(
-                    {"role": "assistant", "content": assistant_text}
+                event_index = self._append_event(
+                    conversation_events,
+                    event_index=event_index,
+                    role="assistant",
+                    content=assistant_text,
+                    message_type="conversation",
                 )
                 if Config.DEBUG_SHOW_FULL_PROMPT:
                     logger.debug(
@@ -92,6 +117,28 @@ class ToolLoop:
                             f"Tool '{call['name']}' completed with response preview: "
                             f"{self.llm_client._preview_text(sanitized_response)}"
                         )
+                    context_message = (
+                        response.get("context_message") if isinstance(response, dict) else None
+                    )
+                    if context_message:
+                        event_index = self._append_event(
+                            conversation_events,
+                            event_index=event_index,
+                            role="system",
+                            content=context_message,
+                            message_type="tool_call",
+                        )
+                    event_message = (
+                        response.get("event_message") if isinstance(response, dict) else None
+                    )
+                    if event_message:
+                        event_index = self._append_event(
+                            conversation_events,
+                            event_index=event_index,
+                            role="assistant",
+                            content=event_message,
+                            message_type="conversation",
+                        )
                     if isinstance(response, dict) and response.get("context_message"):
                         if Config.DEBUG_SHOW_FULL_PROMPT:
                             logger.debug(
@@ -99,12 +146,6 @@ class ToolLoop:
                                 f"{response['context_message']}"
                             )
                         tool_context_messages.append(response["context_message"])
-                        conversation_events.append(
-                            {
-                                "role": "system",
-                                "content": response["context_message"],
-                            }
-                        )
                     tool_responses.append(
                         {
                             "tool_call_id": call["id"],
@@ -137,7 +178,13 @@ class ToolLoop:
         final_text = self.llm_client._extract_assistant_text_from_result(result) or ""
         if final_text:
             assistant_messages.append(final_text)
-            conversation_events.append({"role": "assistant", "content": final_text})
+            event_index = self._append_event(
+                conversation_events,
+                event_index=event_index,
+                role="assistant",
+                content=final_text,
+                message_type="conversation",
+            )
 
         if Config.DEBUG_SHOW_FULL_PROMPT:
             logger.debug(

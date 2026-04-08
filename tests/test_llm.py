@@ -493,8 +493,18 @@ class TestLLMClient:
             "assistant_messages": ["我先帮你查一下。", "查到了，结果如下。"],
             "tool_context_messages": [],
             "conversation_events": [
-                {"role": "assistant", "content": "我先帮你查一下。"},
-                {"role": "assistant", "content": "查到了，结果如下。"},
+                {
+                    "event_index": 0,
+                    "role": "assistant",
+                    "content": "我先帮你查一下。",
+                    "message_type": "conversation",
+                },
+                {
+                    "event_index": 1,
+                    "role": "assistant",
+                    "content": "查到了，结果如下。",
+                    "message_type": "conversation",
+                },
             ],
         }
 

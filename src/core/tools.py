@@ -521,6 +521,11 @@ class ToolExecutor:
         source_label: str,
     ) -> Dict[str, Any]:
         """Log, trace, and notify for a successful tool execution path."""
+        event_message = None
+        if isinstance(result, dict):
+            event_message = result.get("event_message")
+            result = result.get("result", "")
+
         result = self._normalize_result_for_llm(result, source_label=source_label)
         logger.info(
             f"{source_label} tool execution finished: {tool_name}, "
@@ -549,6 +554,7 @@ class ToolExecutor:
                 arguments=arguments,
                 result=result,
             ),
+            "event_message": event_message,
         }
 
     async def _try_execute_registered_tool(

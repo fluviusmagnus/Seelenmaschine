@@ -75,7 +75,7 @@ class FileDeliveryService:
         caption: Optional[str] = None,
         file_type: str = "auto",
     ) -> Dict[str, Any]:
-        """Send a local file and record the core-side delivery event."""
+        """Send a local file and return the delivery event for deferred persistence."""
         resolved_path = self.resolve_file_path(file_path)
         if not resolved_path.exists():
             raise FileNotFoundError(f"File not found: {resolved_path}")
@@ -96,7 +96,6 @@ class FileDeliveryService:
         event_text = self.build_sent_file_event_message(
             resolved_path, delivery_method, caption
         )
-        await self.memory.add_assistant_message_async(event_text)
 
         logger.info(
             f"Sent file to Telegram user via {delivery_method}: {resolved_path.name}"
@@ -106,4 +105,5 @@ class FileDeliveryService:
             "delivery_method": delivery_method,
             "resolved_path": self._format_saved_path(resolved_path),
             "caption": caption,
+            "event_message": event_text,
         }

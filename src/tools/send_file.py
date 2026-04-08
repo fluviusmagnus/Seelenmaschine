@@ -56,7 +56,7 @@ IMPORTANT:
             "required": ["file_path"],
         }
 
-    async def execute(self, **kwargs) -> str:
+    async def execute(self, **kwargs) -> str | Dict[str, Any]:
         """Send a file through the injected callback."""
         file_path = kwargs.get("file_path")
         caption = kwargs.get("caption")
@@ -93,7 +93,10 @@ IMPORTANT:
                 if sent_caption:
                     lines.append(f"Caption: {sent_caption}")
 
-                return "\n".join(lines)
+                return {
+                    "result": "\n".join(lines),
+                    "event_message": result.get("event_message"),
+                }
 
             return str(result)
         except Exception as e:

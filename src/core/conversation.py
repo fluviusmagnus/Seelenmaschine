@@ -178,26 +178,32 @@ class ConversationService:
             )
 
     async def _persist_conversation_events(
-        self, conversation_events: List[Dict[str, str]], *, context_label: str
+        self, conversation_events: List[Dict[str, Any]], *, context_label: str
     ) -> None:
         """Persist assistant/tool events in the exact order they occurred."""
         if not conversation_events:
             return
 
         logger.debug(f"Persisting ordered conversation events ({context_label})")
-        for event in conversation_events:
+        for event in sorted(
+            conversation_events,
+            key=lambda item: int(item.get("event_index", 0)),
+        ):
             role = event.get("role")
             content = event.get("content", "")
+            message_type = event.get("message_type") or (
+                "tool_call" if role == "system" else "conversation"
+            )
             if not content:
                 continue
 
-            if role == "assistant":
+            if role == "assistant" and message_type == "conversation":
                 _, summary_id = await self.memory.add_assistant_message_async(content)
                 if summary_id:
                     logger.info(
                         f"Created new summary (ID: {summary_id}) during {context_label}"
                     )
-            elif role == "system":
+            elif role == "system" and message_type == "tool_call":
                 await self.memory.add_context_message_async(
                     content,
                     role="system",

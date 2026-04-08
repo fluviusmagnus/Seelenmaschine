@@ -342,8 +342,8 @@ class TestTelegramFiles:
 
         assert result["delivery_method"] == "photo"
         telegram_bot.send_photo.assert_awaited_once()
-        memory.add_assistant_message_async.assert_awaited_once()
-        event_text = memory.add_assistant_message_async.await_args.args[0]
+        memory.add_assistant_message_async.assert_not_awaited()
+        event_text = result["event_message"]
         assert event_text.startswith(
             "[System Event] Assistant has sent a file via Telegram."
         )
