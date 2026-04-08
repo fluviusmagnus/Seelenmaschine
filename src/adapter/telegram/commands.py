@@ -242,8 +242,12 @@ class TelegramCommands:
         ):
             return
 
-        pending_request = self.approval_service.abort_pending("User requested stop.")
-        stop_requested = self.core_bot.request_stop_current_run("User requested stop.")
+        stop_reason = (
+            "Error: The user rejected this action and requested that all further "
+            "steps stop."
+        )
+        pending_request = self.approval_service.abort_pending(stop_reason)
+        stop_requested = self.core_bot.request_stop_current_run(stop_reason)
 
         if pending_request is not None or stop_requested:
             await update.message.reply_text(

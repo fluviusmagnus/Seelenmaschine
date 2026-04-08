@@ -1014,7 +1014,9 @@ class TestMessageProcessing:
         core_bot_holder = {}
 
         def _chat_side_effect(**kwargs):
-            core_bot_holder["core_bot"].request_stop_current_run("User requested stop.")
+            core_bot_holder["core_bot"].request_stop_current_run(
+                "Error: The user rejected this action and requested that all further steps stop."
+            )
             kwargs["abort_check"]()
             return {"final_text": "should not reach"}
 
@@ -1024,7 +1026,10 @@ class TestMessageProcessing:
         core_bot = self._build_core_bot_for_conversation(handler)
         core_bot_holder["core_bot"] = core_bot
 
-        with pytest.raises(ToolLoopAbortedError, match=r"User requested stop\."):
+        with pytest.raises(
+            ToolLoopAbortedError,
+            match=r"Error: The user rejected this action and requested that all further steps stop\.",
+        ):
             await core_bot.process_message("停止一下")
 
         assert core_bot.has_running_conversation() is False
@@ -1092,9 +1097,133 @@ class TestMessageProcessing:
 
         assert pending_request.future.done() is True
         assert pending_request.future.result() is False
-        assert pending_request.abort_reason == "User requested stop."
+        assert pending_request.abort_reason == (
+            "Error: The user rejected this action and requested that all further "
+            "steps stop."
+        )
         assert core_bot.is_stop_requested() is True
         update.message.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_returns_plain_rejection_message_for_declined_approval(self):
+        """Declined approval should return the plain per-action rejection string to the LLM."""
+        from adapter.telegram.commands import TelegramCommands
+        from core.bot import CoreBot
+        from core.tools import ToolSafetyPolicy
+
+        config = Mock()
+        config.TELEGRAM_USER_ID = 123456789
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=Mock(),
+        )
+
+        owner = Mock()
+        owner.core_bot = core_bot
+        owner.telegram_bot = None
+        owner._preview_text = lambda text, max_length=120: str(text)[:max_length]
+
+        commands = TelegramCommands(
+            core_bot=core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=core_bot.approval_service,
+            get_telegram_bot=lambda: None,
+            preview_text=owner._preview_text,
+            format_exception_for_user=str,
+        )
+        core_bot.initialize_telegram_runtime(
+            owner,
+            approval_delegate=commands,
+            preview_text=owner._preview_text,
+        )
+        core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
+        core_bot.get_tool_executor_service().request_approval = AsyncMock(
+            return_value=False
+        )
+
+        result = await core_bot.execute_tool(
+            "execute_shell_command",
+            json.dumps({"command": "rm ../danger.txt"}),
+        )
+
+        assert result["result"] == "Error: The user rejected this action."
+        assert 'status: "rejected"' in result["context_message"]
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_returns_timeout_message_for_approval_timeout(self):
+        """Approval timeout should be distinguishable from an explicit user rejection."""
+        from adapter.telegram.commands import TelegramCommands
+        from core.approval import ApprovalTimeoutError
+        from core.bot import CoreBot
+        from core.tools import ToolSafetyPolicy
+
+        config = Mock()
+        config.TELEGRAM_USER_ID = 123456789
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=Mock(),
+        )
+
+        owner = Mock()
+        owner.core_bot = core_bot
+        owner.telegram_bot = None
+        owner._preview_text = lambda text, max_length=120: str(text)[:max_length]
+
+        commands = TelegramCommands(
+            core_bot=core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=core_bot.approval_service,
+            get_telegram_bot=lambda: None,
+            preview_text=owner._preview_text,
+            format_exception_for_user=str,
+        )
+        core_bot.initialize_telegram_runtime(
+            owner,
+            approval_delegate=commands,
+            preview_text=owner._preview_text,
+        )
+        core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
+        core_bot.get_tool_executor_service().request_approval = AsyncMock(
+            side_effect=ApprovalTimeoutError(
+                "Error: Approval timed out. The action was not approved."
+            )
+        )
+
+        result = await core_bot.execute_tool(
+            "execute_shell_command",
+            json.dumps({"command": "rm ../danger.txt"}),
+        )
+
+        assert result["result"] == (
+            "Error: Approval timed out. The action was not approved."
+        )
+        assert 'status: "rejected"' in result["context_message"]
 
     @pytest.mark.asyncio
     async def test_execute_tool_times_out_after_default_limit(self):

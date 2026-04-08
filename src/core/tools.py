@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.config import Config
+from core.approval import ApprovalTimeoutError
 from tools.file_io import (
     AppendFileTool,
     ReadFileTool,
@@ -684,13 +685,34 @@ class ToolExecutor:
 
         if dangerous:
             logger.warning(f"Dangerous action detected: {tool_name} reason={reason}")
-            approved = await self.request_approval(tool_name, arguments, reason)
+            try:
+                approved = await self.request_approval(tool_name, arguments, reason)
+            except ApprovalTimeoutError as error:
+                result = str(error)
+                await self.record_tool_trace(
+                    trace_id=trace_id,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    result=result,
+                    status="rejected",
+                    duration_ms=self._elapsed_ms(start_time),
+                    approval_required=True,
+                    approved_by_user=False,
+                )
+                return {
+                    "result": result,
+                    "trace_id": trace_id,
+                    "context_message": self._build_tool_context_message(
+                        trace_id=trace_id,
+                        status="rejected",
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=result,
+                    ),
+                }
             if not approved:
                 logger.info(f"User rejected dangerous action: {tool_name}")
-                result = (
-                    f"Error: Action was rejected by the user (reason: {reason}). "
-                    "Do NOT retry this action."
-                )
+                result = "Error: The user rejected this action."
                 await self.record_tool_trace(
                     trace_id=trace_id,
                     tool_name=tool_name,

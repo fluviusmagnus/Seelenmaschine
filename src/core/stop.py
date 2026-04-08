@@ -10,6 +10,10 @@ class ToolLoopAbortedError(Exception):
 class StopController:
     """Track and signal stop requests for the single active conversation loop."""
 
+    STOP_ALL_FURTHER_REASON = (
+        "Error: The user rejected this action and requested that all further steps stop."
+    )
+
     def __init__(self) -> None:
         self._running = False
         self._stop_requested = False
@@ -27,7 +31,7 @@ class StopController:
         self._stop_requested = False
         self._stop_reason = None
 
-    def request_stop(self, reason: str = "User requested stop.") -> bool:
+    def request_stop(self, reason: str = STOP_ALL_FURTHER_REASON) -> bool:
         """Request a cooperative stop for the current run."""
         if not self._running:
             return False
@@ -38,7 +42,9 @@ class StopController:
     def check_stop_requested(self) -> None:
         """Raise if the current run has been asked to stop."""
         if self._stop_requested:
-            raise ToolLoopAbortedError(self._stop_reason or "User requested stop.")
+            raise ToolLoopAbortedError(
+                self._stop_reason or self.STOP_ALL_FURTHER_REASON
+            )
 
     def has_running_run(self) -> bool:
         """Return whether a conversation/tool loop is currently active."""

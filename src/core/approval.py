@@ -11,6 +11,10 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
+class ApprovalTimeoutError(Exception):
+    """Raised when a dangerous action approval request times out."""
+
+
 @dataclass
 class PendingApprovalRequest:
     """Represents a dangerous action waiting for user approval."""
@@ -105,7 +109,6 @@ class ApprovalService:
                     pending_request.future, timeout=timeout_seconds
                 )
             except asyncio.TimeoutError:
-                approved = False
                 logger.warning(
                     f"Approval request timed out: tool={tool_name}, reason={reason}"
                 )
@@ -114,6 +117,9 @@ class ApprovalService:
                         await send_message("⏰ Approval timed out. Action aborted.", None)
                     except Exception:
                         pass
+                raise ApprovalTimeoutError(
+                    "Error: Approval timed out. The action was not approved."
+                )
             finally:
                 if self._pending_request is pending_request:
                     self._update_pending_request(None)
