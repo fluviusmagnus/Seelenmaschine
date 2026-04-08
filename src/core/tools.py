@@ -1,5 +1,6 @@
 """Tool runtime, registry, and execution orchestration."""
 
+import asyncio
 import html
 import json
 import time
@@ -462,6 +463,22 @@ class ToolExecutor:
             self._TOOL_CONTEXT_RESULT_PREVIEW_MAX,
         )
 
+    async def _execute_with_timeout(
+        self, operation: Awaitable[Any], *, tool_name: str
+    ) -> Any:
+        """Run a tool operation with the configured default timeout."""
+        raw_timeout = getattr(self.config, "TOOL_EXECUTION_TIMEOUT_SECONDS", 180.0)
+        try:
+            timeout_seconds = float(raw_timeout)
+        except (TypeError, ValueError):
+            timeout_seconds = 180.0
+        try:
+            return await asyncio.wait_for(operation, timeout=timeout_seconds)
+        except asyncio.TimeoutError as error:
+            raise TimeoutError(
+                f"Tool execution timed out after {timeout_seconds:g} seconds: {tool_name}"
+            ) from error
+
     def _build_tool_context_message(
         self,
         *,
@@ -572,7 +589,10 @@ class ToolExecutor:
         if tool_instance is None:
             return None
 
-        result = await tool_instance.execute(**arguments)
+        result = await self._execute_with_timeout(
+            tool_instance.execute(**arguments),
+            tool_name=tool_name,
+        )
         return await self._finalize_success(
             trace_id=trace_id,
             tool_name=tool_name,
@@ -608,7 +628,10 @@ class ToolExecutor:
         if not any(t["function"]["name"] == tool_name for t in mcp_tools):
             return None
 
-        result = await self.mcp_client.call_tool(tool_name, arguments)
+        result = await self._execute_with_timeout(
+            self.mcp_client.call_tool(tool_name, arguments),
+            tool_name=tool_name,
+        )
         return await self._finalize_success(
             trace_id=trace_id,
             tool_name=tool_name,

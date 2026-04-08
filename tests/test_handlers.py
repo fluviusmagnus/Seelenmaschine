@@ -1096,6 +1096,68 @@ class TestMessageProcessing:
         assert core_bot.is_stop_requested() is True
         update.message.reply_text.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_execute_tool_times_out_after_default_limit(self):
+        """Tool execution should fail with a readable timeout error after the default limit."""
+        from adapter.telegram.commands import TelegramCommands
+        from core.bot import CoreBot
+
+        config = Mock()
+        config.TELEGRAM_USER_ID = 123456789
+        config.ENABLE_MCP = False
+        config.DATA_DIR = Path("data/test")
+        config.WORKSPACE_DIR = Path("data/test/workspace")
+        config.MEDIA_DIR = Path("data/test/workspace/media")
+        config.TOOL_EXECUTION_TIMEOUT_SECONDS = 0.01
+
+        memory = Mock()
+        memory.get_current_session_id.return_value = 1
+
+        core_bot = CoreBot(
+            config=config,
+            db=Mock(),
+            embedding_client=Mock(),
+            reranker_client=Mock(),
+            memory=memory,
+            scheduler=Mock(),
+            llm_client=Mock(),
+        )
+
+        owner = Mock()
+        owner.core_bot = core_bot
+        owner.telegram_bot = None
+        owner._preview_text = lambda text, max_length=120: str(text)[:max_length]
+
+        commands = TelegramCommands(
+            core_bot=core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=core_bot.approval_service,
+            get_telegram_bot=lambda: None,
+            preview_text=owner._preview_text,
+            format_exception_for_user=str,
+        )
+        core_bot.initialize_telegram_runtime(
+            owner,
+            approval_delegate=commands,
+            preview_text=owner._preview_text,
+        )
+
+        slow_tool = Mock()
+        slow_tool.name = "slow_tool"
+
+        async def _slow_execute(**_: object) -> str:
+            await asyncio.sleep(0.05)
+            return "done"
+
+        slow_tool.execute = AsyncMock(side_effect=_slow_execute)
+        core_bot.tool_runtime_state.registry_service.register_named("slow_tool", slow_tool)
+
+        with pytest.raises(
+            TimeoutError,
+            match=r"Tool execution timed out after 0\.01 seconds: slow_tool",
+        ):
+            await core_bot.execute_tool("slow_tool", json.dumps({}))
+
 
 class TestPathSafetyApproval:
     """Test unified path safety approval for builtin tools."""
