@@ -17,7 +17,7 @@ def mock_config():
         mock.TOOL_MODEL = "gpt-4"
         mock.TOOL_LLM_MAX_RESPONSE_CHARS = 12000
         mock.TOOL_LLM_TRUNCATE_HEAD_CHARS = 6000
-        mock.TOOL_LLM_TRUNCATE_TAIL_CHARS = 2000
+        mock.TOOL_LLM_TRUNCATE_TAIL_CHARS = 4000
         yield mock
 
 
