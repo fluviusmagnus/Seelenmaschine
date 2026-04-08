@@ -247,6 +247,30 @@ async def test_handle_new_session(
 
 
 @pytest.mark.asyncio
+async def test_handle_new_session_returns_error_details(core_bot):
+    """/new should surface formatted error details to the user."""
+    handler = TelegramController(core_bot=core_bot)
+    handler.core_bot.memory.new_session_async = AsyncMock(
+        side_effect=RuntimeError("Session storage unavailable")
+    )
+
+    update = Mock()
+    update.effective_user.id = 12345
+    update.effective_chat.id = 12345
+    update.message.reply_text = AsyncMock()
+
+    context = Mock()
+    context.bot = Mock()
+    context.bot.send_chat_action = AsyncMock()
+
+    await handler.commands.handle_new_session(update, context)
+
+    sent_text = update.message.reply_text.await_args.args[0]
+    assert "Error creating new session." in sent_text
+    assert "RuntimeError: Session storage unavailable" in sent_text
+
+
+@pytest.mark.asyncio
 async def test_handle_reset_session(
     core_bot,
 ):
@@ -265,6 +289,25 @@ async def test_handle_reset_session(
     # Verify session was reset
     handler.core_bot.memory.reset_session.assert_called_once()
     update.message.reply_text.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_reset_session_returns_error_details(core_bot):
+    """/reset should surface formatted error details to the user."""
+    handler = TelegramController(core_bot=core_bot)
+    handler.core_bot.memory.reset_session = Mock(side_effect=KeyError("error"))
+
+    update = Mock()
+    update.effective_user.id = 12345
+    update.message.reply_text = AsyncMock()
+
+    context = Mock()
+
+    await handler.commands.handle_reset_session(update, context)
+
+    sent_text = update.message.reply_text.await_args.args[0]
+    assert "Error resetting session." in sent_text
+    assert "Missing expected field: error" in sent_text
 
 
 def test_execute_tool_memory_search(

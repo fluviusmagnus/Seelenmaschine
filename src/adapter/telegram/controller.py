@@ -1,5 +1,6 @@
 """Telegram controller boundary."""
 
+from pathlib import Path
 from typing import Any, Optional
 
 from adapter.telegram.commands import TelegramCommands
@@ -31,7 +32,58 @@ class TelegramController:
     @staticmethod
     def _format_exception_for_user(error: Exception) -> str:
         """Build a concise user-facing error summary."""
-        message = str(error).strip() or type(error).__name__
+        def _clean_message(value: Any) -> str:
+            return str(value).strip().strip("\"'")
+
+        def _build_summary(exc: BaseException) -> str:
+            error_type = type(exc).__name__
+
+            if isinstance(exc, KeyError):
+                missing_key = _clean_message(exc)
+                if missing_key:
+                    return f"Missing expected field: {missing_key}"
+                return "Missing expected field in internal response data"
+
+            if isinstance(exc, FileNotFoundError):
+                file_path = getattr(exc, "filename", None)
+                if file_path:
+                    return f"File not found: {file_path}"
+                return "File not found"
+
+            if isinstance(exc, PermissionError):
+                file_path = getattr(exc, "filename", None)
+                if file_path:
+                    return f"Permission denied while accessing: {file_path}"
+                return "Permission denied"
+
+            if isinstance(exc, TimeoutError):
+                message = _clean_message(exc)
+                return f"TimeoutError: {message}" if message else "TimeoutError: operation timed out"
+
+            message = _clean_message(exc)
+            if message:
+                if message == error_type:
+                    return error_type
+                return f"{error_type}: {message}"
+
+            return f"{error_type}: no additional details available"
+
+        chain: list[BaseException] = []
+        seen: set[int] = set()
+        current: BaseException | None = error
+
+        while current is not None and id(current) not in seen:
+            chain.append(current)
+            seen.add(id(current))
+            current = current.__cause__ or current.__context__
+
+        message = _build_summary(chain[0])
+        for chained_error in chain[1:]:
+            candidate = _build_summary(chained_error)
+            if candidate and candidate != message:
+                message = f"{message} (caused by: {candidate})"
+                break
+
         if len(message) > 300:
             message = f"{message[:297]}..."
         return message

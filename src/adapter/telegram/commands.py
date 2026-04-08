@@ -117,7 +117,10 @@ class TelegramCommands:
                 )
         except Exception as error:
             logger.error(f"Error creating new session: {error}", exc_info=True)
-            await update.message.reply_text("Error creating new session.")
+            await update.message.reply_text(
+                "Error creating new session.\n\n"
+                f"Details: {self.format_exception_for_user(error)}"
+            )
 
     async def handle_reset_session(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -140,7 +143,10 @@ class TelegramCommands:
             )
         except Exception as error:
             logger.error(f"Error resetting session: {error}", exc_info=True)
-            await update.message.reply_text("Error resetting session.")
+            await update.message.reply_text(
+                "Error resetting session.\n\n"
+                f"Details: {self.format_exception_for_user(error)}"
+            )
 
     async def request_approval(
         self, tool_name: str, arguments: dict, reason: str

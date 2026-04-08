@@ -304,6 +304,29 @@ class TestMessageProcessing:
         assert len(formatted) == 300
         assert formatted.endswith("...")
 
+    def test_format_exception_for_user_key_error_is_human_readable(self):
+        """KeyError summaries should explain the missing field instead of raw repr."""
+        from adapter.telegram.controller import TelegramController
+
+        formatted = TelegramController._format_exception_for_user(KeyError("error"))
+
+        assert formatted == "Missing expected field: error"
+
+    def test_format_exception_for_user_includes_cause_chain(self):
+        """Wrapped exceptions should include the underlying cause when useful."""
+        from adapter.telegram.controller import TelegramController
+
+        try:
+            raise KeyError("error")
+        except KeyError as cause:
+            error = RuntimeError("Tool execution failed")
+            error.__cause__ = cause
+
+        formatted = TelegramController._format_exception_for_user(error)
+
+        assert "RuntimeError: Tool execution failed" in formatted
+        assert "Missing expected field: error" in formatted
+
     @pytest.mark.asyncio
     async def test_process_message_saves_intermediate_assistant_messages(self):
         """Assistant text emitted during tool calling should also be saved to memory."""
