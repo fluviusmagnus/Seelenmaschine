@@ -121,14 +121,11 @@ class TelegramMessages:
 
         approval_service = self.approval_service
         if isinstance(approval_service, ApprovalService):
-            pending_request = approval_service.abort_pending()
+            pending_request = approval_service.abort_pending(user_message=user_message)
         else:
             pending_request = None
 
         if pending_request is not None:
-            await self._safe_reply_text(
-                update.message.reply_text, "❌ Pending action declined."
-            )
             return
 
         try:

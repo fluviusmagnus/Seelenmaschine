@@ -16,6 +16,15 @@ class ApprovalTimeoutError(Exception):
 
 
 @dataclass
+class ApprovalDecision:
+    """Represents the final outcome of an approval request."""
+
+    approved: bool
+    abort_reason: Optional[str] = None
+    user_message: Optional[str] = None
+
+
+@dataclass
 class PendingApprovalRequest:
     """Represents a dangerous action waiting for user approval."""
 
@@ -25,6 +34,7 @@ class PendingApprovalRequest:
     future: asyncio.Future
     created_at: float
     abort_reason: Optional[str] = None
+    abort_message: Optional[str] = None
 
 
 class ApprovalService:
@@ -68,7 +78,7 @@ class ApprovalService:
         *,
         send_message: Optional[Callable[[str, Optional[str]], Awaitable[None]]] = None,
         timeout_seconds: float = 600.0,
-    ) -> bool:
+    ) -> ApprovalDecision:
         """Create a pending request, notify the user, and wait for a decision."""
         async with self._approval_lock:
             loop = asyncio.get_running_loop()
@@ -88,7 +98,8 @@ class ApprovalService:
                 f"<b>Reason:</b> <code>{html.escape(reason)}</code>\n"
                 f"<b>Arguments:</b>\n<pre>{args_str}</pre>\n\n"
                 f"Reply <b>/approve</b> to execute.\n"
-                f"Any other message will <b>ABORT</b> this action."
+                f"Any other message will <b>ABORT</b> this action, and your message "
+                f"will be returned to the model as feedback for the current tool loop."
             )
 
             if send_message is not None:
@@ -97,7 +108,10 @@ class ApprovalService:
                 except Exception as e:
                     logger.error(f"Failed to send approval request: {e}")
                     self._update_pending_request(None)
-                    return False
+                    return ApprovalDecision(
+                        approved=False,
+                        abort_reason="Approval request delivery failed.",
+                    )
 
             logger.info(
                 "Approval request created for dangerous action: "
@@ -105,7 +119,7 @@ class ApprovalService:
             )
 
             try:
-                approved = await asyncio.wait_for(
+                decision = await asyncio.wait_for(
                     pending_request.future, timeout=timeout_seconds
                 )
             except asyncio.TimeoutError:
@@ -124,13 +138,13 @@ class ApprovalService:
                 if self._pending_request is pending_request:
                     self._update_pending_request(None)
 
-            return approved
+            return decision
 
     def approve_pending(self) -> Optional[PendingApprovalRequest]:
         """Approve the current pending action if one exists."""
         pending_request = self._pending_request
         if pending_request and not pending_request.future.done():
-            pending_request.future.set_result(True)
+            pending_request.future.set_result(ApprovalDecision(approved=True))
             logger.info(
                 "Approval received from user: "
                 f"tool={pending_request.tool_name}, reason={pending_request.reason}"
@@ -139,17 +153,26 @@ class ApprovalService:
         return None
 
     def abort_pending(
-        self, reason: str = "User declined this action."
+        self,
+        reason: str = "User declined this action.",
+        user_message: Optional[str] = None,
     ) -> Optional[PendingApprovalRequest]:
         """Abort the current pending action if one exists."""
         pending_request = self._pending_request
         if pending_request and not pending_request.future.done():
             pending_request.abort_reason = reason
-            pending_request.future.set_result(False)
+            pending_request.abort_message = user_message
+            pending_request.future.set_result(
+                ApprovalDecision(
+                    approved=False,
+                    abort_reason=reason,
+                    user_message=user_message,
+                )
+            )
             logger.info(
                 "Pending approval aborted: "
                 f"tool={pending_request.tool_name}, reason={pending_request.reason}, "
-                f"abort_reason={reason}"
+                f"abort_reason={reason}, abort_message={user_message!r}"
             )
             return pending_request
         return None

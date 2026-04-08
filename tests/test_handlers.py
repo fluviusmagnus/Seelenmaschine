@@ -928,10 +928,10 @@ class TestMessageProcessing:
 
     @pytest.mark.asyncio
     async def test_handle_message_aborts_pending_approval_on_regular_message(self):
-        """A non-/approve message should abort the pending dangerous action."""
+        """A non-/approve message should abort pending approval without starting a new chat."""
         from adapter.telegram.controller import TelegramController
         from adapter.telegram.messages import TelegramMessages
-        from core.hitl import ApprovalService, PendingApprovalRequest
+        from core.hitl import ApprovalDecision, ApprovalService, PendingApprovalRequest
 
         handler = Mock(spec=TelegramController)
         handler.config = Mock()
@@ -982,10 +982,15 @@ class TestMessageProcessing:
         await handler.handle_message(update, context)
 
         assert pending_request.future.done() is True
-        assert pending_request.future.result() is False
+        assert pending_request.future.result() == ApprovalDecision(
+            approved=False,
+            abort_reason="User declined this action.",
+            user_message="继续",
+        )
         assert pending_request.abort_reason == "User declined this action."
+        assert pending_request.abort_message == "继续"
         handler.core_bot.process_message.assert_not_called()
-        update.message.reply_text.assert_awaited_once_with("❌ Pending action declined.")
+        update.message.reply_text.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_process_message_stop_request_aborts_loop_and_clears_flag(self):
@@ -1040,7 +1045,7 @@ class TestMessageProcessing:
     async def test_handle_stop_requests_loop_stop_and_aborts_pending_approval(self):
         """/stop should abort pending approval and set the cooperative stop flag."""
         from adapter.telegram.commands import TelegramCommands
-        from core.hitl import ApprovalService, PendingApprovalRequest
+        from core.hitl import ApprovalDecision, ApprovalService, PendingApprovalRequest
         from core.bot import CoreBot
 
         config = Mock()
@@ -1096,7 +1101,14 @@ class TestMessageProcessing:
         await commands.handle_stop(update, context)
 
         assert pending_request.future.done() is True
-        assert pending_request.future.result() is False
+        assert pending_request.future.result() == ApprovalDecision(
+            approved=False,
+            abort_reason=(
+                "Error: The user rejected this action and requested that all further "
+                "steps stop."
+            ),
+            user_message=None,
+        )
         assert pending_request.abort_reason == (
             "Error: The user rejected this action and requested that all further "
             "steps stop."
@@ -1105,9 +1117,10 @@ class TestMessageProcessing:
         update.message.reply_text.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_execute_tool_returns_plain_rejection_message_for_declined_approval(self):
-        """Declined approval should return the plain per-action rejection string to the LLM."""
+    async def test_execute_tool_returns_rejection_message_with_user_feedback(self):
+        """Declined approval should include the user's rejection text in the tool result."""
         from adapter.telegram.commands import TelegramCommands
+        from core.hitl import ApprovalDecision
         from core.bot import CoreBot
         from core.tools import ToolSafetyPolicy
 
@@ -1151,7 +1164,11 @@ class TestMessageProcessing:
         )
         core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
         core_bot.get_tool_executor_service().request_approval = AsyncMock(
-            return_value=False
+            return_value=ApprovalDecision(
+                approved=False,
+                abort_reason="User declined this action.",
+                user_message="不要删，改成列出目录",
+            )
         )
 
         result = await core_bot.execute_tool(
@@ -1159,8 +1176,35 @@ class TestMessageProcessing:
             json.dumps({"command": "rm ../danger.txt"}),
         )
 
-        assert result["result"] == "Error: The user rejected this action."
+        assert result["result"] == (
+            "Error: User declined this action. User feedback: 不要删，改成列出目录"
+        )
         assert 'status: "rejected"' in result["context_message"]
+
+    @pytest.mark.asyncio
+    async def test_request_approval_message_mentions_feedback_returned_to_model(self):
+        """Approval prompt should explain that non-/approve text is returned to the model."""
+        from core.hitl import ApprovalService
+
+        approval_service = ApprovalService()
+        sent_messages = []
+
+        async def _send_message(text, parse_mode):
+            sent_messages.append((text, parse_mode))
+            approval_service.approve_pending()
+
+        decision = await approval_service.request_approval(
+            "execute_shell_command",
+            {"command": "rm /etc/passwd"},
+            "shell_threat:data_loss",
+            send_message=_send_message,
+            timeout_seconds=1.0,
+        )
+
+        assert decision.approved is True
+        assert sent_messages
+        assert sent_messages[0][1] == "HTML"
+        assert "returned to the model as feedback for the current tool loop" in sent_messages[0][0]
 
     @pytest.mark.asyncio
     async def test_execute_tool_returns_timeout_message_for_approval_timeout(self):

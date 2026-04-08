@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.config import Config
-from core.hitl import ApprovalTimeoutError
+from core.hitl import ApprovalDecision, ApprovalTimeoutError
 from tools.file_io import (
     AppendFileTool,
     ReadFileTool,
@@ -499,6 +499,15 @@ class ToolExecutor:
         )
 
     @staticmethod
+    def _format_rejection_result(decision: ApprovalDecision) -> str:
+        """Build a rejection result string that preserves optional user feedback."""
+        base_reason = decision.abort_reason or "User declined this action."
+        result = f"Error: {base_reason}"
+        if decision.user_message:
+            result += f" User feedback: {decision.user_message}"
+        return result
+
+    @staticmethod
     def _elapsed_ms(start_time: float) -> int:
         """Convert a perf_counter start time into milliseconds."""
         return int((time.perf_counter() - start_time) * 1000)
@@ -686,7 +695,7 @@ class ToolExecutor:
         if dangerous:
             logger.warning(f"Dangerous action detected: {tool_name} reason={reason}")
             try:
-                approved = await self.request_approval(tool_name, arguments, reason)
+                decision = await self.request_approval(tool_name, arguments, reason)
             except ApprovalTimeoutError as error:
                 result = str(error)
                 await self.record_tool_trace(
@@ -710,9 +719,9 @@ class ToolExecutor:
                         result=result,
                     ),
                 }
-            if not approved:
+            if not decision.approved:
                 logger.info(f"User rejected dangerous action: {tool_name}")
-                result = "Error: The user rejected this action."
+                result = self._format_rejection_result(decision)
                 await self.record_tool_trace(
                     trace_id=trace_id,
                     tool_name=tool_name,
