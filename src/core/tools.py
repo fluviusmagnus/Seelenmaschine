@@ -468,11 +468,11 @@ class ToolExecutor:
         self, operation: Awaitable[Any], *, tool_name: str
     ) -> Any:
         """Run a tool operation with the configured default timeout."""
-        raw_timeout = getattr(self.config, "TOOL_EXECUTION_TIMEOUT_SECONDS", 180.0)
+        raw_timeout = getattr(self.config, "TOOL_EXECUTION_TIMEOUT_SECONDS", 90.0)
         try:
             timeout_seconds = float(raw_timeout)
         except (TypeError, ValueError):
-            timeout_seconds = 180.0
+            timeout_seconds = 90.0
         try:
             return await asyncio.wait_for(operation, timeout=timeout_seconds)
         except asyncio.TimeoutError as error:
@@ -599,10 +599,13 @@ class ToolExecutor:
         if tool_instance is None:
             return None
 
-        result = await self._execute_with_timeout(
-            tool_instance.execute(**arguments),
-            tool_name=tool_name,
-        )
+        if tool_name == "execute_shell_command":
+            result = await tool_instance.execute(**arguments)
+        else:
+            result = await self._execute_with_timeout(
+                tool_instance.execute(**arguments),
+                tool_name=tool_name,
+            )
         return await self._finalize_success(
             trace_id=trace_id,
             tool_name=tool_name,

@@ -389,7 +389,7 @@ class ShellCommandTool:
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "The maximum time (in seconds) allowed. Default is 60.",
+                    "description": "The maximum time (in seconds) allowed. Default is 90.",
                 },
                 "cwd": {
                     "type": "string",
@@ -402,7 +402,7 @@ class ShellCommandTool:
     async def execute(
         self,
         command: str,
-        timeout: int = 60,
+        timeout: int = 90,
         cwd: Optional[str] = None,
     ) -> str:
         cmd = (command or "").strip()
