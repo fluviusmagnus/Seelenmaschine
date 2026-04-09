@@ -125,6 +125,7 @@ class TelegramController:
             preview_text=self._preview_text,
             format_exception_for_user=self._format_exception_for_user,
             intermediate_callback=self._send_intermediate_response,
+            scheduled_intermediate_callback=None,
         )
 
         self.core_bot.initialize_telegram_runtime(

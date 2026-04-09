@@ -551,6 +551,57 @@ class TestMessageProcessing:
         )
 
     @pytest.mark.asyncio
+    async def test_send_scheduled_message_does_not_forward_intermediate_events(self):
+        """Scheduled task Telegram delivery should only send the final response."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.process_scheduled_task = AsyncMock(return_value="最终计划任务回复")
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
+        handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+        handler._send_intermediate_response = AsyncMock()
+
+        response_sender = Mock()
+        response_sender.send_bot_text = AsyncMock()
+
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=None,
+            files=Mock(),
+            response_sender=response_sender,
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=handler._send_intermediate_response,
+            scheduled_intermediate_callback=None,
+        )
+
+        application = Mock()
+        application.bot = Mock()
+        application.bot.send_chat_action = AsyncMock()
+
+        await handler.messages.send_scheduled_message(
+            application=application,
+            message="提醒喝水",
+            task_name="喝水提醒",
+            task_id="task-123",
+        )
+
+        handler.core_bot.process_scheduled_task.assert_awaited_once_with(
+            "提醒喝水",
+            "喝水提醒",
+            "task-123",
+            intermediate_callback=None,
+        )
+        response_sender.send_bot_text.assert_awaited_once()
+        handler._send_intermediate_response.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_handle_message_waits_for_processing_lock(self):
         """A second message should show typing even while waiting for the lock."""
         from adapter.telegram.controller import TelegramController
