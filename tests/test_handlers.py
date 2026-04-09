@@ -1566,6 +1566,52 @@ class TestPathSafetyApproval:
         assert dangerous
         assert reason == "file_outside_workspace"
 
+    def test_write_file_outside_workspace_requires_approval(self, safety_policy):
+        """Write tools should reuse the same unified path boundary check."""
+        dangerous, reason = safety_policy.is_dangerous_action(
+            "write_file",
+            {"file_path": "../outside.txt", "content": "hello"},
+        )
+
+        assert dangerous
+        assert reason == "file_outside_workspace"
+
+    def test_mcp_style_path_argument_outside_workspace_requires_approval(
+        self, safety_policy
+    ):
+        """Unknown tools with path-like arguments should also be path-guarded."""
+        dangerous, reason = safety_policy.is_dangerous_action(
+            "mcp_custom_tool",
+            {"target_path": "../outside.txt", "mode": "write"},
+        )
+
+        assert dangerous
+        assert reason == "file_outside_workspace"
+
+    def test_mcp_nested_path_argument_inside_workspace_stays_allowed(
+        self, safety_policy
+    ):
+        """Nested MCP path-like arguments should allow in-workspace targets."""
+        dangerous, reason = safety_policy.is_dangerous_action(
+            "mcp_custom_tool",
+            {"options": {"output_path": "src/out.txt"}},
+        )
+
+        assert not dangerous
+        assert reason == ""
+
+    def test_mcp_nested_path_argument_outside_workspace_requires_approval(
+        self, safety_policy
+    ):
+        """Nested MCP path-like arguments should reject outside-workspace targets."""
+        dangerous, reason = safety_policy.is_dangerous_action(
+            "mcp_custom_tool",
+            {"options": {"output_path": "../outside.txt"}},
+        )
+
+        assert dangerous
+        assert reason == "file_outside_workspace"
+
 
 class TestSplitMessageIntoSegments:
     """Test Telegram formatter message segmentation."""

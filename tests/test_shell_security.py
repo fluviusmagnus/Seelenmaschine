@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
+
 import pytest
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from tools.shell import is_dangerous_command
+from core.config import Config
+from utils.tool_safety import is_dangerous_command, is_path_outside_allowed_dirs
 
 
 def test_safe_tmp_deletion():
@@ -103,6 +105,76 @@ def test_workspace_external_redirection_requires_approval():
     is_dangerous, reason = is_dangerous_command("echo hi > ../out.txt")
     assert is_dangerous
     assert reason == "outside_workspace_path"
+
+
+def test_dev_null_is_treated_as_safe_path():
+    assert is_path_outside_allowed_dirs("/dev/null") is False
+
+    is_dangerous, reason = is_dangerous_command("echo hi > /dev/null")
+    assert not is_dangerous, f"Expected safe, but got dangerous: {reason}"
+
+    is_dangerous, reason = is_dangerous_command("cat /dev/null")
+    assert not is_dangerous, f"Expected safe, but got dangerous: {reason}"
+
+
+def test_unified_path_guard_detects_inside_and_outside_workspace(tmp_path, monkeypatch):
+    workspace_dir = tmp_path / "workspace"
+    media_dir = workspace_dir / "media"
+    workspace_dir.mkdir(parents=True)
+    media_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(Config, "WORKSPACE_DIR", workspace_dir)
+    monkeypatch.setattr(Config, "MEDIA_DIR", media_dir)
+
+    assert is_path_outside_allowed_dirs("src/file.txt") is False
+    assert is_path_outside_allowed_dirs("../secret.txt") is True
+
+
+def test_safe_workspace_script_execution(tmp_path, monkeypatch):
+    workspace_dir = tmp_path / "workspace"
+    media_dir = workspace_dir / "media"
+    scripts_dir = workspace_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    media_dir.mkdir(parents=True)
+    (scripts_dir / "safe.py").write_text("print('hello')\n", encoding="utf-8")
+
+    monkeypatch.setattr(Config, "WORKSPACE_DIR", workspace_dir)
+    monkeypatch.setattr(Config, "MEDIA_DIR", media_dir)
+
+    is_dangerous, reason = is_dangerous_command("python scripts/safe.py")
+    assert not is_dangerous, f"Expected safe, but got dangerous: {reason}"
+
+
+def test_workspace_script_with_unsafe_subprocess_requires_approval(tmp_path, monkeypatch):
+    workspace_dir = tmp_path / "workspace"
+    media_dir = workspace_dir / "media"
+    scripts_dir = workspace_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    media_dir.mkdir(parents=True)
+    (scripts_dir / "danger.py").write_text(
+        "import subprocess\nsubprocess.run('echo nope', shell=True)\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(Config, "WORKSPACE_DIR", workspace_dir)
+    monkeypatch.setattr(Config, "MEDIA_DIR", media_dir)
+
+    is_dangerous, reason = is_dangerous_command("python scripts/danger.py")
+    assert is_dangerous
+    assert reason == "embedded_command_exec"
+
+
+def test_safe_inline_python_execution():
+    is_dangerous, reason = is_dangerous_command('python -c "print(123)"')
+    assert not is_dangerous, f"Expected safe, but got dangerous: {reason}"
+
+
+def test_inline_python_with_unsafe_subprocess_requires_approval():
+    is_dangerous, reason = is_dangerous_command(
+        'python -c "import subprocess; subprocess.run(\'echo hi\', shell=True)"'
+    )
+    assert is_dangerous
+    assert reason == "embedded_command_exec"
 
 
 if __name__ == "__main__":

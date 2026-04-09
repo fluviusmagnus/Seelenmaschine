@@ -20,10 +20,10 @@ from tools.memory_search import MemorySearchTool
 from tools.mcp_client import MCPClient
 from tools.scheduled_tasks import ScheduledTaskTool
 from tools.send_file import SendFileTool
-from tools.shell import is_dangerous_command
 from tools.shell import ShellCommandTool
 from tools.tool_trace import ToolTraceQueryTool, ToolTraceStore
 from utils.logger import get_logger
+from utils.tool_safety import is_dangerous_command, is_path_outside_allowed_dirs
 
 logger = get_logger()
 
@@ -40,34 +40,59 @@ class ToolSafetyPolicy:
         "glob_search": "path",
     }
 
+    _GENERIC_PATH_FIELD_NAMES = {
+        "path",
+        "file_path",
+        "directory",
+        "dir",
+        "cwd",
+        "root",
+        "target_path",
+        "output_path",
+        "input_path",
+    }
+
     def __init__(self, config: Any):
         self.config = config
 
     def is_path_outside_allowed_dirs(self, target_path: str) -> bool:
         """Check whether a path resolves outside workspace/media allowed dirs."""
-        if not target_path:
-            return False
         try:
-            candidate = Path(target_path).expanduser()
-            if not candidate.is_absolute():
-                candidate = Path(self.config.WORKSPACE_DIR) / candidate
-            resolved = candidate.resolve(strict=False)
-            allowed_dirs = [
-                Path(self.config.WORKSPACE_DIR).resolve(),
-                Path(self.config.MEDIA_DIR).resolve(),
-            ]
-
-            for allowed_dir in allowed_dirs:
-                try:
-                    resolved.relative_to(allowed_dir)
-                    return False
-                except ValueError:
-                    continue
-
-            return True
+            return is_path_outside_allowed_dirs(target_path)
         except Exception as error:
             logger.error(f"Error checking path bounds: {error}")
             return True
+
+    def _find_outside_path_in_value(self, field_name: str, value: Any) -> Optional[str]:
+        """Recursively inspect tool arguments for suspicious path-like values."""
+        normalized_name = field_name.lower()
+
+        if isinstance(value, str):
+            if normalized_name not in self._GENERIC_PATH_FIELD_NAMES:
+                return None
+            return value if self.is_path_outside_allowed_dirs(value) else None
+
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                hit = self._find_outside_path_in_value(str(nested_key), nested_value)
+                if hit:
+                    return hit
+            return None
+
+        if isinstance(value, (list, tuple)) and normalized_name in self._GENERIC_PATH_FIELD_NAMES:
+            for item in value:
+                if isinstance(item, str) and self.is_path_outside_allowed_dirs(item):
+                    return item
+
+        return None
+
+    def _find_outside_path_in_arguments(self, arguments: Dict[str, Any]) -> Optional[str]:
+        """Return the first dangerous path found in arbitrary tool arguments."""
+        for key, value in arguments.items():
+            hit = self._find_outside_path_in_value(str(key), value)
+            if hit:
+                return hit
+        return None
 
     def is_dangerous_action(
         self, tool_name: str, arguments: Dict[str, Any]
@@ -87,6 +112,10 @@ class ToolSafetyPolicy:
         if path_argument:
             if self.is_path_outside_allowed_dirs(arguments.get(path_argument, "")):
                 return True, "file_outside_workspace"
+
+        outside_path = self._find_outside_path_in_arguments(arguments)
+        if outside_path:
+            return True, "file_outside_workspace"
 
         return False, ""
 
