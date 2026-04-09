@@ -267,6 +267,22 @@ class TestTelegramMessages:
         )
 
     @pytest.mark.asyncio
+    async def test_handle_file_uses_unified_user_error_text(
+        self, messages_helper, message_handler, mock_context, mock_update_with_document
+    ):
+        telegram_file = Mock()
+        telegram_file.download_to_drive = AsyncMock(side_effect=KeyError("error"))
+        mock_context.bot.get_file.return_value = telegram_file
+
+        await messages_helper.handle_file(mock_update_with_document, mock_context)
+
+        sent_text = mock_update_with_document.message.reply_text.await_args.args[0]
+        assert sent_text == (
+            "Sorry, an error occurred while processing your file.\n\n"
+            "Details: error"
+        ) or "Sorry, an error occurred while processing your file." in sent_text
+
+    @pytest.mark.asyncio
     async def test_handle_file_rejects_unauthorized_user(
         self, messages_helper, message_handler, mock_context, mock_update_with_document
     ):

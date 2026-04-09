@@ -48,6 +48,36 @@ class TelegramMessages:
                 exc_info=True,
             )
 
+    def _format_user_error_text(
+        self,
+        *,
+        scenario: str,
+        error: Exception,
+        subject_label: str | None = None,
+        subject: str | None = None,
+    ) -> str:
+        """Build a consistent user-facing Telegram error message."""
+        scenario_titles = {
+            "message": "Sorry, an error occurred while processing your message.",
+            "file": "Sorry, an error occurred while processing your file.",
+            "scheduled_task": (
+                "Sorry, an error occurred while processing a scheduled task."
+            ),
+        }
+        title = scenario_titles.get(
+            scenario,
+            "Sorry, an error occurred while processing your request.",
+        )
+
+        details = self.format_exception_for_user(error)
+        lines = [title, ""]
+        normalized_subject = subject.strip() if isinstance(subject, str) else ""
+        normalized_label = subject_label.strip() if isinstance(subject_label, str) else ""
+        if normalized_subject and normalized_label:
+            lines.append(f"{normalized_label}: {normalized_subject}")
+        lines.append(f"Details: {details}")
+        return "\n".join(lines)
+
     async def send_scheduled_message(
         self,
         application: Any,
@@ -72,9 +102,24 @@ class TelegramMessages:
                     logger.info(
                         f"Processing scheduled task '{task_name}': {message[:50]}..."
                     )
-                    response = await self.process_scheduled_task(
-                        message, task_name, task_id
-                    )
+                    try:
+                        response = await self.process_scheduled_task(
+                            message, task_name, task_id
+                        )
+                    except Exception as error:
+                        logger.error(
+                            f"Error while processing scheduled task '{task_name}': {error}",
+                            exc_info=True,
+                        )
+                        task_label = task_name.strip() if isinstance(task_name, str) else ""
+                        if not task_label or task_label == "Scheduled Task":
+                            task_label = message.strip() if isinstance(message, str) else ""
+                        response = self._format_user_error_text(
+                            scenario="scheduled_task",
+                            error=error,
+                            subject_label="Task",
+                            subject=task_label,
+                        )
                     await self.response_sender.send_bot_text(
                         telegram_bot=application.bot,
                         chat_id=self.core_bot.config.TELEGRAM_USER_ID,
@@ -161,8 +206,10 @@ class TelegramMessages:
             logger.error(f"Error handling message: {error}", exc_info=True)
             await self._safe_reply_text(
                 update.message.reply_text,
-                "Sorry, an error occurred while processing your message.\n\n"
-                f"Details: {self.format_exception_for_user(error)}",
+                self._format_user_error_text(
+                    scenario="message",
+                    error=error,
+                ),
             )
 
     async def handle_file(
@@ -175,6 +222,7 @@ class TelegramMessages:
             response_sender=self.response_sender,
             preview_text=self.preview_text,
             format_exception_for_user=self.format_exception_for_user,
+            format_user_error_text=self._format_user_error_text,
         )
 
     async def process_message(

@@ -330,6 +330,34 @@ class TestMessageProcessing:
         assert "RuntimeError: Tool execution failed" in formatted
         assert "Missing expected field: error" in formatted
 
+    def test_format_user_error_text_uses_consistent_style(self):
+        """TelegramMessages should build consistent user-facing error texts."""
+        from adapter.telegram.messages import TelegramMessages
+
+        helper = TelegramMessages(
+            core_bot=Mock(),
+            access_guard=Mock(),
+            approval_service=None,
+            files=Mock(),
+            response_sender=Mock(),
+            preview_text=lambda text, max_length=120: text or "",
+            format_exception_for_user=lambda error: f"formatted: {error}",
+            intermediate_callback=AsyncMock(),
+        )
+
+        text = helper._format_user_error_text(
+            scenario="scheduled_task",
+            error=RuntimeError("boom"),
+            subject_label="Task",
+            subject="喝水提醒",
+        )
+
+        assert text == (
+            "Sorry, an error occurred while processing a scheduled task.\n\n"
+            "Task: 喝水提醒\n"
+            "Details: formatted: boom"
+        )
+
     @pytest.mark.asyncio
     async def test_process_message_saves_intermediate_assistant_messages(self):
         """Assistant text emitted during tool calling should also be saved to memory."""
@@ -478,7 +506,7 @@ class TestMessageProcessing:
             handler.llm_client.chat_with_custom_message_async_detailed.await_args.kwargs[
                 "custom_message_role"
             ]
-            == "user"
+            == "system"
         )
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
@@ -500,6 +528,58 @@ class TestMessageProcessing:
             "别忘了喝水。",
         )
         handler.memory.run_summary_check_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_scheduled_message_formats_processing_error_for_user(self):
+        """Scheduled task failures should send a user-friendly error instead of raw fallback text."""
+        from adapter.telegram.controller import TelegramController
+        from adapter.telegram.messages import TelegramMessages
+
+        handler = Mock(spec=TelegramController)
+        handler.config = Mock()
+        handler.config.TELEGRAM_USER_ID = 123456789
+        handler.core_bot = Mock()
+        handler.core_bot.config = handler.config
+        handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
+        handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
+
+        response_sender = Mock()
+        response_sender.send_bot_text = AsyncMock()
+
+        handler.messages = TelegramMessages(
+            core_bot=handler.core_bot,
+            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
+            approval_service=None,
+            files=Mock(),
+            response_sender=response_sender,
+            preview_text=TelegramController._preview_text,
+            format_exception_for_user=TelegramController._format_exception_for_user,
+            intermediate_callback=AsyncMock(),
+        )
+        handler.core_bot.process_scheduled_task = AsyncMock(
+            side_effect=KeyError("error")
+        )
+
+        application = Mock()
+        application.bot = Mock()
+        application.bot.send_chat_action = AsyncMock()
+
+        await handler.messages.send_scheduled_message(
+            application=application,
+            message="提醒喝水",
+            task_name="喝水提醒",
+            task_id="task-123",
+        )
+
+        response_sender.send_bot_text.assert_awaited_once()
+        sent_text = response_sender.send_bot_text.await_args.kwargs["text"]
+        assert "Sorry, an error occurred while processing a scheduled task." in sent_text
+        assert "Task: 喝水提醒" in sent_text
+        assert "Details: Missing expected field: error" in sent_text
+        assert "[Scheduled Task]" not in sent_text
+        handler.core_bot.run_post_response_summary_check.assert_awaited_once_with(
+            context_label="scheduled task response delivery"
+        )
 
     @pytest.mark.asyncio
     async def test_handle_message_runs_summary_check_after_reply(self):

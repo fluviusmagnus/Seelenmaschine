@@ -376,7 +376,7 @@ class ConversationService:
                     retrieved_conversations=retrieved_conversations,
                     recent_summaries=recent_summaries,
                     custom_user_message=wrapped_message,
-                    custom_message_role="user",
+                    custom_message_role="system",
                     current_session_id=self.memory.get_current_session_id(),
                     intermediate_callback=intermediate_callback,
                     abort_check=self.check_stop_requested,
@@ -436,10 +436,7 @@ class ConversationService:
             return response_text
         except Exception as e:
             logger.error(f"Error in process_scheduled_task: {e}", exc_info=True)
-            return (
-                f"[Scheduled Task] {task_message}\n\n"
-                "(Error occurred while processing, please check logs)"
-            )
+            raise
         finally:
             self.end_run()
 

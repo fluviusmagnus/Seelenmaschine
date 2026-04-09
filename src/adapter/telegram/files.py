@@ -37,6 +37,7 @@ class TelegramFiles:
         response_sender: Any,
         preview_text: Callable[[str, int], str],
         format_exception_for_user: Callable[[Exception], str],
+        format_user_error_text: Optional[Callable[..., str]] = None,
     ) -> None:
         """Save the uploaded file and process it as a synthetic user message."""
         if not update.effective_user or not update.message:
@@ -113,10 +114,17 @@ class TelegramFiles:
                 )
         except Exception as error:
             logger.error(f"Error handling file: {error}", exc_info=True)
-            await update.message.reply_text(
-                "Sorry, an error occurred while processing your file.\n\n"
-                f"Details: {format_exception_for_user(error)}"
-            )
+            if format_user_error_text is not None:
+                error_text = format_user_error_text(
+                    scenario="file",
+                    error=error,
+                )
+            else:
+                error_text = (
+                    "Sorry, an error occurred while processing your file.\n\n"
+                    f"Details: {format_exception_for_user(error)}"
+                )
+            await update.message.reply_text(error_text)
 
     @staticmethod
     def sanitize_filename(filename: str) -> str:
