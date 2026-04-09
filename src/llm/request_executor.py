@@ -38,7 +38,8 @@ class ChatRequestExecutor:
         use_tools: bool,
     ) -> Tuple[Dict[str, Any], List[str]]:
         """Build request payload and included tool names for logging."""
-        params: Dict[str, Any] = {"model": model, "messages": messages}
+        normalized_messages = self.llm_client._normalize_outbound_messages(messages)
+        params: Dict[str, Any] = {"model": model, "messages": normalized_messages}
         included_tool_names: List[str] = []
 
         if use_tools:

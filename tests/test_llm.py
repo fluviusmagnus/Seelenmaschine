@@ -85,6 +85,29 @@ class TestLLMClient:
         assert "[tool output truncated, omitted" in sanitized
         assert len(sanitized) < len(response)
 
+    def test_normalize_outbound_messages_rewrites_final_system_role(self, llm_client):
+        messages = [
+            {"role": "system", "content": "setup"},
+            {"role": "system", "content": "respond to this"},
+        ]
+
+        normalized = llm_client._normalize_outbound_messages(messages)
+
+        assert normalized[0]["role"] == "system"
+        assert normalized[-1]["role"] == "user"
+        assert normalized[-1]["content"] == "respond to this"
+        assert messages[-1]["role"] == "system"
+
+    def test_normalize_outbound_messages_keeps_final_tool_role(self, llm_client):
+        messages = [
+            {"role": "assistant", "content": "calling tool"},
+            {"role": "tool", "content": "tool result", "tool_call_id": "1"},
+        ]
+
+        normalized = llm_client._normalize_outbound_messages(messages)
+
+        assert normalized[-1]["role"] == "tool"
+
     def test_format_llm_exception_extracts_openai_error_message(self, llm_client):
         """Structured upstream errors should become readable RuntimeError messages."""
 
@@ -600,6 +623,39 @@ class TestLLMClient:
         create_kwargs = mock_async_client.chat.completions.create.await_args.kwargs
         assert create_kwargs["tools"] == tools
         assert create_kwargs["messages"] == [{"role": "user", "content": "hello"}]
+
+    @pytest.mark.asyncio
+    @patch("llm.chat_client.AsyncOpenAI")
+    async def test_async_chat_normalizes_final_system_role_before_request(
+        self, mock_openai, llm_client
+    ):
+        """Provider-facing requests should never end with a system role."""
+        mock_message = Mock()
+        mock_message.content = "ok"
+        mock_message.tool_calls = None
+        mock_message.reasoning_content = None
+
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=mock_message)]
+
+        mock_async_client = AsyncMock()
+        mock_async_client.chat.completions.create = AsyncMock(
+            return_value=mock_response
+        )
+        mock_openai.return_value = mock_async_client
+
+        await llm_client._async_chat(
+            [
+                {"role": "system", "content": "setup"},
+                {"role": "system", "content": "final system instruction"},
+            ],
+            use_tools=False,
+            force_chat_model=True,
+        )
+
+        create_kwargs = mock_async_client.chat.completions.create.await_args.kwargs
+        assert create_kwargs["messages"][-1]["role"] == "user"
+        assert create_kwargs["messages"][-1]["content"] == "final system instruction"
 
 
 class TestDebugLogReduction:

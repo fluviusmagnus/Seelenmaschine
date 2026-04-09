@@ -39,3 +39,19 @@ def test_build_chat_messages_instructs_clean_final_reply_for_custom_user_message
     assert messages[-1]["role"] == "user"
     assert "Please respond to the following system message" in messages[-1]["content"]
     assert "请总结一下" in messages[-1]["content"]
+
+
+def test_build_chat_messages_forces_user_role_for_custom_system_like_message():
+    builder = ChatMessageBuilder(_FakeLLMClient())
+
+    messages = builder.build_chat_messages(
+        current_context=[],
+        retrieved_summaries=[],
+        retrieved_conversations=[],
+        custom_user_message="[Scheduled Task]\nmessage: 提醒喝水",
+        custom_message_role="user",
+    )
+
+    assert messages[-1]["role"] == "user"
+    assert "Please respond to the following system message" in messages[-1]["content"]
+    assert "[Scheduled Task]" in messages[-1]["content"]

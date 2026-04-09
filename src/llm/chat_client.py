@@ -109,6 +109,33 @@ class LLMClient:
     def _get_tools(self) -> Optional[List[Dict[str, Any]]]:
         return self._tools_cache
 
+    def _normalize_outbound_messages(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Normalize outbound chat messages before sending them to a provider.
+
+        For compatibility with some OpenAI-compatible providers, the final
+        message should not use the ``system`` role. If the last message is a
+        system message, rewrite only that message role to ``user`` while keeping
+        the content unchanged.
+        """
+        normalized_messages = [dict(message) for message in messages]
+        if not normalized_messages:
+            return normalized_messages
+
+        last_message = normalized_messages[-1]
+        if last_message.get("role") == "system":
+            normalized_messages[-1] = {
+                **last_message,
+                "role": "user",
+            }
+            logger.warning(
+                "Normalized final outbound LLM message role from system to user "
+                "for provider compatibility"
+            )
+
+        return normalized_messages
+
     def _get_cacheable_system_prompt(
         self, recent_summaries: Optional[List[str]] = None
     ) -> str:

@@ -30,12 +30,16 @@ class MemoryClient:
                 f"{debug_prompt_label} ({self.llm_client.tool_model}):\n{prompt}"
             )
 
-        response = await self.llm_client._tool_client.chat.completions.create(
-            model=self.llm_client.tool_model,
-            messages=[
+        outbound_messages = self.llm_client._normalize_outbound_messages(
+            [
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": prompt},
-            ],
+            ]
+        )
+
+        response = await self.llm_client._tool_client.chat.completions.create(
+            model=self.llm_client.tool_model,
+            messages=outbound_messages,
         )
 
         result = response.choices[0].message.content or ""
