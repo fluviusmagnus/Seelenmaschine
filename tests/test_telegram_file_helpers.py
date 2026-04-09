@@ -72,7 +72,6 @@ def messages_helper(message_handler):
         preview_text=message_handler._preview_text,
         format_exception_for_user=message_handler._format_exception_for_user,
         intermediate_callback=message_handler._send_intermediate_response,
-        scheduled_intermediate_callback=None,
     )
 
 

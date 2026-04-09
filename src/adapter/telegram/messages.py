@@ -28,7 +28,6 @@ class TelegramMessages:
         preview_text: Any,
         format_exception_for_user: Any,
         intermediate_callback: Any,
-        scheduled_intermediate_callback: Any = None,
     ):
         self.core_bot = core_bot
         self.access_guard = access_guard
@@ -38,7 +37,6 @@ class TelegramMessages:
         self.preview_text = preview_text
         self.format_exception_for_user = format_exception_for_user
         self.intermediate_callback = intermediate_callback
-        self.scheduled_intermediate_callback = scheduled_intermediate_callback
 
     async def _safe_reply_text(self, reply_text: Any, text: str) -> None:
         """Best-effort Telegram reply that never re-raises delivery failures."""
@@ -201,5 +199,5 @@ class TelegramMessages:
             task_message,
             task_name,
             task_id,
-            intermediate_callback=self.scheduled_intermediate_callback,
+            intermediate_callback=self.intermediate_callback,
         )
