@@ -306,6 +306,7 @@ class TestGetCacheableSystemPrompt:
         assert "Use related memories only when helpful" in prompt
         assert "Keep user-facing replies clean and lightweight" in prompt
         assert "Lightweight Markdown is allowed" in prompt
+        assert "If the most recent tool call result appears truncated" in prompt
         assert "never wrap your final reply in tags such as" in prompt
         assert "## Your Self-Awareness" not in prompt
         assert "## User Profile" not in prompt

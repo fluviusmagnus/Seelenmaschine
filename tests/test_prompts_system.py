@@ -138,6 +138,7 @@ class TestBuildSystemPrompt:
                 assert "Use related memories only when helpful" in result
                 assert "Keep user-facing replies clean and lightweight" in result
                 assert "Lightweight Markdown is allowed" in result
+                assert "If the most recent tool call result appears truncated" in result
                 assert "never wrap your final reply in tags such as" in result
                 assert "evt_20260329_project_commitment" in result
                 assert "importance=4" in result
