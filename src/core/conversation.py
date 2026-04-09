@@ -376,7 +376,7 @@ class ConversationService:
                     retrieved_conversations=retrieved_conversations,
                     recent_summaries=recent_summaries,
                     custom_user_message=wrapped_message,
-                    custom_message_role="system",
+                    custom_message_role="user",
                     current_session_id=self.memory.get_current_session_id(),
                     intermediate_callback=intermediate_callback,
                     abort_check=self.check_stop_requested,

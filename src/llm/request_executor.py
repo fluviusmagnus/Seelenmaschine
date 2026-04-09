@@ -139,6 +139,10 @@ class ChatRequestExecutor:
                 "Sending LLM request: "
                 f"model={model}, messages={len(messages)}, tools={included_tool_names or []}"
             )
+            logger.debug(
+                "LLM request roles: "
+                f"{[message.get('role', '<missing>') for message in messages]}"
+            )
 
             if Config.DEBUG_SHOW_FULL_PROMPT:
                 logger.debug(f"Full prompt sent to LLM (model={model}):\n{messages}")
@@ -149,6 +153,11 @@ class ChatRequestExecutor:
             return result
         except Exception as error:
             error_message = self.llm_client._format_llm_exception(error)
+            logger.error(
+                "LLM request failed details: "
+                f"type={type(error).__name__}, repr={error!r}, "
+                f"message_roles={[message.get('role', '<missing>') for message in messages]}"
+            )
             logger.error(f"LLM chat failed: {error_message}", exc_info=True)
             raise RuntimeError(error_message) from error
 

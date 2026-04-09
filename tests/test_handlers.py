@@ -478,7 +478,7 @@ class TestMessageProcessing:
             handler.llm_client.chat_with_custom_message_async_detailed.await_args.kwargs[
                 "custom_message_role"
             ]
-            == "system"
+            == "user"
         )
         assert handler.memory.add_assistant_message_async.await_count == 2
         handler.memory.add_assistant_message_async.assert_any_await("我提醒你一下")
