@@ -1,5 +1,7 @@
+import os
 import re as _re
 import shlex
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +40,7 @@ _DANGEROUS_PATTERNS: list[tuple[str, _re.Pattern]] = [
 
 _URL_SCHEME_PATTERN = _re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _WINDOWS_DRIVE_PATTERN = _re.compile(r"^[a-zA-Z]:[\\/]")
-_SAFE_TMP_PREFIXES = ("/tmp/", "/private/tmp/", "c:\\tmp\\")
+_STATIC_SAFE_TMP_DIRS = (Path("/tmp"), Path("/private/tmp"), Path("c:/tmp"))
 _SAFE_SPECIAL_PATHS = {"/dev/null"}
 _DIRECT_SAFE_COMMANDS = {"pwd", "ls", "dir", "echo", "cat", "type", "rg", "grep", "find"}
 _SCRIPT_INTERPRETERS = {"python", "python3", "bash", "sh", "node"}
@@ -69,34 +71,88 @@ def resolve_workspace_path(candidate: str, *, base_dir: Optional[Path] = None) -
     return path.resolve(strict=False)
 
 
-def _is_path_in_allowed_dirs(path: Path) -> bool:
-    normalized_str = str(path).lower().replace("/", "\\")
-    if normalized_str.startswith("\\tmp\\"):
-        normalized_str = "/tmp/" + normalized_str[len("\\tmp\\") :]
+def _normalize_for_path_compare(path: Path) -> Path:
+    """Normalize a path for robust containment checks across platforms."""
+    return Path(str(path).replace("\\", "/")).expanduser()
 
-    lower_path = str(path).lower()
-    if lower_path.startswith(_SAFE_TMP_PREFIXES):
+
+def _normalize_path_string(value: str) -> str:
+    """Normalize a path-like string for prefix/containment comparisons."""
+    return value.strip().replace("\\", "/").lower().rstrip("/")
+
+
+def _is_explicit_absolute_path(value: str) -> bool:
+    """Return whether the raw user-provided path is explicitly absolute."""
+    stripped = value.strip()
+    if not stripped:
+        return False
+    normalized = stripped.replace("\\", "/")
+    if normalized.startswith("/"):
+        return True
+    return bool(_WINDOWS_DRIVE_PATTERN.match(stripped))
+
+
+def _get_safe_tmp_dirs() -> tuple[Path, ...]:
+    """Return built-in cross-platform temporary directories."""
+    candidates = {path for path in _STATIC_SAFE_TMP_DIRS}
+
+    env_candidates = [
+        os.environ.get("TMP"),
+        os.environ.get("TEMP"),
+        tempfile.gettempdir(),
+    ]
+    for candidate in env_candidates:
+        if not candidate:
+            continue
+        try:
+            candidates.add(Path(candidate).expanduser().resolve(strict=False))
+        except Exception:
+            continue
+
+    return tuple(sorted(candidates, key=lambda item: _normalize_path_string(str(item))))
+
+
+def _is_same_or_child_path(path: Path, parent: Path) -> bool:
+    """Return whether path is the same as parent or contained by it."""
+    normalized_path = _normalize_for_path_compare(path)
+    normalized_parent = _normalize_for_path_compare(parent)
+    try:
+        normalized_path.relative_to(normalized_parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_path_in_allowed_dirs(path: Path, *, allow_temp_dirs: bool) -> bool:
+    if allow_temp_dirs and any(
+        _is_same_or_child_path(path, safe_tmp_dir) for safe_tmp_dir in _get_safe_tmp_dirs()
+    ):
         return True
 
     for allowed_dir in (Path(Config.WORKSPACE_DIR).resolve(), Path(Config.MEDIA_DIR).resolve()):
-        try:
-            path.relative_to(allowed_dir)
+        if _is_same_or_child_path(path, allowed_dir):
             return True
-        except ValueError:
-            continue
     return False
 
 
 def is_path_outside_allowed_dirs(target_path: str, *, base_dir: Optional[Path] = None) -> bool:
     if not target_path:
         return False
-    if target_path.strip().lower() in _SAFE_SPECIAL_PATHS:
+    normalized_target = _normalize_path_string(target_path)
+    allow_temp_dirs = _is_explicit_absolute_path(target_path)
+    if normalized_target in _SAFE_SPECIAL_PATHS:
         return False
+    if allow_temp_dirs:
+        safe_tmp_prefixes = tuple(_normalize_path_string(str(path)) for path in _get_safe_tmp_dirs())
+        if normalized_target in safe_tmp_prefixes:
+            return False
+        if any(normalized_target.startswith(f"{prefix}/") for prefix in safe_tmp_prefixes):
+            return False
     try:
         resolved = resolve_workspace_path(target_path, base_dir=base_dir)
     except Exception:
         return True
-    return not _is_path_in_allowed_dirs(resolved)
+    return not _is_path_in_allowed_dirs(resolved, allow_temp_dirs=allow_temp_dirs)
 
 
 def _looks_like_path_token(token: str) -> bool:

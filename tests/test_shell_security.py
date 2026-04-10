@@ -130,6 +130,29 @@ def test_unified_path_guard_detects_inside_and_outside_workspace(tmp_path, monke
     assert is_path_outside_allowed_dirs("../secret.txt") is True
 
 
+def test_safe_tmp_directory_root_is_treated_as_allowed_path():
+    assert is_path_outside_allowed_dirs("/tmp") is False
+    assert is_path_outside_allowed_dirs("/tmp/") is False
+    assert is_path_outside_allowed_dirs("/private/tmp") is False
+
+
+def test_safe_tmp_child_paths_use_robust_path_containment():
+    assert is_path_outside_allowed_dirs("/tmp/nested/file.txt") is False
+    assert is_path_outside_allowed_dirs("/private/tmp/nested/file.txt") is False
+    assert is_path_outside_allowed_dirs(r"C:\tmp\nested\file.txt") is False
+
+
+def test_env_temp_directories_are_treated_as_allowed_paths(tmp_path, monkeypatch):
+    custom_tmp = tmp_path / "custom-temp"
+    custom_tmp.mkdir(parents=True)
+
+    monkeypatch.setenv("TEMP", str(custom_tmp))
+    monkeypatch.setenv("TMP", str(custom_tmp))
+
+    assert is_path_outside_allowed_dirs(str(custom_tmp)) is False
+    assert is_path_outside_allowed_dirs(str(custom_tmp / "nested" / "file.txt")) is False
+
+
 def test_safe_workspace_script_execution(tmp_path, monkeypatch):
     workspace_dir = tmp_path / "workspace"
     media_dir = workspace_dir / "media"
