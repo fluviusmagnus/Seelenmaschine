@@ -63,21 +63,21 @@ class ToolTraceStore:
             "arguments_full": self._truncate_text(
                 arguments_text, Config.TOOL_TRACE_ARGUMENTS_FULL_MAX
             ),
-            "result_preview": self._sanitize_and_truncate_result(
+            "result_preview": self.sanitize_and_truncate_result(
                 result_text, Config.TOOL_TRACE_RESULT_PREVIEW_MAX
             ),
-            "result_full": self._sanitize_and_truncate_result(
+            "result_full": self.sanitize_and_truncate_result(
                 result_text, Config.TOOL_TRACE_RESULT_FULL_MAX
             ),
             "original_result_length": len(result_text),
             "stored_full_length": len(
-                self._sanitize_and_truncate_result(
+                self.sanitize_and_truncate_result(
                     result_text, Config.TOOL_TRACE_RESULT_FULL_MAX
                 )
             ),
             "result_truncated": len(result_text)
             > len(
-                self._sanitize_and_truncate_result(
+                self.sanitize_and_truncate_result(
                     result_text, Config.TOOL_TRACE_RESULT_FULL_MAX
                 )
             ),
@@ -252,7 +252,7 @@ class ToolTraceStore:
                     logger.warning("Skipping invalid tool trace log line")
         return records
 
-    def _sanitize_and_truncate_result(self, text: str, max_length: int) -> str:
+    def sanitize_and_truncate_result(self, text: str, max_length: int) -> str:
         if not text:
             return ""
 

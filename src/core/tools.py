@@ -4,7 +4,6 @@ import asyncio
 import html
 import json
 import time
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.config import Config
@@ -204,6 +203,16 @@ class ToolTraceService:
             logger.warning(f"Failed to persist tool trace for {tool_name}: {error}")
             return None
 
+    def sanitize_result_preview(self, result: Any, *, max_length: int) -> str:
+        """Sanitize tool output previews without leaking store internals."""
+        result_text = "" if result is None else str(result)
+        if self.store is None:
+            if len(result_text) <= max_length:
+                return result_text
+            omitted = len(result_text) - max_length
+            return f"{result_text[:max_length]}...[truncated {omitted} chars]"
+        return self.store.sanitize_and_truncate_result(result_text, max_length)
+
 
 class ToolRuntimeState:
     """Own the mutable bookkeeping state used by the tool runtime."""
@@ -395,7 +404,6 @@ class ToolRuntime:
     async def ensure_mcp_connected(self) -> None:
         """Connect MCP lazily and merge remote tools into the LLM tool list."""
         state = self._get_runtime_state()
-        core_bot = self._get_core_bot()
         if state.mcp_client and not state.mcp_connected:
             try:
                 await state.mcp_client.__aenter__()
@@ -437,6 +445,7 @@ class ToolExecutor:
         request_approval: Callable[[str, Dict[str, Any], str], Awaitable[bool]],
         record_tool_trace: Callable[..., Awaitable[None]],
         infer_tool_trace_status: Callable[[Any], str],
+        sanitize_result_preview: Callable[[Any, int], str],
         notify_approved_action_finished: Callable[[str, str], Awaitable[None]],
         notify_approved_action_failed: Callable[[str, Exception], Awaitable[None]],
         file_artifact_service: Any,
@@ -452,6 +461,7 @@ class ToolExecutor:
         self.request_approval = request_approval
         self.record_tool_trace = record_tool_trace
         self.infer_tool_trace_status = infer_tool_trace_status
+        self.sanitize_result_preview = sanitize_result_preview
         self.notify_approved_action_finished = notify_approved_action_finished
         self.notify_approved_action_failed = notify_approved_action_failed
         self.file_artifact_service = file_artifact_service
@@ -491,14 +501,8 @@ class ToolExecutor:
         )
 
     def _build_result_preview(self, result: Any) -> str:
-        if self.record_tool_trace.__self__.store is not None:
-            store = self.record_tool_trace.__self__.store
-            return store._sanitize_and_truncate_result(  # type: ignore[attr-defined]
-                str(result),
-                self._TOOL_CONTEXT_RESULT_PREVIEW_MAX,
-            )
-        return self._truncate_preview_text(
-            str(result),
+        return self.sanitize_result_preview(
+            result,
             self._TOOL_CONTEXT_RESULT_PREVIEW_MAX,
         )
 

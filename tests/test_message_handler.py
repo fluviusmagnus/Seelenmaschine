@@ -13,6 +13,7 @@ import pytest
 from adapter.telegram.controller import TelegramController
 from adapter.telegram.formatter import TelegramResponseFormatter
 from core.bot import CoreBot
+from core.tools import ToolExecutor
 
 
 @pytest.fixture
@@ -397,6 +398,41 @@ def test_formatter_module_replaces_handler_format_wrapper():
     formatter = TelegramResponseFormatter()
 
     assert formatter.format_response("**hi**", debug_mode=True) == "<b>hi</b>"
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_uses_explicit_preview_sanitizer_without_bound_trace_store():
+    """ToolExecutor should not rely on bound-method internals for preview sanitization."""
+    registry = Mock()
+    tool = Mock()
+    tool.execute = AsyncMock(return_value="A" * 200)
+    registry.get.return_value = tool
+
+    record_tool_trace = AsyncMock(return_value=123)
+    executor = ToolExecutor(
+        config=Mock(TOOL_EXECUTION_TIMEOUT_SECONDS=5),
+        tool_registry=registry,
+        mcp_client=None,
+        ensure_mcp_connected=None,
+        is_mcp_connected=lambda: False,
+        is_dangerous_action=lambda _name, _args: (False, ""),
+        request_approval=AsyncMock(),
+        record_tool_trace=record_tool_trace,
+        infer_tool_trace_status=lambda _result: "success",
+        sanitize_result_preview=lambda _result, _max_length: "sanitized-preview",
+        notify_approved_action_finished=AsyncMock(),
+        notify_approved_action_failed=AsyncMock(),
+        file_artifact_service=None,
+        preview_text=lambda text, max_length=120: str(text)[:max_length],
+        send_status_message=None,
+    )
+
+    result = await executor.execute_tool("demo_tool", '{"value": 1}')
+
+    assert result["result"] == "A" * 200
+    assert 'result_preview: "sanitized-preview"' in result["context_message"]
+    record_tool_trace.assert_awaited_once()
+    tool.execute.assert_awaited_once_with(value=1)
 
 
 if __name__ == "__main__":

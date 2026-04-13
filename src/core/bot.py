@@ -107,6 +107,10 @@ class CoreBot:
                 request_approval=self._approval_delegate.request_approval,
                 record_tool_trace=self.tool_runtime_state.tool_trace_service.record_trace,
                 infer_tool_trace_status=self.tool_runtime_state.tool_trace_service.infer_status,
+                sanitize_result_preview=lambda result, max_length: self.tool_runtime_state.tool_trace_service.sanitize_result_preview(
+                    result,
+                    max_length=max_length,
+                ),
                 notify_approved_action_finished=self._approval_delegate.notify_approved_action_finished,
                 notify_approved_action_failed=self._approval_delegate.notify_approved_action_failed,
                 file_artifact_service=self.file_artifact_service,
