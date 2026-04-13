@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from memory.manager import MemoryManager
 from core.config import Config
 
@@ -13,10 +13,6 @@ def mock_deps():
 
     embedding_client = Mock()
     embedding_client.get_embedding.return_value = [0.1] * 1536
-
-    # Use AsyncMock for async methods
-    embedding_client.get_embedding_async = Mock()
-    embedding_client.get_embedding_async.return_value = [0.1] * 1536
 
     reranker_client = Mock()
     return db, embedding_client, reranker_client
@@ -86,5 +82,3 @@ def test_add_user_message_always_strips_for_embedding(mock_deps, monkeypatch):
     embedded_text = embedding_call[0][0]
     assert "<blockquote>" not in embedded_text
     assert embedded_text == "User message"
-
-

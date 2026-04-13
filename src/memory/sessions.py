@@ -1,9 +1,11 @@
+import asyncio
 import inspect
 from typing import Any, Awaitable, Callable, List, Optional, Tuple
 
 from memory.context import ContextWindow, Message
 from core.database import DatabaseManager
 from llm.embedding import EmbeddingClient
+from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 from utils.text import strip_blockquotes
 from utils.time import get_current_timestamp
@@ -23,6 +25,14 @@ class SessionMemory:
         self.db = db
         self.embedding_client = embedding_client
         self.context_window = context_window
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
+        """Provide a reusable event loop for sync wrappers."""
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
 
     def _estimate_summary_window(
         self, messages: List[Message]
@@ -97,6 +107,7 @@ class SessionMemory:
         self,
         generate_summary: Callable[[List[Message]], Any],
         update_long_term_memory: Callable[[int, List[Message]], Any],
+        embedding_fetcher: Callable[[str], Any],
     ) -> int:
         """Shared implementation for creating a new session."""
         old_session = self.db.get_active_session()
@@ -113,7 +124,7 @@ class SessionMemory:
                     session_id=old_session["session_id"],
                     messages=remaining_messages,
                     summary_text=summary_text,
-                    embedding_fetcher=self.embedding_client.get_embedding_async,
+                    embedding_fetcher=embedding_fetcher,
                     timestamp_resolver=lambda _session_id, _message_count: self._estimate_summary_window(
                         remaining_messages
                     ),
@@ -130,14 +141,19 @@ class SessionMemory:
         return self._create_fresh_session("Created new session")
 
     async def _add_user_message_impl(
-        self, session_id: int, text: str, embedding: Optional[List[float]] = None
+        self,
+        session_id: int,
+        text: str,
+        embedding: Optional[List[float]] = None,
+        embedding_fetcher: Optional[Callable[[str], Any]] = None,
     ) -> Tuple[int, List[float]]:
         """Shared implementation for storing a user message."""
         timestamp = get_current_timestamp()
 
         if embedding is None:
-            embedding = await self.embedding_client.get_embedding_async(
-                strip_blockquotes(text)
+            fetch_embedding = embedding_fetcher or self.embedding_client.get_embedding_async
+            embedding = await self._resolve_maybe_awaitable(
+                fetch_embedding(strip_blockquotes(text))
             )
 
         conversation_id = self._store_message(
@@ -155,14 +171,16 @@ class SessionMemory:
         session_id: int,
         text: str,
         embedding: Optional[List[float]] = None,
+        embedding_fetcher: Optional[Callable[[str], Any]] = None,
     ) -> Tuple[int, Optional[int]]:
         """Shared implementation for storing assistant messages."""
         timestamp = get_current_timestamp()
         text_for_storage = self._assistant_text_for_storage(text)
 
         if embedding is None:
-            embedding = await self.embedding_client.get_embedding_async(
-                strip_blockquotes(text)
+            fetch_embedding = embedding_fetcher or self.embedding_client.get_embedding_async
+            embedding = await self._resolve_maybe_awaitable(
+                fetch_embedding(strip_blockquotes(text))
             )
 
         conversation_id = self._store_message(
@@ -180,6 +198,7 @@ class SessionMemory:
         self,
         get_current_session_id: Callable[[], int],
         generate_summary: Callable[[List[Message]], Any],
+        embedding_fetcher: Callable[[str], Any],
     ) -> Tuple[Optional[int], Optional[List[Message]]]:
         """Shared implementation for summary creation."""
         from core.config import Config
@@ -202,7 +221,7 @@ class SessionMemory:
             session_id=session_id,
             messages=messages_to_summarize,
             summary_text=summary_text,
-            embedding_fetcher=self.embedding_client.get_embedding_async,
+            embedding_fetcher=embedding_fetcher,
             timestamp_resolver=lambda current_session_id, _message_count: self._summary_timestamps_from_messages(
                 current_session_id,
                 messages_to_summarize,
@@ -393,33 +412,17 @@ class SessionMemory:
         update_long_term_memory: Callable[[int, List[Message]], bool],
     ) -> int:
         """Create a new session and close the old one if needed."""
-        old_session = self.db.get_active_session()
-        if old_session:
-            remaining_messages = self.context_window.get_summarizable_messages()
-            if remaining_messages:
-                logger.info(
-                    f"Summarizing {len(remaining_messages)} remaining messages before closing session"
-                )
-                summary_text = generate_summary(remaining_messages)
-                first_timestamp, last_timestamp = self._estimate_summary_window(
-                    remaining_messages
-                )
-                embedding = self.embedding_client.get_embedding(summary_text)
-                summary_id = self._insert_summary(
-                    session_id=old_session["session_id"],
-                    summary_text=summary_text,
-                    first_timestamp=first_timestamp,
-                    last_timestamp=last_timestamp,
-                    embedding=embedding,
-                )
-                logger.info(
-                    f"Created final summary for session {old_session['session_id']}: summary_id={summary_id}"
-                )
-                update_long_term_memory(summary_id, remaining_messages)
-
-            self._close_old_session(old_session["session_id"])
-
-        return self._create_fresh_session("Created new session")
+        ensure_not_in_async_context(
+            "new_session() called from async context. Use await new_session_async() instead."
+        )
+        return run_sync(
+            lambda: self._new_session_impl(
+                generate_summary,
+                update_long_term_memory,
+                self.embedding_client.get_embedding,
+            ),
+            self._get_event_loop,
+        )
 
     async def new_session_async(
         self,
@@ -432,6 +435,7 @@ class SessionMemory:
         return await self._new_session_impl(
             generate_summary_async,
             update_long_term_memory_async,
+            self.embedding_client.get_embedding_async,
         )
 
     def reset_session(self) -> None:
@@ -448,26 +452,29 @@ class SessionMemory:
         self, session_id: int, text: str, embedding: Optional[List[float]] = None
     ) -> Tuple[int, List[float]]:
         """Store a user message and append it to the context window."""
-        timestamp = get_current_timestamp()
-
-        if embedding is None:
-            embedding = self.embedding_client.get_embedding(strip_blockquotes(text))
-
-        conversation_id = self._store_message(
-            session_id=session_id,
-            timestamp=timestamp,
-            role="user",
-            text=text,
-            embedding=embedding,
+        ensure_not_in_async_context(
+            "add_user_message() called from async context. Use await add_user_message_async() instead."
         )
-        logger.debug(f"Added user message: conversation_id={conversation_id}")
-        return conversation_id, embedding
+        return run_sync(
+            lambda: self._add_user_message_impl(
+                session_id,
+                text,
+                embedding,
+                self.embedding_client.get_embedding,
+            ),
+            self._get_event_loop,
+        )
 
     async def add_user_message_async(
         self, session_id: int, text: str, embedding: Optional[List[float]] = None
     ) -> Tuple[int, List[float]]:
         """Async version of add_user_message."""
-        return await self._add_user_message_impl(session_id, text, embedding)
+        return await self._add_user_message_impl(
+            session_id,
+            text,
+            embedding,
+            self.embedding_client.get_embedding_async,
+        )
 
     def add_assistant_message(
         self,
@@ -476,22 +483,18 @@ class SessionMemory:
         embedding: Optional[List[float]] = None,
     ) -> Tuple[int, Optional[int]]:
         """Store an assistant message without triggering summarization."""
-        timestamp = get_current_timestamp()
-        text_for_storage = self._assistant_text_for_storage(text)
-
-        if embedding is None:
-            embedding = self.embedding_client.get_embedding(strip_blockquotes(text))
-
-        conversation_id = self._store_message(
-            session_id=session_id,
-            timestamp=timestamp,
-            role="assistant",
-            text=text_for_storage,
-            embedding=embedding,
+        ensure_not_in_async_context(
+            "add_assistant_message() called from async context. Use await add_assistant_message_async() instead."
         )
-
-        logger.debug(f"Added assistant message: conversation_id={conversation_id}")
-        return conversation_id, None
+        return run_sync(
+            lambda: self._add_assistant_message_impl(
+                session_id,
+                text,
+                embedding,
+                self.embedding_client.get_embedding,
+            ),
+            self._get_event_loop,
+        )
 
     async def add_assistant_message_async(
         self,
@@ -504,6 +507,7 @@ class SessionMemory:
             session_id,
             text,
             embedding,
+            self.embedding_client.get_embedding_async,
         )
 
     def check_and_create_summary(
@@ -512,40 +516,17 @@ class SessionMemory:
         generate_summary: Callable[[List[Message]], str],
     ) -> Tuple[Optional[int], Optional[List[Message]]]:
         """Create a summary when the context window exceeds the threshold."""
-        from core.config import Config
-
-        trigger_count = Config.CONTEXT_WINDOW_TRIGGER_SUMMARY
-        keep_count = Config.CONTEXT_WINDOW_KEEP_MIN
-
-        if self.context_window.get_total_message_count() < trigger_count:
-            return None, None
-
-        messages_to_summarize = self.context_window.get_messages_for_summary(keep_count)
-        if not messages_to_summarize:
-            return None, None
-
-        summary_text = generate_summary(messages_to_summarize)
-        session_id = get_current_session_id()
-        first_timestamp, last_timestamp = self._summary_timestamps_from_messages(
-            session_id,
-            messages_to_summarize,
+        ensure_not_in_async_context(
+            "check_and_create_summary() called from async context. Use await check_and_create_summary_async() instead."
         )
-
-        embedding = self.embedding_client.get_embedding(summary_text)
-        summary_id = self._insert_summary(
-            session_id=session_id,
-            summary_text=summary_text,
-            first_timestamp=first_timestamp,
-            last_timestamp=last_timestamp,
-            embedding=embedding,
+        return run_sync(
+            lambda: self._check_and_create_summary_impl(
+                get_current_session_id,
+                generate_summary,
+                self.embedding_client.get_embedding,
+            ),
+            self._get_event_loop,
         )
-        self.context_window.add_summary(summary=summary_text, summary_id=summary_id)
-        self.context_window.remove_earliest_messages(keep_count)
-
-        logger.info(
-            f"Created summary: summary_id={summary_id}, length={len(summary_text)}"
-        )
-        return summary_id, messages_to_summarize
 
     async def check_and_create_summary_async(
         self,
@@ -556,6 +537,5 @@ class SessionMemory:
         return await self._check_and_create_summary_impl(
             get_current_session_id,
             generate_summary_async,
+            self.embedding_client.get_embedding_async,
         )
-
-

@@ -30,6 +30,7 @@ class TestMemoryManagerSessionOperations:
         
         embedding_client = Mock()
         embedding_client.get_embedding.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async.return_value = [0.1] * 1536
         
         reranker_client = Mock()
         
@@ -159,6 +160,8 @@ class TestMemoryManagerUtilityMethods:
         db.get_unsummarized_conversations.return_value = []
         
         embedding_client = Mock()
+        embedding_client.get_embedding.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async.return_value = [0.1] * 1536
         reranker_client = Mock()
         
         return {
@@ -387,6 +390,4 @@ class TestSeeleRepairPaths:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-
 

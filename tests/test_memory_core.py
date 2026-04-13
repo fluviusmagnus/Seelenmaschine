@@ -36,6 +36,7 @@ class TestMemoryManagerAutomaticSummarization:
         
         embedding_client = Mock()
         embedding_client.get_embedding.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async.return_value = [0.1] * 1536
         embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         
         reranker_client = Mock()
@@ -184,6 +185,9 @@ class TestMemoryManagerCompleteFlows:
         with patch.object(mm, "_check_and_create_summary", return_value=(123, [Message("user", "hello")])):
             with patch.object(mm, "_update_long_term_memory", return_value=True) as mock_update_memory:
                 conversation_id, summary_id = mm.add_assistant_message("This is a response")
+                summary_id, summarized_messages = mm._check_and_create_summary()
+                if summary_id is not None and summarized_messages is not None:
+                    mm._update_long_term_memory(summary_id, summarized_messages)
 
         assert conversation_id == 200
         assert summary_id == 123
@@ -205,6 +209,7 @@ class TestMemoryManagerCompleteFlows:
 
         embedding_client = Mock()
         embedding_client.get_embedding.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async.return_value = [0.1] * 1536
 
         reranker_client = Mock()
 
@@ -228,6 +233,5 @@ class TestMemoryManagerCompleteFlows:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
 
 

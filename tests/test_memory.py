@@ -24,6 +24,7 @@ def mock_embedding_client():
     """Create mock EmbeddingClient."""
     client = Mock(EmbeddingClient)
     client.get_embedding.return_value = [0.1] * 1536
+    client.get_embedding_async.return_value = [0.1] * 1536
     return client
 
 
@@ -98,7 +99,7 @@ class TestMemoryManager:
             with patch.object(
                 memory_manager, "_update_long_term_memory", return_value=True
             ) as mock_update_ltm:
-                new_id = memory_manager.new_session()
+                memory_manager.new_session()
 
                 # Verify summary was created for remaining messages
                 assert mock_summary.called
@@ -182,6 +183,30 @@ class TestMemoryManager:
 
         assert conv_id == 11
         assert mock_db.insert_conversation.called
+
+    @pytest.mark.asyncio
+    async def test_sync_memory_api_rejects_async_context(self, memory_manager, mock_db):
+        """Sync session APIs should fail clearly inside async contexts."""
+        mock_db.get_active_session.return_value = {"session_id": 1}
+
+        with pytest.raises(RuntimeError, match="new_session\\(\\) called from async context"):
+            memory_manager.new_session()
+
+        with pytest.raises(
+            RuntimeError, match="add_user_message\\(\\) called from async context"
+        ):
+            memory_manager.add_user_message("Hello")
+
+        with pytest.raises(
+            RuntimeError, match="add_assistant_message\\(\\) called from async context"
+        ):
+            memory_manager.add_assistant_message("Response")
+
+        with pytest.raises(
+            RuntimeError,
+            match="check_and_create_summary\\(\\) called from async context",
+        ):
+            memory_manager._check_and_create_summary()
 
     def test_add_assistant_message_triggers_summary(
         self, memory_manager, mock_db, monkeypatch
@@ -506,6 +531,4 @@ def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_
     assert len(compacted["user"]["personal_facts"]) == PERSONAL_FACTS_LIMIT
     assert compacted["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
     fake_client.close.assert_called_once()
-
-
 
