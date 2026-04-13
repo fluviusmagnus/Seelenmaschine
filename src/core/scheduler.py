@@ -51,8 +51,19 @@ class TaskScheduler:
         self._message_callback = callback
         logger.debug(f"TaskScheduler {self._instance_id}: message callback set")
 
+    def start(self) -> None:
+        """Start the scheduler background task from an async-capable runtime."""
+        if self._task and not self._task.done():
+            logger.warning(
+                f"TaskScheduler {self._instance_id} already has a running background task"
+            )
+            return
+
+        self._task = asyncio.create_task(self.run_forever())
+        logger.info(f"TaskScheduler {self._instance_id} background task created")
+
     async def run_forever(self) -> None:
-        """Run the scheduler loop forever (to be used as Application job)"""
+        """Run the scheduler loop until a stop is requested."""
         if self._running:
             logger.warning(
                 f"TaskScheduler {self._instance_id} is already running, skipping start"
@@ -85,6 +96,18 @@ class TaskScheduler:
             except RuntimeError as e:
                 # Event loop might already be closed
                 logger.debug(f"Could not cancel scheduler task: {e}")
+
+    async def wait_stopped(self, timeout: float = 2.0) -> None:
+        """Wait for the current scheduler background task to stop."""
+        if not self._task or self._task.done():
+            return
+
+        try:
+            await asyncio.wait_for(self._task, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Scheduler did not stop in time")
+        except asyncio.CancelledError:
+            pass
 
     async def _check_and_run_tasks(self) -> None:
         current_time = get_current_timestamp()

@@ -201,6 +201,8 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.write_timeout.assert_called_once_with(30.0)
                 mock_builder_instance.pool_timeout.assert_called_once_with(15.0)
                 assert mock_application.add_handler.call_count == 8
+                assert mock_application.post_init is not None
+                assert mock_application.post_shutdown is not None
 
     def test_create_application_enables_concurrent_updates(
         self, mock_config, mock_message_handler, mock_application
@@ -350,10 +352,10 @@ class TestTelegramAdapterApplication:
             mock_new_event_loop.assert_called_once_with()
             mock_set_event_loop.assert_called_once_with(fake_loop)
 
-    def test_create_application_accepts_runtime_hooks(
+    def test_create_application_post_init_warms_runtime_and_starts_scheduler(
         self, mock_config, mock_message_handler, mock_application
     ):
-        """Application setup should attach externally supplied runtime hooks."""
+        """Application post_init should warm tool runtime and start the scheduler."""
         from adapter.telegram.adapter import TelegramAdapter
 
         with patch("adapter.telegram.adapter.Config", return_value=mock_config):
@@ -386,8 +388,8 @@ class TestTelegramAdapterApplication:
                 mock_builder_instance.build.return_value = mock_application
 
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
-                post_init = AsyncMock()
-                post_shutdown = AsyncMock()
+                mock_message_handler.core_bot.warmup_tool_runtime = AsyncMock()
+                mock_message_handler.core_bot.scheduler.start = Mock()
                 adapter._application = adapter._application_setup.create_application(
                     application_builder_factory=mock_builder,
                     command_handler_cls=__import__(
@@ -399,12 +401,9 @@ class TestTelegramAdapterApplication:
                     filters_module=__import__(
                         "telegram.ext", fromlist=["filters"]
                     ).filters,
-                    post_init=post_init,
-                    post_shutdown=post_shutdown,
                 )
 
                 assert mock_application.post_init is not None
-                assert mock_application.post_shutdown is post_shutdown
 
                 mock_runtime_app = Mock()
                 mock_runtime_app.bot = Mock()
@@ -416,7 +415,65 @@ class TestTelegramAdapterApplication:
                 asyncio.run(awaitable)
 
                 mock_runtime_app.bot.set_my_commands.assert_awaited_once()
-                post_init.assert_awaited_once_with(mock_runtime_app)
+                mock_message_handler.core_bot.warmup_tool_runtime.assert_awaited_once_with()
+                mock_message_handler.core_bot.scheduler.start.assert_called_once_with()
+
+    def test_create_application_post_shutdown_stops_scheduler(
+        self, mock_config, mock_message_handler, mock_application
+    ):
+        """Application post_shutdown should stop the scheduler through its own API."""
+        from adapter.telegram.adapter import TelegramAdapter
+
+        with patch("adapter.telegram.adapter.Config", return_value=mock_config):
+            with patch("adapter.telegram.adapter.Application.builder") as mock_builder:
+                mock_builder_instance = mock_builder.return_value
+                mock_builder_instance.token.return_value = mock_builder_instance
+                mock_builder_instance.concurrent_updates.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_read_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.get_updates_pool_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.connect_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.read_timeout.return_value = mock_builder_instance
+                mock_builder_instance.write_timeout.return_value = (
+                    mock_builder_instance
+                )
+                mock_builder_instance.pool_timeout.return_value = mock_builder_instance
+                mock_builder_instance.build.return_value = mock_application
+
+                adapter = TelegramAdapter(message_handler=mock_message_handler)
+                mock_message_handler.core_bot.scheduler.stop = Mock()
+                mock_message_handler.core_bot.scheduler.wait_stopped = AsyncMock()
+                adapter._application = adapter._application_setup.create_application(
+                    application_builder_factory=mock_builder,
+                    command_handler_cls=__import__(
+                        "telegram.ext", fromlist=["CommandHandler"]
+                    ).CommandHandler,
+                    message_handler_cls=__import__(
+                        "telegram.ext", fromlist=["MessageHandler"]
+                    ).MessageHandler,
+                    filters_module=__import__(
+                        "telegram.ext", fromlist=["filters"]
+                    ).filters,
+                )
+
+                assert mock_application.post_shutdown is not None
+                asyncio.run(mock_application.post_shutdown(Mock()))
+
+                mock_message_handler.core_bot.scheduler.stop.assert_called_once_with()
+                mock_message_handler.core_bot.scheduler.wait_stopped.assert_awaited_once_with()
 
 
 class TestTelegramAdapterCommands:

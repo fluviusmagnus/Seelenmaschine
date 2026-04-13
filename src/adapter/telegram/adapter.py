@@ -1,4 +1,5 @@
 import asyncio
+import signal
 from typing import Any, Callable, List, Optional
 
 from telegram import Update
@@ -15,6 +16,19 @@ from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
+
+
+def register_stop_signal_handlers(
+    stop_callback: Callable[[], None],
+    signal_fn: Callable[[int, Callable[..., Optional[None]]], Any] = signal.signal,
+) -> None:
+    """Register SIGINT/SIGTERM handlers that stop the Telegram runtime gracefully."""
+
+    def _stop_runtime(_sig: int, _frame: Any) -> None:
+        stop_callback()
+
+    signal_fn(signal.SIGINT, _stop_runtime)
+    signal_fn(signal.SIGTERM, _stop_runtime)
 
 
 class TelegramAdapter:
@@ -44,9 +58,6 @@ class TelegramAdapter:
 
     def create_application(
         self,
-        *,
-        post_init: Optional[Callable[[Application], Any]] = None,
-        post_shutdown: Optional[Callable[[Application], Any]] = None,
     ) -> None:
         """Create and configure the Telegram application."""
         self._application = self._application_setup.create_application(
@@ -54,8 +65,6 @@ class TelegramAdapter:
             command_handler_cls=CommandHandler,
             message_handler_cls=MessageHandler,
             filters_module=filters,
-            post_init=post_init,
-            post_shutdown=post_shutdown,
         )
 
     def run(self) -> None:
@@ -121,8 +130,6 @@ class TelegramApplicationSetup:
         command_handler_cls: type[CommandHandler],
         message_handler_cls: type[MessageHandler],
         filters_module: Any,
-        post_init: Optional[Callable[[Application], Any]] = None,
-        post_shutdown: Optional[Callable[[Application], Any]] = None,
     ) -> Application:
         """Build and configure the Telegram application."""
         builder = application_builder_factory().token(
@@ -159,9 +166,8 @@ class TelegramApplicationSetup:
         ):
             application.add_handler(handler)
 
-        application.post_init = self._build_post_init_hook(post_init)
-        if post_shutdown is not None:
-            application.post_shutdown = post_shutdown
+        application.post_init = self._build_post_init_hook()
+        application.post_shutdown = self._build_post_shutdown_hook()
 
         logger.info("Telegram application created and handlers registered")
         return application
@@ -197,16 +203,24 @@ class TelegramApplicationSetup:
 
     def _build_post_init_hook(
         self,
-        external_post_init: Optional[Callable[[Application], Any]],
     ) -> Callable[[Application], Any]:
-        """Build the post_init hook for Telegram command registration."""
+        """Build the Telegram post_init hook."""
 
         async def post_init(application: Application) -> None:
             commands = TelegramCommands.build_menu_commands()
             await application.bot.set_my_commands(commands)
             logger.info("Bot commands registered in Telegram menu")
-
-            if external_post_init is not None:
-                await external_post_init(application)
+            await self.telegram_adapter.message_handler.core_bot.warmup_tool_runtime()
+            self.telegram_adapter.scheduler.start()
 
         return post_init
+
+    def _build_post_shutdown_hook(self) -> Callable[[Application], Any]:
+        """Build the Telegram post_shutdown hook."""
+
+        async def post_shutdown(_application: Application) -> None:
+            self.telegram_adapter.scheduler.stop()
+            await self.telegram_adapter.scheduler.wait_stopped()
+            logger.info("Scheduler stopped")
+
+        return post_shutdown
