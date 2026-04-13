@@ -138,10 +138,10 @@ def test_message_handler_initialization(
 async def test_process_message(
     core_bot,
 ):
-    """Test message processing flow via the Telegram message service."""
+    """Test message processing flow via the Telegram controller."""
     handler = TelegramController(core_bot=core_bot)
 
-    response = await handler.messages.process_message("Hello, how are you?")
+    response = await handler.process_message("Hello, how are you?")
 
     # Verify the response
     assert response == "This is a test response"
@@ -167,7 +167,7 @@ async def test_process_message_with_embedding_override(
     """Test message processing forwards explicit embedding text override."""
     handler = TelegramController(core_bot=core_bot)
 
-    response = await handler.messages.process_message(
+    response = await handler.process_message(
         "Hello, how are you?",
         message_for_embedding="caption text",
     )

@@ -4,20 +4,24 @@ from pathlib import Path
 from typing import Any, Optional
 
 from adapter.telegram.commands import TelegramCommands
-from adapter.telegram.delivery import TelegramAccessGuard, TelegramResponseSender
+from adapter.telegram.delivery import (
+    TelegramAccessGuard,
+    TelegramResponseSender,
+    typing_indicator,
+)
 from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter
-from adapter.telegram.messages import TelegramMessages
 from core.adapter_contracts import AdapterRuntimeCapabilities
 from core.bot import CoreBot
 from core.file_service import FileDeliveryService
+from core.hitl import ApprovalService, ToolLoopAbortedError
 from utils.logger import get_logger
 
 logger = get_logger()
 
 
 class TelegramController:
-    """Telegram-facing controller that wires explicit services and delegates work."""
+    """Telegram-facing boundary that owns request handling and composition."""
 
     @staticmethod
     def _preview_text(text: Optional[str], max_length: int = 120) -> str:
@@ -106,6 +110,9 @@ class TelegramController:
         approval_service = self.core_bot.approval_service
 
         self.response_sender = response_sender
+        self.access_guard = access_guard
+        self.approval_service = approval_service
+        self.files = file_service
         self.commands = TelegramCommands(
             core_bot=self.core_bot,
             access_guard=access_guard,
@@ -113,17 +120,6 @@ class TelegramController:
             get_telegram_bot=lambda: self.telegram_bot,
             preview_text=self._preview_text,
             format_exception_for_user=self._format_exception_for_user,
-        )
-
-        self.messages = TelegramMessages(
-            core_bot=self.core_bot,
-            access_guard=access_guard,
-            approval_service=approval_service,
-            files=file_service,
-            response_sender=response_sender,
-            preview_text=self._preview_text,
-            format_exception_for_user=self._format_exception_for_user,
-            intermediate_callback=self._send_intermediate_response,
         )
 
         async def _send_status_message(text: str) -> None:
@@ -210,10 +206,213 @@ class TelegramController:
         except Exception as error:
             logger.error(f"Failed to send intermediate response: {error}")
 
+    async def _safe_reply_text(self, reply_text: Any, text: str) -> None:
+        """Best-effort Telegram reply that never re-raises delivery failures."""
+        try:
+            await reply_text(text)
+        except Exception as send_error:
+            logger.error(
+                f"Failed to send Telegram reply message: {send_error}",
+                exc_info=True,
+            )
+
+    def _format_user_error_text(
+        self,
+        *,
+        scenario: str,
+        error: Exception,
+        subject_label: str | None = None,
+        subject: str | None = None,
+    ) -> str:
+        """Build a consistent user-facing Telegram error message."""
+        scenario_titles = {
+            "message": "Sorry, an error occurred while processing your message.",
+            "file": "Sorry, an error occurred while processing your file.",
+            "scheduled_task": (
+                "Sorry, an error occurred while processing a scheduled task."
+            ),
+        }
+        title = scenario_titles.get(
+            scenario,
+            "Sorry, an error occurred while processing your request.",
+        )
+
+        details = self._format_exception_for_user(error)
+        lines = [title, ""]
+        normalized_subject = subject.strip() if isinstance(subject, str) else ""
+        normalized_label = subject_label.strip() if isinstance(subject_label, str) else ""
+        if normalized_subject and normalized_label:
+            lines.append(f"{normalized_label}: {normalized_subject}")
+        lines.append(f"Details: {details}")
+        return "\n".join(lines)
+
+    async def send_scheduled_message(
+        self,
+        application: Any,
+        message: str,
+        task_name: str = "Scheduled Task",
+        task_id: str | None = None,
+    ) -> None:
+        """Process a scheduled task and send the result through the bot."""
+        if not application:
+            logger.error("Cannot send scheduled message: application not initialized")
+            return
+
+        try:
+            async with self.core_bot.get_processing_lock():
+                async with typing_indicator(
+                    lambda: application.bot.send_chat_action(
+                        chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                        action="typing",
+                    ),
+                    "Scheduled typing indicator failed",
+                ):
+                    logger.info(
+                        f"Processing scheduled task '{task_name}': {message[:50]}..."
+                    )
+                    try:
+                        response = await self.process_scheduled_task(
+                            message, task_name, task_id
+                        )
+                    except Exception as error:
+                        logger.error(
+                            f"Error while processing scheduled task '{task_name}': {error}",
+                            exc_info=True,
+                        )
+                        task_label = task_name.strip() if isinstance(task_name, str) else ""
+                        if not task_label or task_label == "Scheduled Task":
+                            task_label = message.strip() if isinstance(message, str) else ""
+                        response = self._format_user_error_text(
+                            scenario="scheduled_task",
+                            error=error,
+                            subject_label="Task",
+                            subject=task_label,
+                        )
+                    await self.response_sender.send_bot_text(
+                        telegram_bot=application.bot,
+                        chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                        text=response,
+                        html_warning_template=(
+                            "HTML parsing failed for scheduled segment {index}, "
+                            "sending plain text: {error}"
+                        ),
+                        fatal_error_template=(
+                            "Failed to send scheduled segment {index}: {error}"
+                        ),
+                        preview_text=self._preview_text,
+                        debug_prefix="Sent scheduled segment",
+                    )
+                await self.core_bot.run_post_response_summary_check(
+                    context_label="scheduled task response delivery"
+                )
+                logger.debug(
+                    "Scheduled task response sent: "
+                    f"{self._preview_text(response)}"
+                )
+        except Exception as error:
+            logger.error(
+                f"Failed to process/send scheduled message: {error}",
+                exc_info=True,
+            )
+            raise
+
+    async def process_message(
+        self,
+        user_message: str,
+        *,
+        message_for_embedding: str | None = None,
+    ) -> str:
+        """Process a message through the core conversation pipeline."""
+        return await self.core_bot.process_message(
+            user_message,
+            message_for_embedding=message_for_embedding,
+            intermediate_callback=self._send_intermediate_response,
+        )
+
+    async def process_scheduled_task(
+        self,
+        task_message: str,
+        task_name: str = "Scheduled Task",
+        task_id: str | None = None,
+    ) -> str:
+        """Process a scheduled task through the core conversation pipeline."""
+        return await self.core_bot.process_scheduled_task(
+            task_message,
+            task_name,
+            task_id,
+            intermediate_callback=self._send_intermediate_response,
+        )
+
     async def handle_message(self, update: Any, context: Any) -> None:
         """Handle regular text messages."""
-        await self.messages.handle_message(update, context)
+        if not update.effective_user or not update.message or not update.message.text:
+            return
+
+        if await self.access_guard.reject_unauthorized(
+            update,
+            log_message="Unauthorized message",
+        ):
+            return
+
+        user_message = update.message.text
+        logger.debug(f"Received message: {user_message[:50]}...")
+
+        approval_service = self.approval_service
+        if isinstance(approval_service, ApprovalService):
+            pending_request = approval_service.abort_pending(user_message=user_message)
+        else:
+            pending_request = None
+
+        if pending_request is not None:
+            return
+
+        try:
+            async with typing_indicator(
+                lambda: context.bot.send_chat_action(
+                    chat_id=update.effective_chat.id, action="typing"
+                ),
+                "Typing indicator failed",
+            ):
+                async with self.core_bot.get_processing_lock():
+                    response = await self.process_message(user_message)
+                    await self.response_sender.send_reply_text(
+                        reply_text=update.message.reply_text,
+                        text=response,
+                        html_warning_template=(
+                            "HTML parsing failed for segment {index}, "
+                            "sending as plain text: {error}"
+                        ),
+                        fatal_error_template="Failed to send segment {index}: {error}",
+                        preview_text=self._preview_text,
+                        debug_prefix="Sending Telegram text segment",
+                    )
+                await self.core_bot.run_post_response_summary_check(
+                    context_label="message reply delivery"
+                )
+        except ToolLoopAbortedError as error:
+            logger.info(f"Tool loop aborted by user request: {error}")
+            await self._safe_reply_text(
+                update.message.reply_text,
+                "🛑 Current tool loop stopped.",
+            )
+        except Exception as error:
+            logger.error(f"Error handling message: {error}", exc_info=True)
+            await self._safe_reply_text(
+                update.message.reply_text,
+                self._format_user_error_text(
+                    scenario="message",
+                    error=error,
+                ),
+            )
 
     async def handle_file(self, update: Any, context: Any) -> None:
         """Handle incoming Telegram attachments by saving them and notifying the LLM."""
-        await self.messages.handle_file(update, context)
+        await self.files.handle_file(
+            update=update,
+            context=context,
+            process_message=self.process_message,
+            response_sender=self.response_sender,
+            preview_text=self._preview_text,
+            format_exception_for_user=self._format_exception_for_user,
+            format_user_error_text=self._format_user_error_text,
+        )

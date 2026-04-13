@@ -48,8 +48,8 @@ class TelegramAdapter:
         task_name: str = "Scheduled Task",
         task_id: str | None = None,
     ) -> None:
-        """Send a scheduled message through the TelegramMessages owner service."""
-        await self.message_handler.messages.send_scheduled_message(
+        """Send a scheduled message through the Telegram controller."""
+        await self.message_handler.send_scheduled_message(
             application=self._application,
             message=message,
             task_name=task_name,

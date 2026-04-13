@@ -508,8 +508,7 @@ class TestTelegramAdapterScheduledMessages:
         handler.core_bot = Mock()
         handler.core_bot.scheduler = Mock()
         handler.core_bot.scheduler.set_message_callback = Mock()
-        handler.messages = Mock()
-        handler.messages.send_scheduled_message = AsyncMock()
+        handler.send_scheduled_message = AsyncMock()
         return handler
 
     @pytest.mark.asyncio
@@ -530,7 +529,7 @@ class TestTelegramAdapterScheduledMessages:
 
             await adapter._send_scheduled_message("Test scheduled message")
 
-            mock_message_handler.messages.send_scheduled_message.assert_awaited_once_with(
+            mock_message_handler.send_scheduled_message.assert_awaited_once_with(
                 application=mock_app,
                 message="Test scheduled message",
                 task_name="Scheduled Task",
@@ -555,7 +554,7 @@ class TestTelegramAdapterScheduledMessages:
 
             await adapter._send_scheduled_message("Test scheduled message")
 
-            mock_message_handler.messages.send_scheduled_message.assert_awaited_once()
+            mock_message_handler.send_scheduled_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_no_application(self, mock_config):
@@ -567,12 +566,11 @@ class TestTelegramAdapterScheduledMessages:
             message_handler.core_bot = Mock()
             message_handler.core_bot.scheduler = Mock()
             message_handler.core_bot.scheduler.set_message_callback = Mock()
-            message_handler.messages = Mock()
-            message_handler.messages.send_scheduled_message = AsyncMock()
+            message_handler.send_scheduled_message = AsyncMock()
             adapter = TelegramAdapter(message_handler=message_handler)
             await adapter._send_scheduled_message("Test message")
 
-            message_handler.messages.send_scheduled_message.assert_awaited_once()
+            message_handler.send_scheduled_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_typing_indicator(
@@ -591,7 +589,7 @@ class TestTelegramAdapterScheduledMessages:
             adapter._application = mock_app
 
             await adapter._send_scheduled_message("Test scheduled message")
-            mock_message_handler.messages.send_scheduled_message.assert_awaited_once()
+            mock_message_handler.send_scheduled_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_send_scheduled_message_html_fallback(
@@ -609,7 +607,7 @@ class TestTelegramAdapterScheduledMessages:
 
             adapter._application = mock_app
             await adapter._send_scheduled_message("Test message")
-            mock_message_handler.messages.send_scheduled_message.assert_awaited_once()
+            mock_message_handler.send_scheduled_message.assert_awaited_once()
 
 
 class TestTelegramAdapterMessageSegmentation:
@@ -639,8 +637,7 @@ class TestTelegramAdapterMessageSegmentation:
         handler.core_bot = Mock()
         handler.core_bot.scheduler = Mock()
         handler.core_bot.scheduler.set_message_callback = Mock()
-        handler.messages = Mock()
-        handler.messages.send_scheduled_message = AsyncMock()
+        handler.send_scheduled_message = AsyncMock()
         return handler
 
     @pytest.mark.asyncio
@@ -662,7 +659,7 @@ class TestTelegramAdapterMessageSegmentation:
             adapter._application = mock_app
 
             await adapter._send_scheduled_message("Test message")
-            mock_message_handler_with_segments.messages.send_scheduled_message.assert_awaited_once()
+            mock_message_handler_with_segments.send_scheduled_message.assert_awaited_once()
 
 
 if __name__ == "__main__":

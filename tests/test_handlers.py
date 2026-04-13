@@ -339,18 +339,13 @@ class TestMessageProcessing:
         assert "Missing expected field: error" in formatted
 
     def test_format_user_error_text_uses_consistent_style(self):
-        """TelegramMessages should build consistent user-facing error texts."""
-        from adapter.telegram.messages import TelegramMessages
+        """Telegram controller should build consistent user-facing error texts."""
+        from adapter.telegram.controller import TelegramController
 
-        helper = TelegramMessages(
-            core_bot=Mock(),
-            access_guard=Mock(),
-            approval_service=None,
-            files=Mock(),
-            response_sender=Mock(),
-            preview_text=lambda text, max_length=120: text or "",
-            format_exception_for_user=lambda error: f"formatted: {error}",
-            intermediate_callback=AsyncMock(),
+        helper = Mock(spec=TelegramController)
+        helper._format_exception_for_user = lambda error: f"formatted: {error}"
+        helper._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            helper, Mock
         )
 
         text = helper._format_user_error_text(
@@ -541,7 +536,6 @@ class TestMessageProcessing:
     async def test_send_scheduled_message_formats_processing_error_for_user(self):
         """Scheduled task failures should send a user-friendly error instead of raw fallback text."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         handler = Mock(spec=TelegramController)
         handler.config = Mock()
@@ -550,37 +544,37 @@ class TestMessageProcessing:
         handler.core_bot.config = handler.config
         handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
         handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
-
-        response_sender = Mock()
-        response_sender.send_bot_text = AsyncMock()
-
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
-            approval_service=None,
-            files=Mock(),
-            response_sender=response_sender,
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=AsyncMock(),
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
         )
+
+        handler.response_sender = Mock()
+        handler.response_sender.send_bot_text = AsyncMock()
         handler.core_bot.process_scheduled_task = AsyncMock(
             side_effect=KeyError("error")
+        )
+        handler.process_scheduled_task = TelegramController.process_scheduled_task.__get__(
+            handler, Mock
+        )
+        handler.send_scheduled_message = TelegramController.send_scheduled_message.__get__(
+            handler, Mock
         )
 
         application = Mock()
         application.bot = Mock()
         application.bot.send_chat_action = AsyncMock()
 
-        await handler.messages.send_scheduled_message(
+        await handler.send_scheduled_message(
             application=application,
             message="提醒喝水",
             task_name="喝水提醒",
             task_id="task-123",
         )
 
-        response_sender.send_bot_text.assert_awaited_once()
-        sent_text = response_sender.send_bot_text.await_args.kwargs["text"]
+        handler.response_sender.send_bot_text.assert_awaited_once()
+        sent_text = handler.response_sender.send_bot_text.await_args.kwargs["text"]
         assert "Sorry, an error occurred while processing a scheduled task." in sent_text
         assert "Task: 喝水提醒" in sent_text
         assert "Details: Missing expected field: error" in sent_text
@@ -593,7 +587,6 @@ class TestMessageProcessing:
     async def test_handle_message_runs_summary_check_after_reply(self):
         """Telegram handler should run summary check after delivering the reply."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         handler = Mock(spec=TelegramController)
         handler.config = Mock()
@@ -604,18 +597,16 @@ class TestMessageProcessing:
         handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=42)
         handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
         handler._send_intermediate_response = AsyncMock()
-        response_sender = Mock()
-        response_sender.send_reply_text = AsyncMock()
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
-            approval_service=None,
-            files=Mock(),
-            response_sender=response_sender,
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=handler._send_intermediate_response,
+        handler.access_guard = Mock(reject_unauthorized=AsyncMock(return_value=False))
+        handler.approval_service = None
+        handler.response_sender = Mock()
+        handler.response_sender.send_reply_text = AsyncMock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
         )
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
 
         update = Mock()
@@ -633,7 +624,7 @@ class TestMessageProcessing:
 
         await handler.handle_message(update, context)
 
-        response_sender.send_reply_text.assert_awaited_once()
+        handler.response_sender.send_reply_text.assert_awaited_once()
         handler.core_bot.run_post_response_summary_check.assert_awaited_once_with(
             context_label="message reply delivery"
         )
@@ -642,7 +633,6 @@ class TestMessageProcessing:
     async def test_handle_message_waits_for_processing_lock(self):
         """A second message should show typing even while waiting for the lock."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         shared_lock = asyncio.Lock()
         await shared_lock.acquire()
@@ -656,18 +646,16 @@ class TestMessageProcessing:
         handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
         handler.core_bot.get_processing_lock = Mock(return_value=shared_lock)
         handler._send_intermediate_response = AsyncMock()
-        response_sender = Mock()
-        response_sender.send_reply_text = AsyncMock()
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
-            approval_service=None,
-            files=Mock(),
-            response_sender=response_sender,
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=handler._send_intermediate_response,
+        handler.access_guard = Mock(reject_unauthorized=AsyncMock(return_value=False))
+        handler.approval_service = None
+        handler.response_sender = Mock()
+        handler.response_sender.send_reply_text = AsyncMock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
         )
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
 
         update = Mock()
@@ -698,7 +686,6 @@ class TestMessageProcessing:
     async def test_handle_message_shows_typing_while_previous_summary_holds_lock(self):
         """A new user message should start typing while the previous turn runs summary work."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         shared_lock = asyncio.Lock()
         await shared_lock.acquire()
@@ -712,18 +699,16 @@ class TestMessageProcessing:
         handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
         handler.core_bot.get_processing_lock = Mock(return_value=shared_lock)
         handler._send_intermediate_response = AsyncMock()
-        response_sender = Mock()
-        response_sender.send_reply_text = AsyncMock()
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
-            approval_service=None,
-            files=Mock(),
-            response_sender=response_sender,
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=handler._send_intermediate_response,
+        handler.access_guard = Mock(reject_unauthorized=AsyncMock(return_value=False))
+        handler.approval_service = None
+        handler.response_sender = Mock()
+        handler.response_sender.send_reply_text = AsyncMock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
         )
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
 
         update = Mock()
@@ -754,7 +739,6 @@ class TestMessageProcessing:
     async def test_handle_message_summary_phase_does_not_keep_typing(self):
         """After reply delivery, summary work should continue without active typing."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         release_summary = asyncio.Event()
 
@@ -770,18 +754,16 @@ class TestMessageProcessing:
         handler.core_bot.run_post_response_summary_check = AsyncMock(side_effect=_summary_check)
         handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
         handler._send_intermediate_response = AsyncMock()
-        response_sender = Mock()
-        response_sender.send_reply_text = AsyncMock()
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(reject_unauthorized=AsyncMock(return_value=False)),
-            approval_service=None,
-            files=Mock(),
-            response_sender=response_sender,
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=handler._send_intermediate_response,
+        handler.access_guard = Mock(reject_unauthorized=AsyncMock(return_value=False))
+        handler.approval_service = None
+        handler.response_sender = Mock()
+        handler.response_sender.send_reply_text = AsyncMock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
         )
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(handler, Mock)
 
         update = Mock()
@@ -800,7 +782,7 @@ class TestMessageProcessing:
         task = asyncio.create_task(handler.handle_message(update, context))
         await asyncio.sleep(0.05)
 
-        response_sender.send_reply_text.assert_awaited_once()
+        handler.response_sender.send_reply_text.assert_awaited_once()
         send_count_after_reply = context.bot.send_chat_action.await_count
         await asyncio.sleep(0.2)
         assert context.bot.send_chat_action.await_count == send_count_after_reply
@@ -812,7 +794,6 @@ class TestMessageProcessing:
     async def test_handle_message_returns_error_details_on_failure(self):
         """Top-level message errors should include readable details for debugging."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         handler = Mock(spec=TelegramController)
         handler.config = Mock()
@@ -828,18 +809,19 @@ class TestMessageProcessing:
         handler._format_exception_for_user = (
             TelegramController._format_exception_for_user
         )
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(
-                reject_unauthorized=AsyncMock(return_value=False),
-            ),
-            approval_service=None,
-            files=Mock(),
-            response_sender=Mock(),
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=handler._send_intermediate_response,
+        handler.access_guard = Mock(
+            reject_unauthorized=AsyncMock(return_value=False),
         )
+        handler.approval_service = None
+        handler.response_sender = Mock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
+        )
+        handler._safe_reply_text = TelegramController._safe_reply_text.__get__(
+            handler, Mock
+        )
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(
             handler, Mock
         )
@@ -867,7 +849,6 @@ class TestMessageProcessing:
     async def test_handle_message_does_not_reraise_when_error_reply_fails(self):
         """If Telegram is unreachable during error reporting, the handler should only log."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
 
         handler = Mock(spec=TelegramController)
         handler.config = Mock()
@@ -880,18 +861,20 @@ class TestMessageProcessing:
         handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
         handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
         handler._send_intermediate_response = AsyncMock()
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(
-                reject_unauthorized=AsyncMock(return_value=False),
-            ),
-            approval_service=None,
-            files=Mock(),
-            response_sender=Mock(),
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=handler._send_intermediate_response,
+        handler.access_guard = Mock(
+            reject_unauthorized=AsyncMock(return_value=False),
         )
+        handler.approval_service = None
+        handler.response_sender = Mock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
+        )
+        handler._safe_reply_text = TelegramController._safe_reply_text.__get__(
+            handler, Mock
+        )
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(
             handler, Mock
         )
@@ -1023,7 +1006,6 @@ class TestMessageProcessing:
     async def test_handle_message_aborts_pending_approval_on_regular_message(self):
         """A non-/approve message should abort pending approval without starting a new chat."""
         from adapter.telegram.controller import TelegramController
-        from adapter.telegram.messages import TelegramMessages
         from core.hitl import ApprovalDecision, ApprovalService, PendingApprovalRequest
 
         handler = Mock(spec=TelegramController)
@@ -1033,18 +1015,18 @@ class TestMessageProcessing:
         handler.core_bot.config = handler.config
         handler.core_bot.process_message = AsyncMock()
         approval_service = ApprovalService()
-        handler.messages = TelegramMessages(
-            core_bot=handler.core_bot,
-            access_guard=Mock(
-                reject_unauthorized=AsyncMock(return_value=False),
-            ),
-            approval_service=approval_service,
-            files=Mock(),
-            response_sender=Mock(),
-            preview_text=TelegramController._preview_text,
-            format_exception_for_user=TelegramController._format_exception_for_user,
-            intermediate_callback=AsyncMock(),
+        handler.access_guard = Mock(
+            reject_unauthorized=AsyncMock(return_value=False),
         )
+        handler.approval_service = approval_service
+        handler.response_sender = Mock()
+        handler._preview_text = TelegramController._preview_text
+        handler._format_exception_for_user = TelegramController._format_exception_for_user
+        handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+            handler, Mock
+        )
+        handler._send_intermediate_response = AsyncMock()
+        handler.process_message = TelegramController.process_message.__get__(handler, Mock)
         handler.handle_message = TelegramController.handle_message.__get__(
             handler, Mock
         )

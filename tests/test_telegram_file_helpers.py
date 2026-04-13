@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter
 from adapter.telegram.delivery import TelegramAccessGuard, TelegramResponseSender
-from adapter.telegram.messages import TelegramMessages
+from adapter.telegram.controller import TelegramController
 from core.file_service import FileDeliveryService
 
 
@@ -39,8 +39,8 @@ def files_helper(config, memory):
 
 
 @pytest.fixture
-def message_handler(config, memory):
-    handler = Mock()
+def controller(config, memory):
+    handler = Mock(spec=TelegramController)
     handler.core_bot = Mock()
     handler.core_bot.config = config
     handler.core_bot.memory = memory
@@ -48,31 +48,24 @@ def message_handler(config, memory):
     handler.core_bot.process_scheduled_task = AsyncMock(return_value="LLM scheduled")
     handler.core_bot.get_processing_lock = Mock(return_value=asyncio.Lock())
     handler.core_bot.run_post_response_summary_check = AsyncMock(return_value=None)
+    handler.files = TelegramFiles(config=config)
+    handler.response_sender = TelegramResponseSender(
+        config=config,
+        formatter=TelegramResponseFormatter(),
+    )
+    handler.access_guard = TelegramAccessGuard(config)
+    handler.approval_service = None
     handler._send_intermediate_response = AsyncMock()
     handler._preview_text = Mock(
         side_effect=lambda text, max_length=120: text[:max_length]
     )
     handler._format_exception_for_user = Mock(side_effect=str)
-    return handler
-
-
-@pytest.fixture
-def messages_helper(message_handler):
-    return TelegramMessages(
-        core_bot=message_handler.core_bot,
-        access_guard=TelegramAccessGuard(message_handler.core_bot.config),
-        approval_service=None,
-        files=TelegramFiles(
-            config=message_handler.core_bot.config,
-        ),
-        response_sender=TelegramResponseSender(
-            config=message_handler.core_bot.config,
-            formatter=TelegramResponseFormatter(),
-        ),
-        preview_text=message_handler._preview_text,
-        format_exception_for_user=message_handler._format_exception_for_user,
-        intermediate_callback=message_handler._send_intermediate_response,
+    handler._format_user_error_text = TelegramController._format_user_error_text.__get__(
+        handler, Mock
     )
+    handler.process_message = TelegramController.process_message.__get__(handler, Mock)
+    handler.handle_file = TelegramController.handle_file.__get__(handler, Mock)
+    return handler
 
 
 @pytest.fixture
@@ -110,7 +103,7 @@ def mock_update_with_document():
     return update
 
 
-class TestTelegramMessages:
+class TestTelegramControllerFiles:
     def test_build_received_file_event_message(self, files_helper, config):
         saved_path = config.MEDIA_DIR / "report_unique-id.pdf"
         file_info = {
@@ -133,7 +126,7 @@ class TestTelegramMessages:
 
     @pytest.mark.asyncio
     async def test_handle_file_processes_document(
-        self, messages_helper, message_handler, mock_context, mock_update_with_document
+        self, controller, mock_context, mock_update_with_document
     ):
         telegram_file = Mock()
         telegram_file.download_to_drive = AsyncMock()
@@ -145,12 +138,12 @@ class TestTelegramMessages:
 
         telegram_file.download_to_drive.side_effect = download_side_effect
 
-        await messages_helper.handle_file(mock_update_with_document, mock_context)
+        await controller.handle_file(mock_update_with_document, mock_context)
 
         mock_context.bot.get_file.assert_called_once_with("file-id")
-        message_handler.core_bot.process_message.assert_awaited_once()
-        processed_message = message_handler.core_bot.process_message.await_args.args[0]
-        process_kwargs = message_handler.core_bot.process_message.await_args.kwargs
+        controller.core_bot.process_message.assert_awaited_once()
+        processed_message = controller.core_bot.process_message.await_args.args[0]
+        process_kwargs = controller.core_bot.process_message.await_args.kwargs
         assert "[File Event]" in processed_message
         assert "The user has sent a file." in processed_message
         assert "Original filename: report.pdf" in processed_message
@@ -159,13 +152,13 @@ class TestTelegramMessages:
         mock_update_with_document.message.reply_text.assert_called_once_with(
             "LLM file response", parse_mode="HTML"
         )
-        message_handler.core_bot.run_post_response_summary_check.assert_awaited_once_with(
+        controller.core_bot.run_post_response_summary_check.assert_awaited_once_with(
             context_label="file reply delivery"
         )
 
     @pytest.mark.asyncio
     async def test_handle_file_summary_phase_does_not_keep_typing(
-        self, messages_helper, message_handler, mock_context, mock_update_with_document
+        self, controller, mock_context, mock_update_with_document
     ):
         telegram_file = Mock()
         telegram_file.download_to_drive = AsyncMock()
@@ -182,12 +175,12 @@ class TestTelegramMessages:
         async def _summary_check(**_: object) -> None:
             await release_summary.wait()
 
-        message_handler.core_bot.run_post_response_summary_check = AsyncMock(
+        controller.core_bot.run_post_response_summary_check = AsyncMock(
             side_effect=_summary_check
         )
 
         task = asyncio.create_task(
-            messages_helper.handle_file(mock_update_with_document, mock_context)
+            controller.handle_file(mock_update_with_document, mock_context)
         )
         await asyncio.sleep(0.05)
 
@@ -203,7 +196,7 @@ class TestTelegramMessages:
 
     @pytest.mark.asyncio
     async def test_handle_file_shows_typing_while_waiting_for_processing_lock(
-        self, messages_helper, message_handler, mock_context, mock_update_with_document
+        self, controller, mock_context, mock_update_with_document
     ):
         telegram_file = Mock()
         telegram_file.download_to_drive = AsyncMock()
@@ -217,64 +210,64 @@ class TestTelegramMessages:
 
         shared_lock = asyncio.Lock()
         await shared_lock.acquire()
-        message_handler.core_bot.get_processing_lock = Mock(return_value=shared_lock)
+        controller.core_bot.get_processing_lock = Mock(return_value=shared_lock)
 
         task = asyncio.create_task(
-            messages_helper.handle_file(mock_update_with_document, mock_context)
+            controller.handle_file(mock_update_with_document, mock_context)
         )
         await asyncio.sleep(0.05)
 
-        message_handler.core_bot.process_message.assert_not_awaited()
+        controller.core_bot.process_message.assert_not_awaited()
         assert mock_context.bot.send_chat_action.await_count > 0
 
         shared_lock.release()
         await task
 
-        message_handler.core_bot.process_message.assert_awaited_once()
+        controller.core_bot.process_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_message_uses_core_bot_entrypoint(
-        self, messages_helper, message_handler
+        self, controller
     ):
-        message_handler.core_bot.process_message = AsyncMock(return_value="reply")
-        message_handler._send_intermediate_response = AsyncMock()
+        controller.core_bot.process_message = AsyncMock(return_value="reply")
+        controller._send_intermediate_response = AsyncMock()
 
-        response = await messages_helper.process_message("hello")
+        response = await controller.process_message("hello")
 
         assert response == "reply"
-        message_handler.core_bot.process_message.assert_awaited_once_with(
+        controller.core_bot.process_message.assert_awaited_once_with(
             "hello",
             message_for_embedding=None,
-            intermediate_callback=messages_helper.intermediate_callback,
+            intermediate_callback=controller._send_intermediate_response,
         )
 
     @pytest.mark.asyncio
     async def test_process_message_passes_embedding_override(
-        self, messages_helper, message_handler
+        self, controller
     ):
-        message_handler.core_bot.process_message = AsyncMock(return_value="reply")
+        controller.core_bot.process_message = AsyncMock(return_value="reply")
 
-        response = await messages_helper.process_message(
+        response = await controller.process_message(
             "hello",
             message_for_embedding="caption text",
         )
 
         assert response == "reply"
-        message_handler.core_bot.process_message.assert_awaited_once_with(
+        controller.core_bot.process_message.assert_awaited_once_with(
             "hello",
             message_for_embedding="caption text",
-            intermediate_callback=messages_helper.intermediate_callback,
+            intermediate_callback=controller._send_intermediate_response,
         )
 
     @pytest.mark.asyncio
     async def test_handle_file_uses_unified_user_error_text(
-        self, messages_helper, message_handler, mock_context, mock_update_with_document
+        self, controller, mock_context, mock_update_with_document
     ):
         telegram_file = Mock()
         telegram_file.download_to_drive = AsyncMock(side_effect=KeyError("error"))
         mock_context.bot.get_file.return_value = telegram_file
 
-        await messages_helper.handle_file(mock_update_with_document, mock_context)
+        await controller.handle_file(mock_update_with_document, mock_context)
 
         sent_text = mock_update_with_document.message.reply_text.await_args.args[0]
         assert sent_text == (
@@ -284,13 +277,13 @@ class TestTelegramMessages:
 
     @pytest.mark.asyncio
     async def test_handle_file_rejects_unauthorized_user(
-        self, messages_helper, message_handler, mock_context, mock_update_with_document
+        self, controller, mock_context, mock_update_with_document
     ):
         mock_update_with_document.effective_user.id = 999999999
 
-        await messages_helper.handle_file(mock_update_with_document, mock_context)
+        await controller.handle_file(mock_update_with_document, mock_context)
 
-        message_handler.core_bot.process_message.assert_not_called()
+        controller.core_bot.process_message.assert_not_called()
         mock_update_with_document.message.reply_text.assert_called_once_with(
             "Unauthorized access."
         )
