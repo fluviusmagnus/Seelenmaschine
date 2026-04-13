@@ -34,6 +34,8 @@ class TelegramFiles:
         update: Update,
         context: Any,
         process_message: Callable[..., Awaitable[str]],
+        get_processing_lock: Callable[[], Any],
+        run_post_response_summary_check: Callable[..., Awaitable[Optional[int]]],
         response_sender: Any,
         preview_text: Callable[[str, int], str],
         format_exception_for_user: Callable[[Exception], str],
@@ -61,22 +63,13 @@ class TelegramFiles:
         )
 
         try:
-            process_message_owner = getattr(process_message, "__self__", None)
-            core_bot = getattr(process_message_owner, "core_bot", None)
-            processing_lock = getattr(core_bot, "get_processing_lock", None)
-            run_summary_check = getattr(core_bot, "run_post_response_summary_check", None)
-            if processing_lock is None or run_summary_check is None:
-                raise RuntimeError(
-                    "process_message owner does not expose sequencing helpers"
-                )
-
             async with typing_indicator(
                 lambda: context.bot.send_chat_action(
                     chat_id=update.effective_chat.id, action="typing"
                 ),
                 "Typing indicator failed during file handling",
             ):
-                async with core_bot.get_processing_lock():
+                async with get_processing_lock():
                     destination = self.build_media_file_path(
                         original_name=file_info.get("original_name"),
                         file_unique_id=file_info["file_unique_id"],
@@ -109,7 +102,7 @@ class TelegramFiles:
                         preview_text=preview_text,
                         debug_prefix="Sending Telegram file segment",
                     )
-                await core_bot.run_post_response_summary_check(
+                await run_post_response_summary_check(
                     context_label="file reply delivery"
                 )
         except Exception as error:

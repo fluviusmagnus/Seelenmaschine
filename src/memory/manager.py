@@ -44,12 +44,8 @@ class MemoryManager:
     def _ensure_active_session(self) -> None:
         """Ensure there's an active session, create one if not."""
         self.sessions.ensure_active_session(
-            restore_context_from_session=self._restore_context_from_session
+            restore_context_from_session=self.sessions.restore_context_from_session
         )
-
-    def _restore_context_from_session(self, session_id: int) -> None:
-        """Restore context window from session's recent conversations."""
-        self.sessions.restore_context_from_session(session_id)
 
     def get_current_session_id(self) -> int:
         """Get current active session ID."""
@@ -399,5 +395,4 @@ class MemoryManager:
 
     def get_recent_summaries(self) -> List[str]:
         return self.recall.get_recent_summaries()
-
 

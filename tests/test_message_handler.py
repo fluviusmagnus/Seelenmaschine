@@ -412,7 +412,7 @@ async def test_tool_executor_uses_explicit_preview_sanitizer_without_bound_trace
     executor = ToolExecutor(
         config=Mock(TOOL_EXECUTION_TIMEOUT_SECONDS=5),
         tool_registry=registry,
-        mcp_client=None,
+        get_mcp_client=lambda: None,
         ensure_mcp_connected=None,
         is_mcp_connected=lambda: False,
         is_dangerous_action=lambda _name, _args: (False, ""),
@@ -424,7 +424,7 @@ async def test_tool_executor_uses_explicit_preview_sanitizer_without_bound_trace
         notify_approved_action_failed=AsyncMock(),
         file_artifact_service=None,
         preview_text=lambda text, max_length=120: str(text)[:max_length],
-        send_status_message=None,
+        get_send_status_message=lambda: None,
     )
 
     result = await executor.execute_tool("demo_tool", '{"value": 1}')

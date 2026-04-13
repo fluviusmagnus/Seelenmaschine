@@ -14,7 +14,6 @@ from core.session_service import SessionService
 from core.tools import (
     ToolExecutor,
     ToolRuntime,
-    ToolRuntimeDependencies,
     ToolRuntimeState,
 )
 from llm.chat_client import LLMClient
@@ -58,7 +57,7 @@ class CoreBot:
         self._approval_delegate: Optional[Any] = None
         self._tool_runtime: Optional[ToolRuntime] = None
         self._tool_executor_service: Optional[ToolExecutor] = None
-        self._tool_runtime_dependencies: Optional[ToolRuntimeDependencies] = None
+        self._send_file_to_user: Optional[Callable[..., Any]] = None
         self._preview_text: Optional[Callable[[Optional[str], int], str]] = None
         self._send_status_message: Optional[Callable[[str], Any]] = None
         self._stop_controller = StopController()
@@ -77,10 +76,13 @@ class CoreBot:
 
     def get_tool_runtime(self) -> ToolRuntime:
         """Lazily resolve the tool runtime helper."""
-        if self._tool_runtime_dependencies is None:
-            raise RuntimeError("Tool runtime dependencies have not been attached")
+        if self._send_file_to_user is None:
+            raise RuntimeError("Tool runtime send_file capability has not been attached")
         if self._tool_runtime is None:
-            self._tool_runtime = ToolRuntime(dependencies=self._tool_runtime_dependencies)
+            self._tool_runtime = ToolRuntime(
+                core_bot=self,
+                send_file_to_user=self._send_file_to_user,
+            )
         return self._tool_runtime
 
     def get_tool_executor_service(self) -> ToolExecutor:
@@ -100,7 +102,7 @@ class CoreBot:
             self._tool_executor_service = ToolExecutor(
                 config=self.config,
                 tool_registry=registry_service,
-                mcp_client=self.tool_runtime_state.mcp_client,
+                get_mcp_client=lambda: self.tool_runtime_state.mcp_client,
                 ensure_mcp_connected=self.ensure_mcp_connected,
                 is_mcp_connected=lambda: bool(self.tool_runtime_state.mcp_connected),
                 is_dangerous_action=self.tool_runtime_state.safety_policy.is_dangerous_action,
@@ -115,7 +117,7 @@ class CoreBot:
                 notify_approved_action_failed=self._approval_delegate.notify_approved_action_failed,
                 file_artifact_service=self.file_artifact_service,
                 preview_text=self._preview_text,
-                send_status_message=self._send_status_message,
+                get_send_status_message=lambda: self._send_status_message,
             )
         return self._tool_executor_service
 
@@ -134,13 +136,9 @@ class CoreBot:
         self._approval_delegate = approval_delegate
         self._tool_runtime = None
         self._tool_executor_service = None
+        self._send_file_to_user = capabilities.send_file_to_user
         self._preview_text = capabilities.preview_text
         self._send_status_message = capabilities.send_status_message
-        self._tool_runtime_dependencies = ToolRuntimeDependencies(
-            core_bot=self,
-            send_file_to_user=capabilities.send_file_to_user,
-            send_status_message=capabilities.send_status_message,
-        )
 
         tool_runtime = self.get_tool_runtime()
         tool_runtime.register_core_tools()
@@ -269,7 +267,4 @@ class CoreBot:
 
         if self.tool_runtime_state.registry_service is None:
             raise RuntimeError("Tool registry has not been initialized on CoreBot")
-        executor = self.get_tool_executor_service()
-        executor.mcp_client = self.tool_runtime_state.mcp_client
-        executor.send_status_message = self._send_status_message
-        return await executor.execute_tool(tool_name, arguments_json)
+        return await self.get_tool_executor_service().execute_tool(tool_name, arguments_json)

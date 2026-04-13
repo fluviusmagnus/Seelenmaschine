@@ -290,6 +290,42 @@ class TestTelegramControllerFiles:
 
 
 class TestTelegramFiles:
+    @pytest.mark.asyncio
+    async def test_handle_file_accepts_explicit_lock_and_summary_hooks(
+        self, files_helper, mock_context, mock_update_with_document
+    ):
+        telegram_file = Mock()
+        telegram_file.download_to_drive = AsyncMock()
+        mock_context.bot.get_file.return_value = telegram_file
+
+        async def download_side_effect(custom_path):
+            Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(custom_path).write_text("dummy", encoding="utf-8")
+
+        telegram_file.download_to_drive.side_effect = download_side_effect
+
+        process_message = AsyncMock(return_value="LLM file response")
+        response_sender = Mock()
+        response_sender.send_reply_text = AsyncMock()
+        get_processing_lock = Mock(return_value=asyncio.Lock())
+        run_summary_check = AsyncMock(return_value=None)
+
+        await files_helper.handle_file(
+            update=mock_update_with_document,
+            context=mock_context,
+            process_message=process_message,
+            get_processing_lock=get_processing_lock,
+            run_post_response_summary_check=run_summary_check,
+            response_sender=response_sender,
+            preview_text=lambda text, max_length=120: text[:max_length],
+            format_exception_for_user=str,
+        )
+
+        get_processing_lock.assert_called_once_with()
+        process_message.assert_awaited_once()
+        run_summary_check.assert_awaited_once_with(context_label="file reply delivery")
+        response_sender.send_reply_text.assert_awaited_once()
+
     def test_detect_telegram_delivery_method(self, files_helper, config):
         assert (
             files_helper.detect_telegram_delivery_method(
@@ -410,7 +446,6 @@ class TestTelegramFiles:
         self, files_helper, config
     ):
         service = FileDeliveryService(config=config)
-        telegram_bot = Mock()
         outside_file = config.WORKSPACE_DIR.parent / "outside.txt"
         outside_file.write_text("x", encoding="utf-8")
 

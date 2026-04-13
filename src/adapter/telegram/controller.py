@@ -411,6 +411,8 @@ class TelegramController:
             update=update,
             context=context,
             process_message=self.process_message,
+            get_processing_lock=self.core_bot.get_processing_lock,
+            run_post_response_summary_check=self.core_bot.run_post_response_summary_check,
             response_sender=self.response_sender,
             preview_text=self._preview_text,
             format_exception_for_user=self._format_exception_for_user,

@@ -240,37 +240,21 @@ class ToolRuntimeState:
         self.mcp_connected = False
 
 
-class ToolRuntimeDependencies:
-    """Explicit dependencies required by the tool runtime."""
+class ToolRuntime:
+    """Configure the LLM tool runtime and optional MCP integration."""
 
     def __init__(
         self,
         *,
         core_bot: Any,
         send_file_to_user: Callable[..., Any],
-        send_status_message: Optional[Callable[[str], Awaitable[None]]] = None,
-    ) -> None:
+    ):
         self.core_bot = core_bot
         self.send_file_to_user = send_file_to_user
-        self.send_status_message = send_status_message
-
-
-class ToolRuntime:
-    """Configure the LLM tool runtime and optional MCP integration."""
-
-    def __init__(
-        self,
-        dependencies: ToolRuntimeDependencies,
-    ):
-        self.dependencies = dependencies
-
-    def _get_core_bot(self) -> Any:
-        """Return the core bot dependency owner attached to the runtime."""
-        return self.dependencies.core_bot
 
     def _get_runtime_state(self) -> ToolRuntimeState:
         """Return the core-owned mutable tool runtime state."""
-        state = self._get_core_bot().tool_runtime_state
+        state = self.core_bot.tool_runtime_state
         if not isinstance(state, ToolRuntimeState):
             raise RuntimeError("Tool runtime state has not been initialized on CoreBot")
         return state
@@ -292,7 +276,7 @@ class ToolRuntime:
     def _ensure_memory_search_tool(self) -> Any:
         """Create the memory search tool lazily when the handler has not built it yet."""
         state = self._get_runtime_state()
-        core_bot = self._get_core_bot()
+        core_bot = self.core_bot
         if state.memory_search_tool is None:
             session_id = core_bot.memory.get_current_session_id()
             state.memory_search_tool = MemorySearchTool(
@@ -330,7 +314,7 @@ class ToolRuntime:
 
     def register_core_tools(self) -> None:
         """Register stateful core-owned tools needed by the runtime."""
-        core_bot = self._get_core_bot()
+        core_bot = self.core_bot
         self._register_stateful_tool(
             state_attr="scheduled_task_tool",
             factory=lambda: ScheduledTaskTool(core_bot.scheduler),
@@ -338,9 +322,7 @@ class ToolRuntime:
         )
         self._register_stateful_tool(
             state_attr="send_file_tool",
-            factory=lambda: SendFileTool(
-                lambda **kwargs: self.dependencies.send_file_to_user(**kwargs)
-            ),
+            factory=lambda: SendFileTool(lambda **kwargs: self.send_file_to_user(**kwargs)),
             label="send_file",
         )
 
@@ -366,7 +348,7 @@ class ToolRuntime:
     def setup_tools(self) -> None:
         """Initialize MCP state and register basic tools with the LLM client."""
         state = self._get_runtime_state()
-        core_bot = self._get_core_bot()
+        core_bot = self.core_bot
         if core_bot.config.ENABLE_MCP:
             state.mcp_client = MCPClient(
                 file_artifact_service=core_bot.file_artifact_service
@@ -390,7 +372,7 @@ class ToolRuntime:
 
     def _publish_tools(self, extra_tools: Optional[List[Dict[str, Any]]] = None) -> None:
         """Publish local tools plus optional remote tools to the LLM client."""
-        core_bot = self._get_core_bot()
+        core_bot = self.core_bot
         self._register_local_runtime_tools()
         tools = self._get_runtime_state().registry_service.collect_tool_defs()
         if extra_tools:
@@ -438,7 +420,7 @@ class ToolExecutor:
         *,
         config: Any,
         tool_registry: Any,
-        mcp_client: Any,
+        get_mcp_client: Callable[[], Any],
         ensure_mcp_connected: Optional[Callable[[], Awaitable[None]]],
         is_mcp_connected: Callable[[], bool],
         is_dangerous_action: Callable[[str, Dict[str, Any]], tuple[bool, str]],
@@ -450,11 +432,11 @@ class ToolExecutor:
         notify_approved_action_failed: Callable[[str, Exception], Awaitable[None]],
         file_artifact_service: Any,
         preview_text: Callable[[Optional[str], int], str],
-        send_status_message: Optional[Callable[[str], Awaitable[None]]] = None,
+        get_send_status_message: Callable[[], Optional[Callable[[str], Awaitable[None]]]],
     ) -> None:
         self.config = config
         self.tool_registry = tool_registry
-        self.mcp_client = mcp_client
+        self.get_mcp_client = get_mcp_client
         self.ensure_mcp_connected = ensure_mcp_connected
         self.is_mcp_connected = is_mcp_connected
         self.is_dangerous_action = is_dangerous_action
@@ -466,7 +448,7 @@ class ToolExecutor:
         self.notify_approved_action_failed = notify_approved_action_failed
         self.file_artifact_service = file_artifact_service
         self.preview_text = preview_text
-        self.send_status_message = send_status_message
+        self.get_send_status_message = get_send_status_message
 
     def _normalize_result_for_llm(self, result: Any, *, source_label: str) -> str:
         result_text = str(result)
@@ -670,7 +652,8 @@ class ToolExecutor:
         approval_granted: bool,
     ) -> Optional[Dict[str, Any]]:
         """Execute an MCP tool when the remote registry contains it."""
-        if not self.mcp_client:
+        mcp_client = self.get_mcp_client()
+        if not mcp_client:
             return None
 
         if self.ensure_mcp_connected is not None:
@@ -679,12 +662,12 @@ class ToolExecutor:
         if not self.is_mcp_connected():
             return None
 
-        mcp_tools = await self.mcp_client.list_tools()
+        mcp_tools = await mcp_client.list_tools()
         if not any(t["function"]["name"] == tool_name for t in mcp_tools):
             return None
 
         result = await self._execute_with_timeout(
-            self.mcp_client.call_tool(tool_name, arguments),
+            mcp_client.call_tool(tool_name, arguments),
             tool_name=tool_name,
         )
         return await self._finalize_success(
@@ -723,8 +706,9 @@ class ToolExecutor:
 
         dangerous, reason = self.is_dangerous_action(tool_name, arguments)
         approval_granted = False
+        send_status_message = self.get_send_status_message()
 
-        if not dangerous and self.send_status_message and self.config is not None:
+        if not dangerous and send_status_message and self.config is not None:
             try:
                 msg = f"🔧 <b>Tool execution:</b> <code>{tool_name}</code>\n"
                 args_str = html.escape(
@@ -860,9 +844,10 @@ class ToolExecutor:
 
     def _fire_and_forget_status(self, text: str) -> None:
         """Send a non-blocking platform status message when available."""
-        if not self.send_status_message or self.config is None:
+        send_status_message = self.get_send_status_message()
+        if not send_status_message or self.config is None:
             return
 
         import asyncio
 
-        asyncio.create_task(self.send_status_message(text))
+        asyncio.create_task(send_status_message(text))
