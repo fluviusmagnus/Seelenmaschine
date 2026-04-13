@@ -344,35 +344,36 @@ class TestTelegramFiles:
         telegram_bot.send_audio = AsyncMock()
         telegram_bot.send_voice = AsyncMock()
 
-        service = FileDeliveryService(
-            config=config,
-            memory=memory,
-            telegram_files=files_helper,
-        )
+        service = FileDeliveryService(config=config)
 
-        result = await service.send_file_to_user(
-            telegram_bot=telegram_bot,
+        prepared = service.prepare_file_delivery(
             file_path=str(image_path),
             caption="最新图表",
         )
+        result = await files_helper.send_local_file(
+            telegram_bot=telegram_bot,
+            resolved_path=Path(prepared["resolved_path"]),
+            caption="最新图表",
+        )
+        event_text = service.build_sent_file_event_message(
+            Path(prepared["resolved_path"]),
+            result,
+            "最新图表",
+            platform_label="telegram",
+        )
 
-        assert result["delivery_method"] == "photo"
+        assert result == "photo"
         telegram_bot.send_photo.assert_awaited_once()
         memory.add_assistant_message_async.assert_not_awaited()
-        event_text = result["event_message"]
         assert event_text.startswith(
-            "[System Event] Assistant has sent a file via Telegram."
+            "[System Event] Assistant has sent a file via telegram."
         )
         assert "Delivery method: photo" in event_text
         assert "Caption: 最新图表" in event_text
 
     @pytest.mark.asyncio
     async def test_send_file_to_user_routes_by_media_type(self, files_helper, config):
-        service = FileDeliveryService(
-            config=config,
-            memory=Mock(add_assistant_message_async=AsyncMock()),
-            telegram_files=files_helper,
-        )
+        service = FileDeliveryService(config=config)
         telegram_bot = Mock()
         telegram_bot.send_photo = AsyncMock()
         telegram_bot.send_document = AsyncMock()
@@ -389,17 +390,21 @@ class TestTelegramFiles:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"binary")
 
-        await service.send_file_to_user(
-            telegram_bot=telegram_bot, file_path=str(video_path)
+        await files_helper.send_local_file(
+            telegram_bot=telegram_bot,
+            resolved_path=Path(service.prepare_file_delivery(file_path=str(video_path))["resolved_path"]),
         )
-        await service.send_file_to_user(
-            telegram_bot=telegram_bot, file_path=str(audio_path)
+        await files_helper.send_local_file(
+            telegram_bot=telegram_bot,
+            resolved_path=Path(service.prepare_file_delivery(file_path=str(audio_path))["resolved_path"]),
         )
-        await service.send_file_to_user(
-            telegram_bot=telegram_bot, file_path=str(voice_path)
+        await files_helper.send_local_file(
+            telegram_bot=telegram_bot,
+            resolved_path=Path(service.prepare_file_delivery(file_path=str(voice_path))["resolved_path"]),
         )
-        await service.send_file_to_user(
-            telegram_bot=telegram_bot, file_path=str(document_path)
+        await files_helper.send_local_file(
+            telegram_bot=telegram_bot,
+            resolved_path=Path(service.prepare_file_delivery(file_path=str(document_path))["resolved_path"]),
         )
 
         telegram_bot.send_video.assert_awaited_once()
@@ -411,17 +416,12 @@ class TestTelegramFiles:
     async def test_send_file_to_user_rejects_outside_workspace(
         self, files_helper, config
     ):
-        service = FileDeliveryService(
-            config=config,
-            memory=Mock(add_assistant_message_async=AsyncMock()),
-            telegram_files=files_helper,
-        )
+        service = FileDeliveryService(config=config)
         telegram_bot = Mock()
         outside_file = config.WORKSPACE_DIR.parent / "outside.txt"
         outside_file.write_text("x", encoding="utf-8")
 
         with pytest.raises(ValueError, match="outside allowed directories"):
-            await service.send_file_to_user(
-                telegram_bot=telegram_bot,
+            service.prepare_file_delivery(
                 file_path=str(outside_file),
             )

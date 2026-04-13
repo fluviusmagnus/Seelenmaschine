@@ -34,7 +34,7 @@ class TelegramAdapter:
         task_name: str = "Scheduled Task",
         task_id: str | None = None,
     ) -> None:
-        """Send a scheduled message to the user via the LLM flow."""
+        """Send a scheduled message through the TelegramMessages owner service."""
         await self.message_handler.messages.send_scheduled_message(
             application=self._application,
             message=message,

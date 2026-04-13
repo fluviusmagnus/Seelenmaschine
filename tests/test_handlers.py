@@ -85,10 +85,14 @@ class TestToolRuntimeWarmup:
         approval_delegate.notify_approved_action_finished = AsyncMock()
         approval_delegate.notify_approved_action_failed = AsyncMock()
 
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=approval_delegate,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            ),
         )
 
         runtime = core_bot.get_tool_runtime()
@@ -129,10 +133,14 @@ class TestToolRuntimeWarmup:
         approval_delegate.notify_approved_action_finished = AsyncMock()
         approval_delegate.notify_approved_action_failed = AsyncMock()
 
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=approval_delegate,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            ),
         )
 
         runtime = core_bot.get_tool_runtime()
@@ -958,10 +966,15 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+                send_status_message=owner.telegram_bot.send_message,
+            ),
         )
         core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
         core_bot.tool_runtime_state.registry_service.register_named(
@@ -1237,10 +1250,14 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            ),
         )
         core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
         core_bot.get_tool_executor_service().request_approval = AsyncMock(
@@ -1327,10 +1344,14 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            ),
         )
         core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
         core_bot.get_tool_executor_service().request_approval = AsyncMock(
@@ -1389,10 +1410,14 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            ),
         )
 
         slow_tool = Mock()
@@ -1451,10 +1476,14 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        core_bot.initialize_telegram_runtime(
-            owner,
+        from core.adapter_contracts import AdapterRuntimeCapabilities
+
+        core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            preview_text=owner._preview_text,
+            capabilities=AdapterRuntimeCapabilities(
+                preview_text=owner._preview_text,
+                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            ),
         )
 
         shell_tool = core_bot.tool_runtime_state.registry_service.get(

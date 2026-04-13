@@ -1,4 +1,4 @@
-"""Telegram controller boundary."""
+"""Telegram controller composition root and handler boundary."""
 
 from pathlib import Path
 from typing import Any, Optional
@@ -8,6 +8,7 @@ from adapter.telegram.delivery import TelegramAccessGuard, TelegramResponseSende
 from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter
 from adapter.telegram.messages import TelegramMessages
+from core.adapter_contracts import AdapterRuntimeCapabilities
 from core.bot import CoreBot
 from core.file_service import FileDeliveryService
 from utils.logger import get_logger
@@ -101,8 +102,6 @@ class TelegramController:
         file_service = TelegramFiles(config=self.core_bot.config)
         self.core_bot.file_delivery_service = FileDeliveryService(
             config=self.core_bot.config,
-            memory=self.core_bot.memory,
-            telegram_files=file_service,
         )
         approval_service = self.core_bot.approval_service
 
@@ -127,17 +126,68 @@ class TelegramController:
             intermediate_callback=self._send_intermediate_response,
         )
 
-        self.core_bot.initialize_telegram_runtime(
-            self,
-            approval_delegate=self.commands,
+        async def _send_status_message(text: str) -> None:
+            if self.telegram_bot is None:
+                return
+            await self.telegram_bot.send_message(
+                chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                text=text,
+                parse_mode="HTML",
+            )
+
+        capabilities = AdapterRuntimeCapabilities(
             preview_text=self._preview_text,
+            send_file_to_user=lambda **kwargs: self._send_file_to_user_via_telegram(
+                files=file_service,
+                **kwargs,
+            ),
+            send_status_message=_send_status_message,
+        )
+
+        self.core_bot.initialize_adapter_runtime(
+            approval_delegate=self.commands,
+            capabilities=capabilities,
         )
         logger.info("TelegramController initialized")
+
+    async def _send_file_to_user_via_telegram(
+        self,
+        *,
+        files: TelegramFiles,
+        file_path: str,
+        caption: Optional[str] = None,
+        file_type: str = "auto",
+    ) -> dict[str, Any]:
+        """Send a local file using Telegram transport after core policy validation."""
+        prepared = self.core_bot.file_delivery_service.prepare_file_delivery(
+            file_path=file_path,
+            caption=caption,
+            file_type=file_type,
+        )
+        resolved_path = Path(prepared["resolved_path"])
+        delivery_method = await files.send_local_file(
+            telegram_bot=self.telegram_bot,
+            resolved_path=resolved_path,
+            caption=caption,
+            file_type=file_type,
+        )
+        event_text = self.core_bot.file_delivery_service.build_sent_file_event_message(
+            resolved_path,
+            delivery_method,
+            caption,
+            platform_label="telegram",
+        )
+        return {
+            "status": "sent",
+            "delivery_method": delivery_method,
+            "resolved_path": str(resolved_path.resolve()),
+            "caption": caption,
+            "event_message": event_text,
+        }
 
     def set_telegram_bot(self, bot: Any) -> None:
         """Inject Telegram bot instance for proactive notifications and file sending."""
         self.telegram_bot = bot
-        self.core_bot.get_tool_executor_service().telegram_bot = bot
         logger.info("Telegram bot instance injected into TelegramController")
 
     async def _send_intermediate_response(self, text: str) -> None:
@@ -167,16 +217,3 @@ class TelegramController:
     async def handle_file(self, update: Any, context: Any) -> None:
         """Handle incoming Telegram attachments by saving them and notifying the LLM."""
         await self.messages.handle_file(update, context)
-
-    async def process_scheduled_task(
-        self,
-        task_message: str,
-        task_name: str = "Scheduled Task",
-        task_id: Optional[str] = None,
-    ) -> str:
-        """Process a scheduled task message through the LLM."""
-        return await self.messages.process_scheduled_task(
-            task_message,
-            task_name,
-            task_id,
-        )

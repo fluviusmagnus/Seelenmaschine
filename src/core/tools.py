@@ -231,21 +231,33 @@ class ToolRuntimeState:
         self.mcp_connected = False
 
 
+class ToolRuntimeDependencies:
+    """Explicit dependencies required by the tool runtime."""
+
+    def __init__(
+        self,
+        *,
+        core_bot: Any,
+        send_file_to_user: Callable[..., Any],
+        send_status_message: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> None:
+        self.core_bot = core_bot
+        self.send_file_to_user = send_file_to_user
+        self.send_status_message = send_status_message
+
+
 class ToolRuntime:
     """Configure the LLM tool runtime and optional MCP integration."""
 
     def __init__(
         self,
-        handler: Any,
+        dependencies: ToolRuntimeDependencies,
     ):
-        self.handler = handler
+        self.dependencies = dependencies
 
     def _get_core_bot(self) -> Any:
-        """Return the core bot dependency owner attached to the adapter."""
-        core_bot = getattr(self.handler, "core_bot", None)
-        if core_bot is None:
-            raise RuntimeError("CoreBot has not been attached to the handler")
-        return core_bot
+        """Return the core bot dependency owner attached to the runtime."""
+        return self.dependencies.core_bot
 
     def _get_runtime_state(self) -> ToolRuntimeState:
         """Return the core-owned mutable tool runtime state."""
@@ -318,10 +330,7 @@ class ToolRuntime:
         self._register_stateful_tool(
             state_attr="send_file_tool",
             factory=lambda: SendFileTool(
-                lambda **kwargs: self.handler.core_bot.file_delivery_service.send_file_to_user(
-                    telegram_bot=getattr(self.handler, "telegram_bot", None),
-                    **kwargs,
-                )
+                lambda **kwargs: self.dependencies.send_file_to_user(**kwargs)
             ),
             label="send_file",
         )
@@ -432,7 +441,7 @@ class ToolExecutor:
         notify_approved_action_failed: Callable[[str, Exception], Awaitable[None]],
         file_artifact_service: Any,
         preview_text: Callable[[Optional[str], int], str],
-        telegram_bot: Any = None,
+        send_status_message: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> None:
         self.config = config
         self.tool_registry = tool_registry
@@ -447,7 +456,7 @@ class ToolExecutor:
         self.notify_approved_action_failed = notify_approved_action_failed
         self.file_artifact_service = file_artifact_service
         self.preview_text = preview_text
-        self.telegram_bot = telegram_bot
+        self.send_status_message = send_status_message
 
     def _normalize_result_for_llm(self, result: Any, *, source_label: str) -> str:
         result_text = str(result)
@@ -711,7 +720,7 @@ class ToolExecutor:
         dangerous, reason = self.is_dangerous_action(tool_name, arguments)
         approval_granted = False
 
-        if not dangerous and self.telegram_bot and self.config is not None:
+        if not dangerous and self.send_status_message and self.config is not None:
             try:
                 msg = f"🔧 <b>Tool execution:</b> <code>{tool_name}</code>\n"
                 args_str = html.escape(
@@ -846,16 +855,10 @@ class ToolExecutor:
             raise
 
     def _fire_and_forget_status(self, text: str) -> None:
-        """Send a non-blocking Telegram status message when available."""
-        if not self.telegram_bot or self.config is None:
+        """Send a non-blocking platform status message when available."""
+        if not self.send_status_message or self.config is None:
             return
 
         import asyncio
 
-        asyncio.create_task(
-            self.telegram_bot.send_message(
-                chat_id=self.config.TELEGRAM_USER_ID,
-                text=text,
-                parse_mode="HTML",
-            )
-        )
+        asyncio.create_task(self.send_status_message(text))

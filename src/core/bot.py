@@ -3,6 +3,7 @@
 import asyncio
 from typing import Any, Callable, Optional
 
+from core.adapter_contracts import AdapterApprovalDelegate, AdapterRuntimeCapabilities
 from core.config import Config
 from core.conversation import ConversationService
 from core.database import DatabaseManager
@@ -13,6 +14,7 @@ from core.session_service import SessionService
 from core.tools import (
     ToolExecutor,
     ToolRuntime,
+    ToolRuntimeDependencies,
     ToolRuntimeState,
 )
 from llm.chat_client import LLMClient
@@ -53,10 +55,12 @@ class CoreBot:
         self.approval_service = ApprovalService()
         self.file_artifact_service = FileArtifactService(config=self.config)
         self.file_delivery_service: Optional[FileDeliveryService] = None
-        self._tool_owner: Optional[Any] = None
         self._approval_delegate: Optional[Any] = None
         self._tool_runtime: Optional[ToolRuntime] = None
         self._tool_executor_service: Optional[ToolExecutor] = None
+        self._tool_runtime_dependencies: Optional[ToolRuntimeDependencies] = None
+        self._preview_text: Optional[Callable[[Optional[str], int], str]] = None
+        self._send_status_message: Optional[Callable[[str], Any]] = None
         self._stop_controller = StopController()
 
     def create_tool_runtime_state(
@@ -73,16 +77,18 @@ class CoreBot:
 
     def get_tool_runtime(self) -> ToolRuntime:
         """Lazily resolve the tool runtime helper."""
-        if self._tool_owner is None:
-            raise RuntimeError("Tool runtime owner has not been attached")
+        if self._tool_runtime_dependencies is None:
+            raise RuntimeError("Tool runtime dependencies have not been attached")
         if self._tool_runtime is None:
-            self._tool_runtime = ToolRuntime(handler=self._tool_owner)
+            self._tool_runtime = ToolRuntime(dependencies=self._tool_runtime_dependencies)
         return self._tool_runtime
 
     def get_tool_executor_service(self) -> ToolExecutor:
         """Lazily resolve the tool executor."""
-        if self._tool_owner is None or self._approval_delegate is None:
-            raise RuntimeError("Tool runtime owner has not been attached")
+        if self._approval_delegate is None:
+            raise RuntimeError("Tool runtime approval delegate has not been attached")
+        if self._preview_text is None:
+            raise RuntimeError("Tool runtime capabilities have not been attached")
 
         if self.tool_runtime_state is None:
             raise RuntimeError("Tool runtime state has not been initialized")
@@ -104,33 +110,41 @@ class CoreBot:
                 notify_approved_action_finished=self._approval_delegate.notify_approved_action_finished,
                 notify_approved_action_failed=self._approval_delegate.notify_approved_action_failed,
                 file_artifact_service=self.file_artifact_service,
-                preview_text=self._tool_owner._preview_text,
-                telegram_bot=getattr(self._tool_owner, "telegram_bot", None),
+                preview_text=self._preview_text,
+                send_status_message=self._send_status_message,
             )
         return self._tool_executor_service
 
-    def initialize_telegram_runtime(
+    def initialize_adapter_runtime(
         self,
-        owner: Any,
         *,
-        approval_delegate: Any,
-        preview_text: Callable[[Optional[str], int], str],
+        approval_delegate: AdapterApprovalDelegate,
+        capabilities: AdapterRuntimeCapabilities,
     ) -> ToolExecutor:
-        """Initialize the core services needed by the Telegram adapter."""
+        """Initialize the core services needed by an adapter runtime."""
         if self.tool_runtime_state is None:
             self.create_tool_runtime_state(
                 get_current_session_id=self.memory.get_current_session_id,
             )
 
-        self._tool_owner = owner
         self._approval_delegate = approval_delegate
         self._tool_runtime = None
         self._tool_executor_service = None
+        self._preview_text = capabilities.preview_text
+        self._send_status_message = capabilities.send_status_message
+        self._tool_runtime_dependencies = ToolRuntimeDependencies(
+            core_bot=self,
+            send_file_to_user=capabilities.send_file_to_user,
+            send_status_message=capabilities.send_status_message,
+        )
 
         tool_runtime = self.get_tool_runtime()
         tool_runtime.register_core_tools()
         tool_runtime.register_builtin_tools()
         tool_runtime.setup_tools()
+
+        if self.tool_runtime_state is None:
+            raise RuntimeError("Tool runtime state has not been initialized")
 
         self.conversation_service = ConversationService(
             config=self.config,
@@ -140,7 +154,7 @@ class CoreBot:
             memory_search_tool=self.tool_runtime_state.memory_search_tool,
             mcp_client=self.tool_runtime_state.mcp_client,
             ensure_mcp_connected=self.ensure_mcp_connected,
-            preview_text=preview_text,
+            preview_text=capabilities.preview_text,
             begin_run=self.begin_tool_loop_run,
             end_run=self.end_tool_loop_run,
             check_stop_requested=self.check_stop_requested,
@@ -246,8 +260,6 @@ class CoreBot:
 
     async def execute_tool(self, tool_name: str, arguments_json: str) -> Any:
         """Execute an LLM tool call through the core-owned tool executor."""
-        if self._tool_owner is None:
-            raise RuntimeError("Tool runtime owner has not been attached")
         if self.tool_runtime_state is None:
             raise RuntimeError("Tool runtime state has not been initialized")
 
@@ -255,5 +267,5 @@ class CoreBot:
             raise RuntimeError("Tool registry has not been initialized on CoreBot")
         executor = self.get_tool_executor_service()
         executor.mcp_client = self.tool_runtime_state.mcp_client
-        executor.telegram_bot = getattr(self._tool_owner, "telegram_bot", None)
+        executor.send_status_message = self._send_status_message
         return await executor.execute_tool(tool_name, arguments_json)

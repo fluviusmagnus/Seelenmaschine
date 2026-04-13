@@ -1,4 +1,4 @@
-"""Core-owned file artifact persistence and delivery services."""
+"""Core-owned file artifact persistence and delivery policy services."""
 
 from __future__ import annotations
 
@@ -169,12 +169,10 @@ class FileArtifactService:
 
 
 class FileDeliveryService:
-    """Own file delivery policy, path checks, and memory side effects."""
+    """Own file delivery policy and path checks, but not platform transport."""
 
-    def __init__(self, *, config: Any, memory: Any, telegram_files: Any):
+    def __init__(self, *, config: Any):
         self.config = config
-        self.memory = memory
-        self.telegram_files = telegram_files
 
     def _allowed_dirs(self) -> list[Path]:
         """Return the directories that proactive file sending may access."""
@@ -209,10 +207,12 @@ class FileDeliveryService:
         sent_path: Path,
         delivery_method: str,
         caption: Optional[str] = None,
+        *,
+        platform_label: str = "adapter",
     ) -> str:
         """Build assistant-role system-tone event text for sent files."""
         message_lines = [
-            "[System Event] Assistant has sent a file via Telegram.",
+            f"[System Event] Assistant has sent a file via {platform_label}.",
             f"Delivery method: {delivery_method}",
             f"Filename: {sent_path.name}",
             f"Path: {self._format_saved_path(sent_path)}",
@@ -227,14 +227,14 @@ class FileDeliveryService:
 
         return "\n".join(message_lines)
 
-    async def send_file_to_user(
+    def prepare_file_delivery(
         self,
-        telegram_bot: Any,
+        *,
         file_path: str,
         caption: Optional[str] = None,
         file_type: str = "auto",
     ) -> Dict[str, Any]:
-        """Send a local file and return the delivery event for deferred persistence."""
+        """Validate a local file path and return normalized delivery inputs."""
         resolved_path = self.resolve_file_path(file_path)
         if not resolved_path.exists():
             raise FileNotFoundError(f"File not found: {resolved_path}")
@@ -244,25 +244,8 @@ class FileDeliveryService:
             raise ValueError(
                 "File path is outside allowed directories (workspace/media)"
             )
-
-        delivery_method = await self.telegram_files.send_local_file(
-            telegram_bot=telegram_bot,
-            resolved_path=resolved_path,
-            caption=caption,
-            file_type=file_type,
-        )
-
-        event_text = self.build_sent_file_event_message(
-            resolved_path, delivery_method, caption
-        )
-
-        logger.info(
-            f"Sent file to Telegram user via {delivery_method}: {resolved_path.name}"
-        )
         return {
-            "status": "sent",
-            "delivery_method": delivery_method,
             "resolved_path": self._format_saved_path(resolved_path),
             "caption": caption,
-            "event_message": event_text,
+            "file_type": file_type,
         }
