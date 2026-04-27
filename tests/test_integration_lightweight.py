@@ -3,16 +3,12 @@
 These tests verify complete workflows without external dependencies.
 """
 
-import sys
-from pathlib import Path
-from unittest.mock import Mock, patch
-import pytest
 import json
+from pathlib import Path
 import tempfile
+from unittest.mock import Mock, patch
 
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+import pytest
 
 
 @pytest.fixture
@@ -160,5 +156,3 @@ class TestJsonPatchIntegration:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-

@@ -1,10 +1,11 @@
+import asyncio
 from typing import Any, Callable, List, Tuple, Optional
 from dataclasses import dataclass
 
 from core.database import DatabaseManager
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
-from utils.async_utils import run_sync
+from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.time import timestamp_to_str
 from utils.logger import get_logger
 
@@ -41,6 +42,13 @@ class VectorRetriever:
         self.db = db
         self.embedding_client = embedding_client
         self.reranker_client = reranker_client
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
 
     @staticmethod
     def _merge_query_results(
@@ -72,24 +80,28 @@ class VectorRetriever:
         self, summaries: List[RetrievedSummary], limit: int
     ) -> List[RetrievedConversation]:
         """Collect conversations referenced by retrieved summaries."""
+        ranges = [(summary.first_timestamp, summary.last_timestamp) for summary in summaries]
+        conv_results = self.db.get_conversations_by_time_ranges(
+            ranges=ranges,
+            limit_per_range=limit,
+        )
         conversations: List[RetrievedConversation] = []
-        for summary in summaries:
-            conv_results = self.db.get_conversations_by_time_range(
-                start_timestamp=summary.first_timestamp,
-                end_timestamp=summary.last_timestamp,
-                limit=limit,
-            )
-            for conversation_id, session_id, timestamp, role, text in conv_results:
-                conversations.append(
-                    RetrievedConversation(
-                        conversation_id=conversation_id,
-                        session_id=session_id,
-                        timestamp=timestamp,
-                        role=role,
-                        text=text,
-                        score=0.0,
-                    )
+        seen_conversation_ids: set[int] = set()
+
+        for conversation_id, session_id, timestamp, role, text in conv_results:
+            if conversation_id in seen_conversation_ids:
+                continue
+            seen_conversation_ids.add(conversation_id)
+            conversations.append(
+                RetrievedConversation(
+                    conversation_id=conversation_id,
+                    session_id=session_id,
+                    timestamp=timestamp,
+                    role=role,
+                    text=text,
+                    score=0.0,
                 )
+            )
         return conversations
 
     @staticmethod
@@ -233,13 +245,18 @@ class VectorRetriever:
             last_bot_embedding: Optional pre-computed bot embedding
             exclude_summary_ids: Optional list of summary_ids to exclude
         """
+        ensure_not_in_async_context(
+            "retrieve_related_memories() called from async context. "
+            "Use await retrieve_related_memories_async() instead."
+        )
+
         async def _embedding_fetcher(text: str) -> List[float]:
-            return self.embedding_client.get_embedding(text)
+            return await self.embedding_client.get_embedding_async(text)
 
         async def _rerank_fetcher(
             current_query: str, documents: List[dict], top_n: int
         ) -> List[dict]:
-            return self.reranker_client.rerank(
+            return await self.reranker_client.rerank_async(
                 query=current_query,
                 documents=documents,
                 top_n=top_n,
@@ -255,7 +272,7 @@ class VectorRetriever:
                 embedding_fetcher=_embedding_fetcher,
                 rerank_fetcher=_rerank_fetcher,
             ),
-            lambda: __import__("asyncio").new_event_loop(),
+            self._get_event_loop,
         )
 
     async def retrieve_related_memories_async(
@@ -339,4 +356,3 @@ class VectorRetriever:
             )
 
         return formatted
-

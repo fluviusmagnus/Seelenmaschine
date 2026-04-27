@@ -1,8 +1,7 @@
 import pytest
-import tempfile
 import os
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from core.config import Config, init_config
 
@@ -69,6 +68,7 @@ class TestConfig:
         assert Config.CHAT_MODEL == "gpt-4o"
         assert Config.TOOL_MODEL == "gpt-4o"
         assert Config.EMBEDDING_DIMENSION == 1536
+        assert Config.EMBEDDING_CACHE_MAX_ENTRIES == 2048
 
     def test_init_creates_data_dir(self, reset_config):
         """Test that init creates data directory."""
@@ -287,6 +287,7 @@ class TestConfig:
         os.environ["EMBEDDING_API_BASE"] = "https://embedding.api.com/v1"
         os.environ["EMBEDDING_MODEL"] = "custom-embedding"
         os.environ["EMBEDDING_DIMENSION"] = "512"
+        os.environ["EMBEDDING_CACHE_MAX_ENTRIES"] = "128"
 
         Config._load_all_settings()
 
@@ -294,6 +295,7 @@ class TestConfig:
         assert Config.EMBEDDING_API_BASE == "https://embedding.api.com/v1"
         assert Config.EMBEDDING_MODEL == "custom-embedding"
         assert Config.EMBEDDING_DIMENSION == 512
+        assert Config.EMBEDDING_CACHE_MAX_ENTRIES == 128
 
         for key in [
             "OPENAI_API_KEY",
@@ -302,6 +304,7 @@ class TestConfig:
             "EMBEDDING_API_BASE",
             "EMBEDDING_MODEL",
             "EMBEDDING_DIMENSION",
+            "EMBEDDING_CACHE_MAX_ENTRIES",
         ]:
             if key in os.environ:
                 del os.environ[key]
@@ -443,4 +446,3 @@ class TestLoggerLevelResolution:
         Config.DEBUG_LOG_LEVEL = "warning"
 
         assert _resolve_log_level() == "WARNING"
-

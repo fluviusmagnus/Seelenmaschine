@@ -1,10 +1,4 @@
-import sys
-from pathlib import Path
-
 import pytest
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from core.config import Config
 from utils.tool_safety import is_dangerous_command, is_path_outside_allowed_dirs

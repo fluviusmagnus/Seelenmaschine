@@ -1,7 +1,9 @@
 """Advanced tests for DatabaseManager behavior that basic tests do not cover."""
 
 import sqlite3
+import sys
 import tempfile
+import types
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -209,3 +211,43 @@ class TestDatabaseTransactions:
 
         with pytest.raises(sqlite3.ProgrammingError):
             connection_holder["conn"].cursor()
+
+
+class TestDatabaseConnectionSetup:
+    """Test connection setup optimizations."""
+
+    def test_connection_sets_busy_timeout_and_wal_mode(self, db_manager):
+        """Connections should use safer defaults for concurrent bot access."""
+        with db_manager._get_connection() as conn:
+            busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+
+        assert busy_timeout == 30000
+        assert journal_mode.lower() == "wal"
+
+    def test_sqlite_vec_load_failure_is_cached_and_warned_once(self):
+        """Repeated connection setup should not spam logs when sqlite-vec is unavailable."""
+        old_path = DatabaseManager._sqlite_vec_loadable_path
+        old_unavailable = DatabaseManager._sqlite_vec_unavailable
+        old_warning_logged = DatabaseManager._sqlite_vec_warning_logged
+        fake_sqlite_vec = types.SimpleNamespace(
+            loadable_path=Mock(side_effect=RuntimeError("missing extension"))
+        )
+
+        try:
+            DatabaseManager._sqlite_vec_loadable_path = None
+            DatabaseManager._sqlite_vec_unavailable = False
+            DatabaseManager._sqlite_vec_warning_logged = False
+            conn = Mock()
+
+            with patch.dict(sys.modules, {"sqlite_vec": fake_sqlite_vec}):
+                with patch("core.database.logger") as mock_logger:
+                    DatabaseManager._load_sqlite_vec_extension(conn)
+                    DatabaseManager._load_sqlite_vec_extension(conn)
+
+            fake_sqlite_vec.loadable_path.assert_called_once()
+            mock_logger.warning.assert_called_once()
+        finally:
+            DatabaseManager._sqlite_vec_loadable_path = old_path
+            DatabaseManager._sqlite_vec_unavailable = old_unavailable
+            DatabaseManager._sqlite_vec_warning_logged = old_warning_logged

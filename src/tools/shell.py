@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional
 
 from core.config import Config
 from utils.logger import get_logger
-from utils.tool_safety import is_dangerous_command
 
 logger = get_logger()
 

@@ -4,14 +4,9 @@ This module tests the main entry point for the Telegram bot,
 including argument parsing, initialization, and signal handling.
 """
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 class TestMainTelegramArgumentParsing:
@@ -63,9 +58,7 @@ class TestMainTelegramInitialization:
             with patch("main_telegram.init_config") as mock_init_config:
                 with patch("main_telegram.init_logger") as mock_init_logger:
                     with patch("main_telegram.CoreBot") as mock_core_bot:
-                        with patch(
-                            "main_telegram.TelegramController"
-                        ) as mock_controller:
+                        with patch("main_telegram.TelegramController"):
                             with patch(
                                 "main_telegram.TelegramAdapter"
                             ) as mock_adapter:

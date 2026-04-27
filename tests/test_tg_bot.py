@@ -5,17 +5,11 @@ Uses pytest-asyncio for async testing and unittest.mock for mocking.
 """
 
 import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from telegram import Update
 from telegram.ext import Application
-
-# Add project root to path for absolute imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 class TestTelegramAdapterInitialization:

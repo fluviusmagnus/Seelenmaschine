@@ -204,6 +204,37 @@ class TestDatabaseManager:
         assert "旅行" in grams
         assert "budgetplanung" in grams
 
+    def test_initialization_creates_hot_query_indexes(self, db_manager):
+        """Hot path composite indexes should exist for new databases."""
+        with db_manager._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+
+        index_names = {row[0] for row in rows}
+        assert "idx_conversations_session_type_timestamp" in index_names
+        assert "idx_conversations_timestamp_conversation" in index_names
+        assert "idx_scheduled_tasks_status_next_run" in index_names
+
+    def test_get_conversations_by_time_ranges_limits_each_range(self, db_manager):
+        """Batch time-range retrieval should preserve per-summary limits."""
+        session_id = db_manager.create_session(1234567890)
+        first_id = db_manager.insert_conversation(session_id, 100, "user", "A")
+        second_id = db_manager.insert_conversation(session_id, 110, "assistant", "B")
+        third_id = db_manager.insert_conversation(session_id, 300, "user", "C")
+        db_manager.insert_conversation(session_id, 500, "assistant", "outside")
+
+        conversations = db_manager.get_conversations_by_time_ranges(
+            ranges=[(90, 120), (290, 310)],
+            limit_per_range=1,
+        )
+
+        assert conversations == [
+            (second_id, session_id, 110, "assistant", "B"),
+            (third_id, session_id, 300, "user", "C"),
+        ]
+        assert first_id not in {conversation[0] for conversation in conversations}
+
     def test_get_conversations_by_session(self, db_manager):
         """Test retrieving conversations by session."""
         session_id = db_manager.create_session(1234567890)

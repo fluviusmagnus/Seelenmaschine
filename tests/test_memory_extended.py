@@ -3,14 +3,8 @@
 Additional tests to increase coverage of memory module.
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
-
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 class TestMemoryManagerLongTermMemory:
@@ -119,5 +113,4 @@ class TestMemoryManagerSessionOperations:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
 

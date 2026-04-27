@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from typing import Dict, Any
 
 from tools.memory_search import MemorySearchTool
 from core.config import Config
@@ -372,7 +371,7 @@ class TestMemorySearchTool:
         """Test executing search with role filter."""
         mock_db.search_conversations_by_keyword.return_value = []
 
-        result = await memory_search_tool.execute(query="test", role="user")
+        await memory_search_tool.execute(query="test", role="user")
 
         mock_db.search_conversations_by_keyword.assert_called()
         call_kwargs = mock_db.search_conversations_by_keyword.call_args[1]
@@ -437,9 +436,7 @@ class TestMemorySearchTool:
             mock_config.TIMEZONE = ZoneInfo("Asia/Shanghai")
             mock_config.TIMEZONE_STR = "Asia/Shanghai"
 
-            result = await memory_search_tool.execute(
-                query="test", time_period="last_week"
-            )
+            await memory_search_tool.execute(query="test", time_period="last_week")
 
             # Even if there's an error, the test shows the parameter is accepted
             mock_db.search_conversations_by_keyword.assert_called()

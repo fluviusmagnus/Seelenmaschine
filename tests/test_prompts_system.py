@@ -4,16 +4,11 @@ This module tests the system prompt building functionality,
 including seele.json loading, time formatting, and prompt construction.
 """
 
-import sys
 from pathlib import Path
 from unittest.mock import Mock, patch, mock_open
 import json
 from zoneinfo import ZoneInfo
 import pytest
-
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 class TestLoadSeeleJson:
@@ -194,4 +189,3 @@ class TestJsonPatchConversion:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -63,6 +63,8 @@ def build_cacheable_system_prompt(
     bot = seele_data.get("bot", {})
     user = seele_data.get("user", {})
     memorable_events = seele_data.get("memorable_events", {})
+    if not isinstance(memorable_events, dict):
+        memorable_events = {}
     commands_and_agreements = seele_data.get("commands_and_agreements", [])
     agents_md = _load_workspace_agents_md(workspace_dir)
 

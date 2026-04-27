@@ -1,9 +1,5 @@
 import pytest
-import tempfile
 import json
-from pathlib import Path
-from unittest.mock import Mock, patch
-from typing import Dict, Any, Optional, List
 
 from prompts import (
     get_current_time_str,
@@ -37,7 +33,7 @@ class TestLoadSeeeleJson:
         self, tmp_path, reset_seele_json_cache, monkeypatch
     ):
         """Test loading when file doesn't exist."""
-        from prompts import load_seele_json, _load_seele_json_from_disk
+        from prompts import load_seele_json
 
         # Patch Config to return a non-existent path
         with monkeypatch.context() as m:

@@ -3,7 +3,6 @@ from unittest.mock import Mock, AsyncMock, patch
 from memory.manager import MemoryManager
 from llm.embedding import EmbeddingClient
 from core.database import DatabaseManager
-from memory.vector_retriever import VectorRetriever
 
 
 @pytest.fixture

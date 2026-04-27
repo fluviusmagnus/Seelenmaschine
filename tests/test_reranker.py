@@ -304,6 +304,24 @@ class TestRerankerClient:
         reranker_client._client = None
         reranker_client.close()
 
+    @pytest.mark.asyncio
+    async def test_close_async(self, reranker_client):
+        """Async close should close the underlying client."""
+        mock_client = Mock()
+        mock_client.aclose = AsyncMock()
+        reranker_client._client = mock_client
+
+        await reranker_client.close_async()
+
+        mock_client.aclose.assert_awaited_once()
+        assert reranker_client._client is None
+
+    @pytest.mark.asyncio
+    async def test_close_in_async_context_points_to_close_async(self, reranker_client):
+        """Sync close should reject async contexts with the public async API."""
+        with pytest.raises(RuntimeError, match=r"Use await close_async\(\) instead"):
+            reranker_client.close()
+
     def test_rerank_in_async_context_raises(self, reranker_client):
         """Test rerank raises RuntimeError in async context."""
 

@@ -1,12 +1,8 @@
 """Test for TelegramController with message processing."""
 
 import asyncio
-import sys
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest
 

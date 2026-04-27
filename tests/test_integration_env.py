@@ -4,14 +4,8 @@ These tests use the test.env profile to verify complete system integration
 without making real API calls (using mocks).
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 import pytest
-
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 @pytest.fixture(scope="module")
@@ -216,7 +210,6 @@ class TestPromptsIntegration:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
 
 
 

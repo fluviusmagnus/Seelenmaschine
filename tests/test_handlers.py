@@ -5,15 +5,11 @@ including tool execution, MCP client integration, and message processing.
 """
 
 import asyncio
-import sys
+import json
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock
-import json
-import pytest
 
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+import pytest
 
 
 class TestMessageHandlerInitialization:
@@ -902,7 +898,7 @@ class TestMessageProcessing:
     async def test_execute_tool_resumes_dangerous_shell_after_approve(self):
         """Dangerous shell actions should continue executing after /approve."""
         from adapter.telegram.commands import TelegramCommands
-        from core.hitl import ApprovalService, PendingApprovalRequest
+        from core.hitl import ApprovalService
         from core.bot import CoreBot
         from core.tools import ToolSafetyPolicy
 
@@ -1070,7 +1066,6 @@ class TestMessageProcessing:
     @pytest.mark.asyncio
     async def test_process_message_stop_request_aborts_loop_and_clears_flag(self):
         """A cooperative stop request should abort the active loop and clear the stop flag."""
-        from core.bot import CoreBot
         from core.hitl import ToolLoopAbortedError
 
         handler = Mock()

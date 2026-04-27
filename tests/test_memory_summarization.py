@@ -4,12 +4,6 @@ This module contains comprehensive tests for automatic summarization,
 long-term memory updates, and memory retrieval flows.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -183,6 +177,7 @@ class TestMemoryManagerRetrievalFlow:
         """Create a mock EmbeddingClient"""
         client = Mock()
         client.get_embedding.return_value = [0.1] * 1536
+        client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
     @pytest.fixture
@@ -190,9 +185,13 @@ class TestMemoryManagerRetrievalFlow:
         """Create a mock RerankerClient"""
         client = Mock()
         client.is_enabled.return_value = True
+        client.rerank_async = AsyncMock(return_value=[
+            {"text": "Summary 1", "summary_id": 1, "session_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95},
+            {"text": "Summary 2", "summary_id": 2, "session_id": 1, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.85}
+        ])
         client.rerank.return_value = [
-            {"text": "Summary 1", "summary_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95},
-            {"text": "Summary 2", "summary_id": 2, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.85}
+            {"text": "Summary 1", "summary_id": 1, "session_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95},
+            {"text": "Summary 2", "summary_id": 2, "session_id": 1, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.85}
         ]
         return client
     
@@ -239,18 +238,18 @@ class TestMemoryManagerRetrievalFlow:
         
         # Mock search results with proper reranker format
         mock_db.search_summaries.return_value = [
-            (1, "Summary 1", 1000, 2000, 0.8),
+            (1, 1, "Summary 1", 1000, 2000, 0.8),
         ]
-        mock_db.get_conversations_by_time_range.return_value = [
-            (10, 1500, "user", "Hello"),
+        mock_db.get_conversations_by_time_ranges.return_value = [
+            (10, 1, 1500, "user", "Hello"),
         ]
         
         # Mock reranker to return proper format with conversation_id
-        mock_reranker_client.rerank.side_effect = [
+        mock_reranker_client.rerank_async.side_effect = [
             # First call for summaries
-            [{"text": "Summary 1", "summary_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95}],
+            [{"text": "Summary 1", "summary_id": 1, "session_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95}],
             # Second call for conversations
-            [{"text": "Hello", "conversation_id": 10, "timestamp": 1500, "role": "user", "score": 0.9}]
+            [{"text": "Hello", "conversation_id": 10, "session_id": 1, "timestamp": 1500, "role": "user", "score": 0.9}]
         ]
         
         # Test with last bot message - should trigger dual query
@@ -260,7 +259,7 @@ class TestMemoryManagerRetrievalFlow:
         )
         
         # Verify reranking was called
-        assert mock_reranker_client.rerank.call_count >= 1
+        assert mock_reranker_client.rerank_async.await_count >= 1
         assert len(summaries) == 1
         assert len(conversations) == 1
     
@@ -276,27 +275,27 @@ class TestMemoryManagerRetrievalFlow:
         
         # Mock search results
         mock_db.search_summaries.return_value = [
-            (1, "Summary 1", 1000, 2000, 0.8),
-            (2, "Summary 2", 1100, 2100, 0.7)
+            (1, 1, "Summary 1", 1000, 2000, 0.8),
+            (2, 1, "Summary 2", 1100, 2100, 0.7)
         ]
-        mock_db.get_conversations_by_time_range.return_value = [
-            (10, 1500, "user", "Hello"),
-            (11, 1600, "assistant", "Hi there")
+        mock_db.get_conversations_by_time_ranges.return_value = [
+            (10, 1, 1500, "user", "Hello"),
+            (11, 1, 1600, "assistant", "Hi there")
         ]
         
         # Mock reranker to return results in different order
         # Note: reranker returns documents with their original fields plus score
-        mock_reranker_client.rerank.return_value = [
-            {"text": "Summary 2", "summary_id": 2, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.95},
-            {"text": "Summary 1", "summary_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.85}
+        mock_reranker_client.rerank_async.return_value = [
+            {"text": "Summary 2", "summary_id": 2, "session_id": 1, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.95},
+            {"text": "Summary 1", "summary_id": 1, "session_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.85}
         ]
         
         # Also mock the conversations rerank since both are called
-        def mock_rerank_side_effect(query, documents, top_n):
+        async def mock_rerank_side_effect(query, documents, top_n):
             # Return documents in reverse order with high scores
             return [{**doc, "score": 0.9 - i*0.01} for i, doc in enumerate(reversed(documents))]
         
-        mock_reranker_client.rerank.side_effect = mock_rerank_side_effect
+        mock_reranker_client.rerank_async.side_effect = mock_rerank_side_effect
         
         # Call retrieve
         summaries, conversations = retriever.retrieve_related_memories(
@@ -304,15 +303,12 @@ class TestMemoryManagerRetrievalFlow:
         )
         
         # Verify reranking was called
-        mock_reranker_client.rerank.assert_called()
+        mock_reranker_client.rerank_async.assert_awaited()
         assert len(summaries) == 2
-        assert len(conversations) == 4
+        assert len(conversations) == 2
 
 
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-
-
 

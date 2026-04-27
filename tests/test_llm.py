@@ -20,6 +20,7 @@ def mock_config():
         mock.TOOL_LLM_MAX_RESPONSE_CHARS = 12000
         mock.TOOL_LLM_TRUNCATE_HEAD_CHARS = 6000
         mock.TOOL_LLM_TRUNCATE_TAIL_CHARS = 4000
+        mock.TOOL_LOOP_MAX_ITERATIONS = 8
         yield mock
 
 
@@ -743,6 +744,7 @@ class TestDebugLogReduction:
         with patch("llm.tool_loop.Config") as mock_config:
             with patch("llm.tool_loop.logger") as mock_logger:
                 mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                mock_config.TOOL_LOOP_MAX_ITERATIONS = 8
                 await tool_loop.run_chat_with_tool_loop([{"role": "user", "content": "hi"}])
 
                 debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
@@ -788,6 +790,7 @@ class TestDebugLogReduction:
         with patch("llm.tool_loop.Config") as mock_config:
             with patch("llm.tool_loop.logger") as mock_logger:
                 mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                mock_config.TOOL_LOOP_MAX_ITERATIONS = 8
                 await tool_loop.run_chat_with_tool_loop([{"role": "user", "content": "hi"}])
 
                 debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
@@ -808,3 +811,31 @@ class TestDebugLogReduction:
                     for message in debug_messages
                 )
 
+    @pytest.mark.asyncio
+    async def test_tool_loop_stops_after_max_iterations(self):
+        llm_client = Mock()
+        llm_client._async_chat = AsyncMock(
+            return_value={
+                "tool_calls": [{"name": "demo_tool", "arguments": "{}", "id": "1"}],
+                "content": "still using tools",
+            }
+        )
+        llm_client._extract_assistant_text_from_result.return_value = "still using tools"
+        llm_client._tool_executor = AsyncMock(return_value="tool output")
+        llm_client._sanitize_tool_response_for_prompt.return_value = "tool output"
+        llm_client._preview_text.return_value = "preview"
+        llm_client._build_assistant_message_from_result.return_value = {"role": "assistant"}
+
+        tool_loop = ToolLoop(llm_client)
+
+        with patch("llm.tool_loop.Config") as mock_config:
+            mock_config.DEBUG_SHOW_FULL_PROMPT = False
+            mock_config.TOOL_LOOP_MAX_ITERATIONS = 2
+
+            result = await tool_loop.run_chat_with_tool_loop(
+                [{"role": "user", "content": "hi"}]
+            )
+
+        assert result["final_text"].startswith("Tool loop stopped")
+        assert llm_client._tool_executor.await_count == 2
+        assert llm_client._async_chat.await_count == 3

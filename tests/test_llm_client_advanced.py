@@ -4,13 +4,6 @@ This module contains tests for LLMClient's complex logic including tool calling,
 streaming responses, and retry mechanisms.
 """
 
-import sys
-from pathlib import Path
-
-# Add project root to path for absolute imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import pytest
 from unittest.mock import patch
 
@@ -36,4 +29,3 @@ class TestLLMClientInitialization:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

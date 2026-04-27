@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 from memory.vector_retriever import VectorRetriever, RetrievedSummary, RetrievedConversation
@@ -19,6 +19,7 @@ def mock_embedding_client():
     """Create mock EmbeddingClient."""
     client = Mock(EmbeddingClient)
     client.get_embedding.return_value = [0.1] * 1536
+    client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
     return client
 
 
@@ -27,6 +28,7 @@ def mock_reranker_client():
     """Create mock RerankerClient."""
     client = Mock(RerankerClient)
     client.is_enabled.return_value = False
+    client.rerank_async = AsyncMock(return_value=[])
     return client
 
 
@@ -64,8 +66,7 @@ class TestVectorRetriever:
         monkeypatch.setattr(Config, "RERANK_TOP_CONVS", 6)
 
         mock_db.search_summaries.return_value = [(1, 11, "Summary 1", 100, 200, 0.5)]
-        # Use get_conversations_by_time_range instead of search_conversations
-        mock_db.get_conversations_by_time_range.return_value = [
+        mock_db.get_conversations_by_time_ranges.return_value = [
             (1, 11, 150, "user", "Test message")  # No distance score in time-range search
         ]
 
@@ -91,14 +92,40 @@ class TestVectorRetriever:
         monkeypatch.setattr(Config, "RERANK_TOP_CONVS", 6)
 
         mock_db.search_summaries.return_value = [(1, 11, "Summary 1", 100, 200, 0.5)]
-        # Use get_conversations_by_time_range instead of search_conversations
-        mock_db.get_conversations_by_time_range.return_value = []
+        mock_db.get_conversations_by_time_ranges.return_value = []
 
         summaries, conversations = retriever.retrieve_related_memories(
             "test query", "bot response"
         )
 
         assert mock_db.search_summaries.call_count == 2
+
+    def test_collect_conversations_uses_batched_time_range_query(
+        self, retriever, mock_db
+    ):
+        summaries = [
+            RetrievedSummary(1, 11, "Summary 1", 100, 200, 0.5),
+            RetrievedSummary(2, 12, "Summary 2", 300, 400, 0.4),
+        ]
+        mock_db.get_conversations_by_time_ranges.return_value = [
+            (1, 11, 200, "assistant", "Message 1"),
+            (1, 11, 200, "assistant", "Message 1 duplicate"),
+            (2, 12, 350, "user", "Message 2"),
+        ]
+
+        conversations = retriever._collect_conversations_for_summaries(summaries, limit=4)
+
+        mock_db.get_conversations_by_time_ranges.assert_called_once_with(
+            ranges=[(100, 200), (300, 400)],
+            limit_per_range=4,
+        )
+        assert [conversation.conversation_id for conversation in conversations] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_sync_retrieve_rejects_async_context(self, retriever):
+        """Sync retrieval wrapper should not run from async contexts."""
+        with pytest.raises(RuntimeError, match="retrieve_related_memories_async"):
+            retriever.retrieve_related_memories("test query")
 
     def test_format_summaries_for_prompt(self, retriever, monkeypatch):
         """Test formatting summaries for prompt."""
@@ -151,6 +178,4 @@ class TestVectorRetriever:
         assert len(formatted) == 1
         assert "User: Test message" in formatted[0]
         assert "[session_id=22]" in formatted[0]
-
-
 

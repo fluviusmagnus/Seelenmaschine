@@ -21,9 +21,4 @@ def run_sync(
 ) -> T:
     """Run an async coroutine from sync code using the provided event loop."""
     loop = loop_provider()
-    try:
-        return loop.run_until_complete(coroutine_factory())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(coroutine_factory())
+    return loop.run_until_complete(coroutine_factory())

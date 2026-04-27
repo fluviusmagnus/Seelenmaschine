@@ -1,9 +1,7 @@
 import pytest
-import tempfile
 import json
 import base64
-from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch, AsyncMock
 
 from core.file_service import FileArtifactService
 from tools.mcp_client import MCPClient
@@ -370,7 +368,7 @@ class TestMCPClient:
         from unittest.mock import patch
 
         # Mock the logger to prevent loguru formatting error
-        with patch("tools.mcp_client.logger") as mock_logger:
+        with patch("tools.mcp_client.logger"):
             mock_client = AsyncMock()
             mock_client.call_tool = AsyncMock(side_effect=Exception("Tool Error"))
             mcp_client.client = mock_client

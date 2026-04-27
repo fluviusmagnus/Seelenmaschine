@@ -7,15 +7,8 @@ This module contains comprehensive tests for:
 - Exclusion filters
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import pytest
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
-from typing import List, Dict, Any, Tuple
+from unittest.mock import AsyncMock, Mock, patch
 
 
 class TestVectorRetrieverDualQuery:
@@ -26,7 +19,7 @@ class TestVectorRetrieverDualQuery:
         """Create a mock DatabaseManager"""
         db = Mock()
         db.search_summaries.return_value = []
-        db.get_conversations_by_time_range.return_value = []
+        db.get_conversations_by_time_ranges.return_value = []
         return db
     
     @pytest.fixture
@@ -34,6 +27,7 @@ class TestVectorRetrieverDualQuery:
         """Create a mock EmbeddingClient"""
         client = Mock()
         client.get_embedding.return_value = [0.1] * 1536
+        client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
     @pytest.fixture
@@ -42,6 +36,7 @@ class TestVectorRetrieverDualQuery:
         client = Mock()
         client.is_enabled.return_value = True
         client.rerank.return_value = []
+        client.rerank_async = AsyncMock(return_value=[])
         return client
     
     def test_retrieve_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
@@ -59,7 +54,7 @@ class TestVectorRetrieverDualQuery:
         
         # Mock the database search to return empty results
         mock_db.search_summaries.return_value = []
-        mock_db.get_conversations_by_time_range.return_value = []
+        mock_db.get_conversations_by_time_ranges.return_value = []
         
         # Call retrieve
         summaries, conversations = retriever.retrieve_related_memories(
@@ -68,10 +63,10 @@ class TestVectorRetrieverDualQuery:
         )
         
         # Verify that embedding was called twice (for user query and bot message)
-        assert mock_embedding_client.get_embedding.call_count == 2
+        assert mock_embedding_client.get_embedding_async.await_count == 2
         
         # Verify the calls were made with correct arguments
-        call_args_list = mock_embedding_client.get_embedding.call_args_list
+        call_args_list = mock_embedding_client.get_embedding_async.await_args_list
         assert call_args_list[0][0][0] == user_query
         assert call_args_list[1][0][0] == bot_message
     
@@ -98,7 +93,7 @@ class TestVectorRetrieverDualQuery:
         )
         
         # Verify that embedding was called only once (just user query)
-        assert mock_embedding_client.get_embedding.call_count == 1
+        assert mock_embedding_client.get_embedding_async.await_count == 1
 
 
 class TestVectorRetrieverReranking:
@@ -107,19 +102,21 @@ class TestVectorRetrieverReranking:
     @pytest.fixture
     def mock_db(self):
         db = Mock()
-        db.get_conversations_by_time_range.return_value = []
+        db.get_conversations_by_time_ranges.return_value = []
         return db
     
     @pytest.fixture
     def mock_embedding_client(self):
         client = Mock()
         client.get_embedding.return_value = [0.1] * 1536
+        client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
     @pytest.fixture
     def mock_reranker_client(self):
         client = Mock()
         client.is_enabled.return_value = True
+        client.rerank_async = AsyncMock(return_value=[])
         return client
     
     def test_reranking_applied_to_results(self, mock_db, mock_embedding_client, mock_reranker_client):
@@ -137,7 +134,7 @@ class TestVectorRetrieverReranking:
             (1, 11, "Summary 1", 1000, 2000, 0.8),
             (2, 12, "Summary 2", 1100, 2100, 0.7)
         ]
-        mock_db.get_conversations_by_time_range.return_value = [
+        mock_db.get_conversations_by_time_ranges.return_value = [
             (10, 11, 1500, "user", "Hello"),
             (11, 11, 1600, "assistant", "Hi there")
         ]
@@ -146,17 +143,17 @@ class TestVectorRetrieverReranking:
         # Note: reranker returns documents with their original fields plus score
         # For summaries: text, summary_id, first_timestamp, last_timestamp
         # For conversations: text, conversation_id, timestamp, role
-        mock_reranker_client.rerank.return_value = [
+        mock_reranker_client.rerank_async.return_value = [
             {"text": "Summary 2", "summary_id": 2, "session_id": 12, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.95},
             {"text": "Summary 1", "summary_id": 1, "session_id": 11, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.85}
         ]
         
         # Also mock the conversations rerank since both are called
-        def mock_rerank_side_effect(query, documents, top_n):
+        async def mock_rerank_side_effect(query, documents, top_n):
             # Return documents in reverse order with high scores
             return [{**doc, "score": 0.9 - i*0.01} for i, doc in enumerate(reversed(documents))]
         
-        mock_reranker_client.rerank.side_effect = mock_rerank_side_effect
+        mock_reranker_client.rerank_async.side_effect = mock_rerank_side_effect
         
         # Call retrieve
         summaries, conversations = retriever.retrieve_related_memories(
@@ -164,7 +161,7 @@ class TestVectorRetrieverReranking:
         )
         
         # Verify reranking was called
-        mock_reranker_client.rerank.assert_called()
+        mock_reranker_client.rerank_async.assert_awaited()
 
 
 class TestVectorRetrieverExclusion:
@@ -174,13 +171,14 @@ class TestVectorRetrieverExclusion:
     def mock_db(self):
         db = Mock()
         db.search_summaries.return_value = []
-        db.get_conversations_by_time_range.return_value = []
+        db.get_conversations_by_time_ranges.return_value = []
         return db
     
     @pytest.fixture
     def mock_embedding_client(self):
         client = Mock()
         client.get_embedding.return_value = [0.1] * 1536
+        client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
     @pytest.fixture
@@ -188,6 +186,7 @@ class TestVectorRetrieverExclusion:
         client = Mock()
         client.is_enabled.return_value = True
         client.rerank.return_value = []
+        client.rerank_async = AsyncMock(return_value=[])
         return client
     
     def test_exclude_recent_summaries_from_search(self, mock_db, mock_embedding_client, mock_reranker_client):
@@ -285,6 +284,3 @@ class TestVectorRetrieverFormatting:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-
-

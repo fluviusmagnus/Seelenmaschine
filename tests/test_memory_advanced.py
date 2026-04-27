@@ -4,13 +4,6 @@ This module contains comprehensive tests for MemoryManager's complex logic
 including session management, automatic summarization, and memory retrieval.
 """
 
-import sys
-from pathlib import Path
-
-# Add project root to path for absolute imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -204,6 +197,5 @@ class TestMemoryManagerRetrieval:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
 
 

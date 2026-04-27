@@ -2,7 +2,6 @@
 
 import pytest
 import asyncio
-import time
 
 from core.database import DatabaseManager
 from core.scheduler import TaskScheduler
@@ -31,7 +30,7 @@ async def test_one_time_task_only_executes_once(scheduler):
     """Test that a one-time task only executes once even if checked multiple times"""
     messages_sent = []
 
-    def callback(message, task_name="Scheduled Task"):
+    def callback(message, task_name="Scheduled Task", task_id=None):
         messages_sent.append(message)
 
     scheduler.set_message_callback(callback)
@@ -78,7 +77,7 @@ async def test_multiple_one_time_tasks_execute_independently(scheduler):
     """Test that multiple one-time tasks execute independently"""
     messages_sent = []
 
-    def callback(message, task_name="Scheduled Task"):
+    def callback(message, task_name="Scheduled Task", task_id=None):
         messages_sent.append(message)
 
     scheduler.set_message_callback(callback)
@@ -121,7 +120,7 @@ async def test_one_time_task_error_does_not_repeat(scheduler):
     """Test that a failing one-time task does not repeat execution"""
     messages_sent = []
 
-    def callback(message, task_name="Scheduled Task"):
+    def callback(message, task_name="Scheduled Task", task_id=None):
         messages_sent.append(message)
         raise RuntimeError("Simulated failure")
 
@@ -152,7 +151,7 @@ async def test_interval_task_continues_executing(scheduler, temp_db):
     """Test that interval tasks continue to execute"""
     messages_sent = []
 
-    def callback(message, task_name="Scheduled Task"):
+    def callback(message, task_name="Scheduled Task", task_id=None):
         messages_sent.append(message)
 
     scheduler.set_message_callback(callback)

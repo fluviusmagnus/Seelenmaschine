@@ -49,6 +49,7 @@ class ToolLoop:
         conversation_events: List[Dict[str, Any]] = []
         iteration = 1
         event_index = 0
+        max_iterations = max(1, Config.TOOL_LOOP_MAX_ITERATIONS)
 
         if abort_check is not None:
             abort_check()
@@ -59,6 +60,29 @@ class ToolLoop:
         while result["tool_calls"]:
             if abort_check is not None:
                 abort_check()
+            if iteration > max_iterations:
+                final_text = (
+                    "Tool loop stopped because the maximum number of tool "
+                    "iterations was reached. Please try again with a narrower request."
+                )
+                logger.warning(
+                    "LLM tool loop exceeded max iterations: "
+                    f"max_iterations={max_iterations}"
+                )
+                assistant_messages.append(final_text)
+                self._append_event(
+                    conversation_events,
+                    event_index=event_index,
+                    role="assistant",
+                    content=final_text,
+                    message_type="conversation",
+                )
+                return {
+                    "final_text": final_text,
+                    "assistant_messages": assistant_messages,
+                    "tool_context_messages": tool_context_messages,
+                    "conversation_events": conversation_events,
+                }
             logger.debug(
                 f"LLM tool loop iteration {iteration}: received {len(result['tool_calls'])} tool call(s)"
             )

@@ -4,5 +4,6 @@ openai>=1.0.0
 python-dotenv>=1.0.0
 httpx>=0.25.0
 mcp>=1.0.0
+fastmcp>=2.0.0
 sqlite-vec>=0.1.1
 jsonpatch>=1.33

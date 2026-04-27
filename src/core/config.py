@@ -48,6 +48,7 @@ class Config:
     TOOL_TRACE_RESULT_FULL_MAX: int = 12000
     TOOL_EXECUTION_NOTIFICATION_ARGUMENTS_MAX: int = 500
     TOOL_EXECUTION_TIMEOUT_SECONDS: float = 90.0
+    TOOL_LOOP_MAX_ITERATIONS: int = 8
     TELEGRAM_MESSAGE_MAX_LENGTH: int = 4000
     SHELL_OUTPUT_MAX_CHARS: int = 12000
     SHELL_OUTPUT_HEAD_CHARS: int = 6000
@@ -73,6 +74,7 @@ class Config:
     EMBEDDING_API_BASE: str = "https://api.openai.com/v1"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSION: int = 1536
+    EMBEDDING_CACHE_MAX_ENTRIES: int = 2048
 
     # Reranker settings
     RERANK_API_KEY: str = ""
@@ -203,6 +205,7 @@ class Config:
         cls.TOOL_EXECUTION_TIMEOUT_SECONDS = cls._get_float(
             "TOOL_EXECUTION_TIMEOUT_SECONDS", 90.0
         )
+        cls.TOOL_LOOP_MAX_ITERATIONS = cls._get_int("TOOL_LOOP_MAX_ITERATIONS", 8)
         cls.TELEGRAM_MESSAGE_MAX_LENGTH = cls._get_int(
             "TELEGRAM_MESSAGE_MAX_LENGTH", 4000
         )
@@ -232,6 +235,9 @@ class Config:
         cls.EMBEDDING_API_BASE = cls._get_str("EMBEDDING_API_BASE", cls.OPENAI_API_BASE)
         cls.EMBEDDING_MODEL = cls._get_str("EMBEDDING_MODEL", "text-embedding-3-small")
         cls.EMBEDDING_DIMENSION = cls._get_int("EMBEDDING_DIMENSION", 1536)
+        cls.EMBEDDING_CACHE_MAX_ENTRIES = cls._get_int(
+            "EMBEDDING_CACHE_MAX_ENTRIES", 2048
+        )
 
         # Reranker settings
         cls.RERANK_API_KEY = cls._get_str("RERANK_API_KEY", "")

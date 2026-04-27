@@ -1,5 +1,6 @@
 import asyncio
-from typing import List, Optional, Dict, cast
+from collections import OrderedDict
+from typing import List, Optional, cast
 from openai import AsyncOpenAI
 
 from core.config import Config
@@ -20,10 +21,11 @@ class EmbeddingClient:
         self.base_url = base_url or Config.EMBEDDING_API_BASE
         self.model = model or Config.EMBEDDING_MODEL
         self.dimension = Config.EMBEDDING_DIMENSION
+        self.cache_max_entries = max(0, Config.EMBEDDING_CACHE_MAX_ENTRIES)
 
         self._client: Optional[AsyncOpenAI] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._cache: Dict[str, List[float]] = {}
+        self._cache: OrderedDict[str, List[float]] = OrderedDict()
 
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None or self._loop.is_closed():
@@ -36,10 +38,26 @@ class EmbeddingClient:
             self._client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
             logger.info(f"Initialized EmbeddingClient: {self.model}")
 
+    def _get_cached_embedding(self, text: str) -> Optional[List[float]]:
+        embedding = self._cache.get(text)
+        if embedding is None:
+            return None
+        self._cache.move_to_end(text)
+        logger.debug(f"Embedding cache hit for text length: {len(text)}")
+        return embedding
+
+    def _cache_embedding(self, text: str, embedding: List[float]) -> None:
+        if self.cache_max_entries <= 0:
+            return
+        self._cache[text] = embedding
+        self._cache.move_to_end(text)
+        while len(self._cache) > self.cache_max_entries:
+            self._cache.popitem(last=False)
+
     async def _async_get_embedding(self, text: str) -> List[float]:
-        if text in self._cache:
-            logger.debug(f"Embedding cache hit for text length: {len(text)}")
-            return self._cache[text]
+        cached_embedding = self._get_cached_embedding(text)
+        if cached_embedding is not None:
+            return cached_embedding
 
         self._ensure_client_initialized()
 
@@ -54,7 +72,7 @@ class EmbeddingClient:
                     f"Embedding dimension mismatch: expected {self.dimension}, got {len(embedding)}"
                 )
 
-            self._cache[text] = embedding
+            self._cache_embedding(text, embedding)
             return embedding
         except Exception as e:
             logger.error(f"Failed to get embedding: {e}")
@@ -80,8 +98,9 @@ class EmbeddingClient:
         missing_texts = []
 
         for i, text in enumerate(texts):
-            if text in self._cache:
-                results[i] = self._cache[text]
+            cached_embedding = self._get_cached_embedding(text)
+            if cached_embedding is not None:
+                results[i] = cached_embedding
             else:
                 missing_indices.append(i)
                 missing_texts.append(text)
@@ -105,7 +124,7 @@ class EmbeddingClient:
                     logger.warning(
                         f"Embedding {idx} dimension mismatch: expected {self.dimension}, got {len(embedding)}"
                     )
-                self._cache[missing_texts[i]] = embedding
+                self._cache_embedding(missing_texts[i], embedding)
                 results[idx] = embedding
 
             logger.debug(
@@ -125,9 +144,12 @@ class EmbeddingClient:
             await self._client.close()
             self._client = None
 
+    async def close_async(self) -> None:
+        """Async method for closing the underlying client."""
+        await self._async_close()
+
     def close(self) -> None:
         ensure_not_in_async_context(
-            "close() called from async context. Use await _async_close() instead."
+            "close() called from async context. Use await close_async() instead."
         )
         run_sync(self._async_close, self._get_event_loop)
-

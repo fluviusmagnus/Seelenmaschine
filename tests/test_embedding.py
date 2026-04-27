@@ -12,6 +12,7 @@ def mock_config():
         mock.EMBEDDING_API_BASE = "https://test.api.com/v1"
         mock.EMBEDDING_MODEL = "test-embedding-model"
         mock.EMBEDDING_DIMENSION = 768
+        mock.EMBEDDING_CACHE_MAX_ENTRIES = 2048
         yield mock
 
 
@@ -31,6 +32,7 @@ class TestEmbeddingClient:
         assert client.base_url == "https://test.api.com/v1"
         assert client.model == "test-embedding-model"
         assert client.dimension == 768
+        assert client.cache_max_entries == 2048
         assert client._client is None
         assert client._loop is None
 
@@ -240,6 +242,67 @@ class TestEmbeddingClient:
                 model="test-embedding-model", input=["text1", "text2"]
             )
 
+    @pytest.mark.asyncio
+    async def test_embedding_cache_evicts_oldest_entry(self, mock_config):
+        """Embedding cache should be bounded to avoid unbounded process growth."""
+        mock_config.EMBEDDING_CACHE_MAX_ENTRIES = 2
+        client = EmbeddingClient()
+        responses = [
+            Mock(data=[Mock(embedding=[0.1] * 768)]),
+            Mock(data=[Mock(embedding=[0.2] * 768)]),
+            Mock(data=[Mock(embedding=[0.3] * 768)]),
+        ]
+
+        with patch.object(client, "_ensure_client_initialized"):
+            client._client = AsyncMock()
+            client._client.embeddings.create = AsyncMock(side_effect=responses)
+
+            await client.get_embedding_async("text1")
+            await client.get_embedding_async("text2")
+            await client.get_embedding_async("text3")
+
+        assert list(client._cache.keys()) == ["text2", "text3"]
+
+    @pytest.mark.asyncio
+    async def test_embedding_cache_hit_refreshes_lru_order(self, mock_config):
+        """Recently used entries should survive later insertions."""
+        mock_config.EMBEDDING_CACHE_MAX_ENTRIES = 2
+        client = EmbeddingClient()
+        responses = [
+            Mock(data=[Mock(embedding=[0.1] * 768)]),
+            Mock(data=[Mock(embedding=[0.2] * 768)]),
+            Mock(data=[Mock(embedding=[0.3] * 768)]),
+        ]
+
+        with patch.object(client, "_ensure_client_initialized"):
+            client._client = AsyncMock()
+            client._client.embeddings.create = AsyncMock(side_effect=responses)
+
+            await client.get_embedding_async("text1")
+            await client.get_embedding_async("text2")
+            await client.get_embedding_async("text1")
+            await client.get_embedding_async("text3")
+
+        assert list(client._cache.keys()) == ["text1", "text3"]
+        assert client._client.embeddings.create.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_embedding_cache_can_be_disabled(self, mock_config):
+        """A zero cache size should keep behavior correct while storing nothing."""
+        mock_config.EMBEDDING_CACHE_MAX_ENTRIES = 0
+        client = EmbeddingClient()
+        mock_response = Mock(data=[Mock(embedding=[0.1] * 768)])
+
+        with patch.object(client, "_ensure_client_initialized"):
+            client._client = AsyncMock()
+            client._client.embeddings.create = AsyncMock(return_value=mock_response)
+
+            await client.get_embedding_async("text1")
+            await client.get_embedding_async("text1")
+
+        assert client._cache == {}
+        assert client._client.embeddings.create.await_count == 2
+
     def test_close(self, embedding_client):
         """Test closing client."""
         import asyncio
@@ -261,6 +324,24 @@ class TestEmbeddingClient:
         """Test close when no client exists."""
         embedding_client._client = None
         embedding_client.close()
+
+    @pytest.mark.asyncio
+    async def test_close_async(self, embedding_client):
+        """Async close should close the underlying client."""
+        mock_client = Mock()
+        mock_client.close = AsyncMock()
+        embedding_client._client = mock_client
+
+        await embedding_client.close_async()
+
+        mock_client.close.assert_awaited_once()
+        assert embedding_client._client is None
+
+    @pytest.mark.asyncio
+    async def test_close_in_async_context_points_to_close_async(self, embedding_client):
+        """Sync close should reject async contexts with the public async API."""
+        with pytest.raises(RuntimeError, match=r"Use await close_async\(\) instead"):
+            embedding_client.close()
 
     def test_get_embedding_in_async_context_raises(self, embedding_client):
         """Test get_embedding raises RuntimeError in async context."""

@@ -1,13 +1,9 @@
-import sys
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter

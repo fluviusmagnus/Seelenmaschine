@@ -1,5 +1,4 @@
 import html
-import json
 from typing import Any
 
 from telegram import BotCommand

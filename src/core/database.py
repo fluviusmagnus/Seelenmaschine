@@ -5,7 +5,7 @@ import struct
 import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from core.config import Config
 from utils.logger import get_logger
@@ -14,6 +14,10 @@ logger = get_logger()
 
 
 class DatabaseManager:
+    _sqlite_vec_loadable_path: ClassVar[Optional[str]] = None
+    _sqlite_vec_unavailable: ClassVar[bool] = False
+    _sqlite_vec_warning_logged: ClassVar[bool] = False
+
     def __init__(self, db_path: Optional[Path] = None):
         if db_path is None:
             config = Config()
@@ -22,21 +26,16 @@ class DatabaseManager:
         self.db_path = db_path
         config = Config()
         self.embedding_dimension = config.EMBEDDING_DIMENSION
+        self._wal_configured = False
         self._ensure_db_exists()
         self._initialize_schema()
 
     @contextmanager
     def _get_connection(self):
-        conn = sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
-        conn.enable_load_extension(True)
-        try:
-            import sqlite_vec
-
-            conn.load_extension(sqlite_vec.loadable_path())
-        except Exception as e:
-            logger.warning(f"Could not load sqlite-vec extension: {e}")
-        conn.execute("PRAGMA foreign_keys = ON")
+        self._load_sqlite_vec_extension(conn)
+        self._configure_connection(conn)
         try:
             yield conn
             conn.commit()
@@ -46,6 +45,37 @@ class DatabaseManager:
             raise
         finally:
             conn.close()
+
+    def _configure_connection(self, conn: sqlite3.Connection) -> None:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 30000")
+        if not self._wal_configured:
+            conn.execute("PRAGMA journal_mode = WAL")
+            self._wal_configured = True
+
+    @classmethod
+    def _load_sqlite_vec_extension(cls, conn: sqlite3.Connection) -> None:
+        if cls._sqlite_vec_unavailable:
+            return
+
+        try:
+            if cls._sqlite_vec_loadable_path is None:
+                import sqlite_vec
+
+                cls._sqlite_vec_loadable_path = sqlite_vec.loadable_path()
+
+            conn.enable_load_extension(True)
+            conn.load_extension(cls._sqlite_vec_loadable_path)
+        except Exception as error:
+            cls._sqlite_vec_unavailable = True
+            if not cls._sqlite_vec_warning_logged:
+                logger.warning(f"Could not load sqlite-vec extension: {error}")
+                cls._sqlite_vec_warning_logged = True
+        finally:
+            try:
+                conn.enable_load_extension(False)
+            except Exception:
+                pass
 
     def _ensure_db_exists(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -228,6 +258,22 @@ class DatabaseManager:
                 "INSERT OR IGNORE INTO summary_ngrams (summary_id, gram) VALUES (?, ?)",
                 [(summary_id, gram) for gram in grams],
             )
+
+    @staticmethod
+    def _ensure_performance_indexes_with_cursor(cursor: sqlite3.Cursor) -> None:
+        """Create low-risk composite indexes for hot query paths."""
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_session_type_timestamp "
+            "ON conversations(session_id, message_type, timestamp DESC, conversation_id DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_timestamp_conversation "
+            "ON conversations(timestamp DESC, conversation_id DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status_next_run "
+            "ON scheduled_tasks(status, next_run_at)"
+        )
 
     def _rebuild_ngram_indexes_with_cursor(self, cursor: sqlite3.Cursor) -> None:
         """Backfill n-gram indexes from existing conversations and summaries."""
@@ -457,12 +503,15 @@ class DatabaseManager:
 
                 self._ensure_ngram_schema(cursor)
                 self._rebuild_ngram_indexes_with_cursor(cursor)
+                self._ensure_performance_indexes_with_cursor(cursor)
 
                 conn.commit()
                 logger.info("Database schema initialized successfully")
 
             # Run any pending migrations
             self._run_migrations()
+
+            self._ensure_performance_indexes_with_cursor(cursor)
 
     def _run_migrations(self):
         """Run database migrations based on schema version"""
@@ -1191,6 +1240,75 @@ class DatabaseManager:
 
             return results
 
+    def get_conversations_by_time_ranges(
+        self,
+        ranges: List[Tuple[int, int]],
+        limit_per_range: int = 4,
+    ) -> List[Tuple[int, int, int, str, str]]:
+        """Get conversations within multiple time ranges in one database round-trip."""
+        if not ranges:
+            return []
+
+        normalized_ranges = [
+            (min(start, end), max(start, end)) for start, end in ranges
+        ]
+        range_filters = " OR ".join(
+            "(timestamp >= ? AND timestamp <= ?)" for _ in normalized_ranges
+        )
+        params: list[int] = []
+        for start_timestamp, end_timestamp in normalized_ranges:
+            params.extend([start_timestamp, end_timestamp])
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                SELECT conversation_id, session_id, timestamp, role, text
+                FROM conversations
+                WHERE {range_filters}
+                ORDER BY timestamp DESC, conversation_id DESC
+                """,
+                tuple(params),
+            )
+
+            rows = cursor.fetchall()
+
+        results_by_range: list[list[Tuple[int, int, int, str, str]]] = [
+            [] for _ in normalized_ranges
+        ]
+        seen_by_range: list[set[int]] = [set() for _ in normalized_ranges]
+
+        for row in rows:
+            timestamp = row["timestamp"]
+            conversation_id = row["conversation_id"]
+            for index, (start_timestamp, end_timestamp) in enumerate(normalized_ranges):
+                if len(results_by_range[index]) >= limit_per_range:
+                    continue
+                if not start_timestamp <= timestamp <= end_timestamp:
+                    continue
+                if conversation_id in seen_by_range[index]:
+                    continue
+                seen_by_range[index].add(conversation_id)
+                results_by_range[index].append(
+                    (
+                        conversation_id,
+                        row["session_id"],
+                        timestamp,
+                        row["role"],
+                        row["text"],
+                    )
+                )
+
+        results = [conversation for group in results_by_range for conversation in group]
+
+        if Config.DEBUG_LOG_DATABASE_OPS:
+            logger.debug(
+                f"get_conversations_by_time_ranges: found {len(results)} conversations "
+                f"across {len(normalized_ranges)} ranges"
+            )
+
+        return results
+
     def insert_scheduled_task(
         self,
         task_id: str,
@@ -1847,4 +1965,3 @@ class DatabaseManager:
             except sqlite3.OperationalError as e:
                 logger.error(f"Summary search failed: {e}")
                 return []
-

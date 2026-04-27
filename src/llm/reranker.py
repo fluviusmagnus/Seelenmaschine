@@ -138,9 +138,12 @@ class RerankerClient:
             await self._client.aclose()
             self._client = None
 
+    async def close_async(self) -> None:
+        """Async method for closing the underlying client."""
+        await self._async_close()
+
     def close(self) -> None:
         ensure_not_in_async_context(
-            "close() called from async context. Use await _async_close() instead."
+            "close() called from async context. Use await close_async() instead."
         )
         run_sync(self._async_close, self._get_event_loop)
-

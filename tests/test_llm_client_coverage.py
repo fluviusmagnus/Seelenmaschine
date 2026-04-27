@@ -3,14 +3,8 @@
 This module tests methods not covered by existing tests to increase coverage.
 """
 
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 import pytest
-
-# Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 class TestLLMClientToolsManagement:
@@ -141,4 +135,3 @@ class TestLLMClientClose:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
