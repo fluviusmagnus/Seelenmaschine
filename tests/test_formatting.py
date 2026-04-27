@@ -173,6 +173,35 @@ class TestFormatting(unittest.TestCase):
         )
         self.assertEqual(formatted, expected)
 
+    def test_format_markdown_table_preserves_underscores_in_plain_cells(self):
+        text = "| File | Value |\n| --- | --- |\n| foo_bar_baz.py | 1 |"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+
+        self.assertIn("foo_bar_baz.py", formatted)
+
+    def test_format_markdown_table_with_cjk_headers_and_two_dash_alignment(self):
+        text = (
+            "| 排名 | 模型 | 指数 |\n"
+            "|:--:|------|:---:|\n"
+            "| 1 | **GPT-5.5 (xhigh)** | 60 |\n"
+            "| 2 | GPT-5.5 (high) | 59 |\n"
+            "| 3 | Claude Opus 4.7 (max) | 57 |\n"
+            "| 3 | Gemini 3.1 Pro Preview | 57 |\n"
+            "| 3 | GPT-5.4 (xhigh) | 57 |\n"
+            "| 3 | GPT-5.5 (medium) | 57 |\n"
+            "| 7 | Kimi K2.6 | 54 |\n"
+            "| 7 | MiMo-V2.5-Pro | 54 |\n"
+            "| 7 | GPT-5.3 Codex (xhigh) | 54 |"
+        )
+
+        formatted = self.formatter.format_response(text, debug_mode=True)
+
+        self.assertTrue(formatted.startswith("<pre>排名"))
+        self.assertIn("GPT-5.5 (xhigh)", formatted)
+        self.assertIn("-----+------------------------+-----", formatted)
+        self.assertNotIn("**GPT-5.5 (xhigh)**", formatted)
+        self.assertTrue(formatted.endswith("</pre>"))
+
     def test_no_blockquote(self):
         text = "Just normal text & stuff."
         formatted = self.formatter.format_response(text, debug_mode=True)

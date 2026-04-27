@@ -2,6 +2,7 @@
 
 import html
 import re
+import unicodedata
 from typing import List, Optional
 
 from core.config import Config
@@ -19,7 +20,7 @@ class TelegramResponseFormatter:
         "*": "i",
         "_": "i",
     }
-    _TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
+    _TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{2,}:?$")
 
     @staticmethod
     def _is_word_char(char: str) -> bool:
@@ -159,6 +160,37 @@ class TelegramResponseFormatter:
             return None
         return cells
 
+    @staticmethod
+    def _display_width(text: str) -> int:
+        """Return monospace display width, accounting for wide CJK characters."""
+        width = 0
+        for char in text:
+            if unicodedata.combining(char):
+                continue
+            width += 2 if unicodedata.east_asian_width(char) in {"F", "W"} else 1
+        return width
+
+    @classmethod
+    def _pad_display_width(cls, text: str, width: int) -> str:
+        """Pad text to a target display width with ASCII spaces."""
+        return text + " " * max(width - cls._display_width(text), 0)
+
+    @staticmethod
+    def _plain_table_cell_text(text: str) -> str:
+        """Collapse simple inline Markdown syntax inside preformatted tables."""
+        text = re.sub(r"`([^`\n]+)`", r"\1", text)
+        text = re.sub(r"\[([^\]\n]+)\]\([^) \n]+[^)\n]*\)", r"\1", text)
+        for marker in ("**", "__", "~~", "||"):
+            escaped_marker = re.escape(marker)
+            text = re.sub(
+                rf"{escaped_marker}(.+?){escaped_marker}",
+                r"\1",
+                text,
+            )
+        text = re.sub(r"(?<!\w)\*(\S(?:.*?\S)?)\*(?!\w)", r"\1", text)
+        text = re.sub(r"(?<!\w)_(\S(?:.*?\S)?)_(?!\w)", r"\1", text)
+        return text
+
     @classmethod
     def _is_markdown_table_separator(cls, line: str) -> bool:
         """Return whether a line is a Markdown table separator row."""
@@ -174,17 +206,22 @@ class TelegramResponseFormatter:
         normalized_rows = []
 
         for row in rows:
-            normalized_row = row + [""] * (len(widths) - len(row))
+            normalized_row = [
+                cls._plain_table_cell_text(cell)
+                for cell in row + [""] * (len(widths) - len(row))
+            ]
             normalized_rows.append(normalized_row)
             for index, cell in enumerate(normalized_row):
-                widths[index] = max(widths[index], len(cell))
+                widths[index] = max(widths[index], cls._display_width(cell))
 
         widths = [max(width, 3) for width in widths]
         rendered_rows = []
         for row_index, row in enumerate(normalized_rows):
             rendered_rows.append(
                 " | ".join(
-                    cell if index == len(row) - 1 else cell.ljust(widths[index])
+                    cell
+                    if index == len(row) - 1
+                    else cls._pad_display_width(cell, widths[index])
                     for index, cell in enumerate(row)
                 )
             )
