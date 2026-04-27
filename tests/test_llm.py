@@ -836,6 +836,14 @@ class TestDebugLogReduction:
                 [{"role": "user", "content": "hi"}]
             )
 
-        assert result["final_text"].startswith("Tool loop stopped")
+        assert result["final_text"].startswith("[System Event] Tool loop stopped")
+        # Verify the conversation event uses system role, not assistant
+        stop_events = [
+            e
+            for e in result["conversation_events"]
+            if "Tool loop stopped" in e["content"]
+        ]
+        assert len(stop_events) == 1
+        assert stop_events[0]["role"] == "system"
         assert llm_client._tool_executor.await_count == 2
         assert llm_client._async_chat.await_count == 3

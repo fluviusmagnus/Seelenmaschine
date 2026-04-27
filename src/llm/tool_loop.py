@@ -62,8 +62,8 @@ class ToolLoop:
                 abort_check()
             if iteration > max_iterations:
                 final_text = (
-                    "Tool loop stopped because the maximum number of tool "
-                    "iterations was reached. Please try again with a narrower request."
+                    "[System Event] Tool loop stopped because the maximum "
+                    "number of tool iterations was reached."
                 )
                 logger.warning(
                     "LLM tool loop exceeded max iterations: "
@@ -73,7 +73,7 @@ class ToolLoop:
                 self._append_event(
                     conversation_events,
                     event_index=event_index,
-                    role="assistant",
+                    role="system",
                     content=final_text,
                     message_type="conversation",
                 )
