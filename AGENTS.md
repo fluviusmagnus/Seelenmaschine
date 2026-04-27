@@ -34,6 +34,7 @@ If you explicitly need the virtualenv executable path:
 
 ```bash
 .venv/bin/ruff check src           # Unix/Linux/macOS
+.venv-linux/bin/ruff check src     # WSL/Linux fallback when present
 .venv\Scripts\ruff.exe check src   # Windows
 ```
 
@@ -55,6 +56,7 @@ If you explicitly need the virtualenv executable path:
 
 ```bash
 .venv/bin/pytest tests             # Unix/Linux/macOS
+.venv-linux/bin/pytest tests       # WSL/Linux fallback when present
 .venv\Scripts\pytest.exe tests     # Windows
 ```
 

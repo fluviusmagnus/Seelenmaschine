@@ -1702,6 +1702,22 @@ class TestSplitMessageIntoSegments:
             "Outro paragraph.",
         ]
 
+    def test_text_around_formatted_table_still_splits_normally(self, formatter):
+        """Formatted Markdown tables should remain atomic like code blocks."""
+        text = (
+            "Intro paragraph.\n\n"
+            "<pre>Name  | Age\n------+----\nAlice | 24</pre>\n\n"
+            "Outro paragraph."
+        )
+
+        segments = formatter.split_message_into_segments(text, max_length=40)
+
+        assert segments == [
+            "Intro paragraph.",
+            "<pre>Name  | Age\n------+----\nAlice | 24</pre>",
+            "Outro paragraph.",
+        ]
+
     def test_multiple_code_blocks_with_text_between_keep_original_batching(
         self, formatter
     ):

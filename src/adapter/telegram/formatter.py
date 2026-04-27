@@ -19,6 +19,7 @@ class TelegramResponseFormatter:
         "*": "i",
         "_": "i",
     }
+    _TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 
     @staticmethod
     def _is_word_char(char: str) -> bool:
@@ -141,6 +142,96 @@ class TelegramResponseFormatter:
 
         return "".join(rendered)
 
+    @staticmethod
+    def _split_markdown_table_row(line: str) -> list[str] | None:
+        """Split a Markdown table row into cells when it looks table-like."""
+        stripped = line.strip()
+        if "|" not in stripped:
+            return None
+
+        if stripped.startswith("|"):
+            stripped = stripped[1:]
+        if stripped.endswith("|"):
+            stripped = stripped[:-1]
+
+        cells = [cell.strip() for cell in stripped.split("|")]
+        if len(cells) < 2:
+            return None
+        return cells
+
+    @classmethod
+    def _is_markdown_table_separator(cls, line: str) -> bool:
+        """Return whether a line is a Markdown table separator row."""
+        cells = cls._split_markdown_table_row(line)
+        if cells is None:
+            return False
+        return all(cls._TABLE_SEPARATOR_CELL_RE.fullmatch(cell) for cell in cells)
+
+    @classmethod
+    def _format_markdown_table(cls, rows: list[list[str]]) -> str:
+        """Render Markdown table rows as an aligned plain-text table."""
+        widths = [0] * max(len(row) for row in rows)
+        normalized_rows = []
+
+        for row in rows:
+            normalized_row = row + [""] * (len(widths) - len(row))
+            normalized_rows.append(normalized_row)
+            for index, cell in enumerate(normalized_row):
+                widths[index] = max(widths[index], len(cell))
+
+        widths = [max(width, 3) for width in widths]
+        rendered_rows = []
+        for row_index, row in enumerate(normalized_rows):
+            rendered_rows.append(
+                " | ".join(
+                    cell if index == len(row) - 1 else cell.ljust(widths[index])
+                    for index, cell in enumerate(row)
+                )
+            )
+            if row_index == 0:
+                rendered_rows.append("-+-".join("-" * width for width in widths))
+
+        return "\n".join(rendered_rows)
+
+    def _replace_markdown_tables(self, text: str, save_table) -> str:
+        """Replace Markdown tables with preformatted placeholders."""
+        lines = text.splitlines(keepends=True)
+        result: list[str] = []
+        index = 0
+
+        while index < len(lines):
+            current_line = lines[index].rstrip("\r\n")
+            next_line = lines[index + 1].rstrip("\r\n") if index + 1 < len(lines) else ""
+            header = self._split_markdown_table_row(current_line)
+
+            if header is None or not self._is_markdown_table_separator(next_line):
+                result.append(lines[index])
+                index += 1
+                continue
+
+            separator = self._split_markdown_table_row(next_line)
+            if separator is None or len(separator) != len(header):
+                result.append(lines[index])
+                index += 1
+                continue
+
+            table_rows = [header]
+            index += 2
+
+            while index < len(lines):
+                row_line = lines[index].rstrip("\r\n")
+                row = self._split_markdown_table_row(row_line)
+                if row is None:
+                    break
+                table_rows.append(row)
+                index += 1
+
+            result.append(save_table(self._format_markdown_table(table_rows)))
+            if index < len(lines):
+                result.append("\n")
+
+        return "".join(result)
+
     def format_response(self, text: str, debug_mode: bool = False) -> str:
         """Convert mixed markdown-like text into Telegram-safe HTML."""
         if not debug_mode:
@@ -197,6 +288,9 @@ class TelegramResponseFormatter:
             content = match.group(1).strip()
             return _save_placeholder(content, "pre")
 
+        def save_table(content: str) -> str:
+            return _save_placeholder(content.strip(), "pre")
+
         def save_inline_code(match):
             return _save_placeholder(match.group(1), "code")
 
@@ -218,10 +312,15 @@ class TelegramResponseFormatter:
             flags=re.DOTALL | re.IGNORECASE,
         )
 
+        text_with_table_placeholders = self._replace_markdown_tables(
+            text_with_block_placeholders,
+            save_table,
+        )
+
         text_with_placeholders = re.sub(
             r"`([^`\n]+)`",
             save_inline_code,
-            text_with_block_placeholders,
+            text_with_table_placeholders,
         )
 
         rendered_text = self._render_inline_markdown(text_with_placeholders)

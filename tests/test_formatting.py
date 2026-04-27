@@ -139,6 +139,40 @@ class TestFormatting(unittest.TestCase):
         expected = "This is <tg-spoiler>secret</tg-spoiler>."
         self.assertEqual(formatted, expected)
 
+    def test_format_markdown_table_as_preformatted_text(self):
+        text = "| Name | Age |\n| --- | --- |\n| Alice | 24 |\n| Bob | 31 |"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "<pre>Name  | Age\n------+----\nAlice | 24\nBob   | 31</pre>"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_table_without_edge_pipes(self):
+        text = "Name | City\n--- | ---\nAlice | Tokyo"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "<pre>Name  | City\n------+------\nAlice | Tokyo</pre>"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_table_mixed_with_text(self):
+        text = "Before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "Before\n\n<pre>A   | B\n----+----\n1   | 2</pre>\n\nAfter"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_table_ignored_in_fenced_code(self):
+        text = "```text\n| A | B |\n| --- | --- |\n| 1 | 2 |\n```"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = "<pre>| A | B |\n| --- | --- |\n| 1 | 2 |</pre>"
+        self.assertEqual(formatted, expected)
+
+    def test_format_markdown_table_escapes_special_chars(self):
+        text = "| Key | Value |\n| --- | --- |\n| tag | <div> & stuff |"
+        formatted = self.formatter.format_response(text, debug_mode=True)
+        expected = (
+            "<pre>Key | Value\n"
+            "----+--------------\n"
+            "tag | &lt;div&gt; &amp; stuff</pre>"
+        )
+        self.assertEqual(formatted, expected)
+
     def test_no_blockquote(self):
         text = "Just normal text & stuff."
         formatted = self.formatter.format_response(text, debug_mode=True)
