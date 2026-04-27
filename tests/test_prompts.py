@@ -703,17 +703,100 @@ class TestGetCompleteMemoryJsonPrompt:
 
     def test_get_complete_memory_json_prompt(self, reset_seele_json_cache):
         """Test getting complete memory JSON prompt."""
-        # load_seele_json is a local function, not exported from prompts
-        pytest.skip("load_seele_json is not available for patching")
+        messages = "User: My name is Alice\nAssistant: Nice to meet you, Alice"
+        current_seele_json = json.dumps(
+            {
+                "bot": {"name": "TestBot"},
+                "user": {"name": "", "location": ""},
+                "memorable_events": {},
+                "commands_and_agreements": [],
+            }
+        )
+
+        prompt = get_complete_memory_json_prompt(
+            messages,
+            current_seele_json,
+            "JSON Patch application failed",
+        )
+
+        assert isinstance(prompt, str)
+        assert "<complete_memory_json_task>" in prompt
+        assert "JSON Patch application failed" in prompt
+        assert "Alice" in prompt
+        assert "TestBot" in prompt
 
 
 class TestPromptIntegration:
     """Integration tests for prompt system."""
 
-    def test_full_prompt_workflow(self):
+    def test_full_prompt_workflow(self, tmp_path, monkeypatch, reset_seele_json_cache):
         """Test complete prompt workflow."""
-        # Skip since DATA_DIR is not available in prompts
-        pytest.skip("DATA_DIR not available in prompts module")
+        from core.config import Config
+        import prompts as system
+
+        seele_path = tmp_path / "seele.json"
+        seele_path.write_text(
+            json.dumps(
+                {
+                    "bot": {
+                        "name": "TestBot",
+                        "gender": "neutral",
+                        "role": "AI assistant",
+                        "likes": [],
+                        "dislikes": [],
+                        "language_style": {"description": "", "examples": []},
+                        "personality": {
+                            "mbti": "",
+                            "description": "",
+                            "worldview_and_values": "",
+                        },
+                        "emotions": {"long_term": "", "short_term": ""},
+                        "needs": {"long_term": "", "short_term": ""},
+                        "relationship_with_user": "",
+                    },
+                    "user": {
+                        "name": "TestUser",
+                        "gender": "",
+                        "location": "Berlin",
+                        "personal_facts": [],
+                        "abilities": [],
+                        "likes": [],
+                        "dislikes": [],
+                        "personality": {
+                            "mbti": "",
+                            "description": "",
+                            "worldview_and_values": "",
+                        },
+                        "emotions": {"long_term": "", "short_term": ""},
+                        "needs": {"long_term": "", "short_term": ""},
+                    },
+                    "memorable_events": {},
+                    "commands_and_agreements": ["Prefer concise replies"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
+        monkeypatch.setattr(Config, "WORKSPACE_DIR", tmp_path)
+        system._seele_json_cache = {}
+
+        cacheable_prompt = get_cacheable_system_prompt([])
+        summary_prompt = get_summary_prompt(None, "User: Hello\nAssistant: Hi")
+        memory_prompt = get_memory_update_prompt(
+            "User: I live in Berlin", seele_path.read_text(encoding="utf-8")
+        )
+        complete_json_prompt = get_complete_memory_json_prompt(
+            "User: I live in Berlin",
+            seele_path.read_text(encoding="utf-8"),
+            "Patch failed",
+        )
+
+        assert "TestBot" in cacheable_prompt
+        assert "Prefer concise replies" in cacheable_prompt
+        assert "<summary_task>" in summary_prompt
+        assert "<memory_update_task>" in memory_prompt
+        assert "<complete_memory_json_task>" in complete_json_prompt
 
     def test_summary_prompt_workflow(self):
         """Test summary prompt creation workflow."""
@@ -755,6 +838,5 @@ class TestPromptIntegration:
         )
 
         assert isinstance(memory_prompt, str)
-
 
 
