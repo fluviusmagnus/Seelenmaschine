@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -442,6 +443,111 @@ class Seele:
 
     def __init__(self, db: Any):
         self.db = db
+
+    @staticmethod
+    def _session_snapshot_path() -> Path:
+        """Return the per-profile session-start seele snapshot path."""
+        from core.config import Config
+
+        config = Config()
+        return config.SEELE_JSON_PATH.with_name("seele.session_snapshot.json")
+
+    @staticmethod
+    def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
+        """Write JSON atomically next to the target file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as file_obj:
+            temp_path = Path(file_obj.name)
+            json.dump(data, file_obj, indent=2, ensure_ascii=False)
+
+        temp_path.replace(path)
+
+    def _write_seele_data_without_compaction(self, data: Dict[str, Any]) -> None:
+        """Persist seele data exactly enough for rollback and refresh prompt cache."""
+        from core.config import Config
+        import prompts
+
+        config = Config()
+        normalized_data, _ = normalize_seele_data(data, logger)
+        self._write_json_atomic(config.SEELE_JSON_PATH, normalized_data)
+        prompts._seele_json_cache = normalized_data
+
+    def capture_session_snapshot(self, session_id: int) -> None:
+        """Capture the current seele.json as the active session reset baseline."""
+        payload = {
+            "session_id": int(session_id),
+            "seele": self.get_long_term_memory(),
+        }
+        self._write_json_atomic(self._session_snapshot_path(), payload)
+        logger.info(f"Captured seele session snapshot for session {session_id}")
+
+    def ensure_session_snapshot_current(self, session_id: int) -> None:
+        """Ensure the snapshot belongs to the active session, rebuilding stale ones."""
+        snapshot_path = self._session_snapshot_path()
+        try:
+            if snapshot_path.exists():
+                with open(snapshot_path, "r", encoding="utf-8") as file_obj:
+                    payload = json.load(file_obj)
+                seele_data = payload.get("seele")
+                if (
+                    int(payload.get("session_id")) == int(session_id)
+                    and isinstance(seele_data, dict)
+                    and self.validate_seele_structure(seele_data)
+                ):
+                    return
+                logger.warning(
+                    "seele session snapshot is stale or invalid for active session; rebuilding"
+                )
+        except Exception as error:
+            logger.warning(f"Failed to read seele session snapshot; rebuilding: {error}")
+
+        self.capture_session_snapshot(session_id)
+
+    def restore_session_snapshot(self, session_id: int) -> None:
+        """Restore seele.json to the active session's start snapshot."""
+        snapshot_path = self._session_snapshot_path()
+        if not snapshot_path.exists():
+            raise RuntimeError(
+                f"Cannot reset session: seele session snapshot is missing at {snapshot_path}"
+            )
+
+        try:
+            with open(snapshot_path, "r", encoding="utf-8") as file_obj:
+                payload = json.load(file_obj)
+        except Exception as error:
+            raise RuntimeError(
+                f"Cannot reset session: failed to read seele session snapshot: {error}"
+            ) from error
+
+        try:
+            snapshot_session_id = int(payload.get("session_id"))
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                "Cannot reset session: seele session snapshot has an invalid session id"
+            ) from error
+
+        if snapshot_session_id != int(session_id):
+            raise RuntimeError(
+                "Cannot reset session: seele session snapshot belongs to a different session"
+            )
+
+        seele_data = payload.get("seele")
+        if not isinstance(seele_data, dict):
+            raise RuntimeError("Cannot reset session: seele session snapshot is invalid")
+        if not self.validate_seele_structure(seele_data):
+            raise RuntimeError(
+                "Cannot reset session: seele session snapshot has invalid seele structure"
+            )
+
+        self._write_seele_data_without_compaction(seele_data)
+        logger.info(f"Restored seele session snapshot for session {session_id}")
 
     def _get_summary_timestamps(
         self, summary_id: int
@@ -1256,6 +1362,3 @@ class Seele:
             json.dump(complete_data, f, indent=2, ensure_ascii=False)
 
         prompts._seele_json_cache = complete_data
-
-
-

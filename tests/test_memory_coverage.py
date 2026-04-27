@@ -56,7 +56,9 @@ class TestMemoryManagerSessionOperations:
                     )
                     
                     # Reset session
-                    mm.reset_session()
+                    with patch.object(mm.seele, "restore_session_snapshot"):
+                        with patch.object(mm.seele, "capture_session_snapshot"):
+                            mm.reset_session()
                     
                     # Verify session was deleted
                     mock_dependencies['db'].delete_session.assert_called_once_with(1)
@@ -380,6 +382,122 @@ class TestSeeleRepairPaths:
         assert saved["bot"]["name"] == "TestBot"
         assert saved["user"]["name"] == "TestUser"
         assert saved["user"]["location"] == ""
+
+
+class TestSeeleSessionSnapshot:
+    """Test session-start seele snapshot behavior."""
+
+    def _seele_data(self, name: str) -> dict:
+        return {
+            "bot": {
+                "name": "Bot",
+                "gender": "neutral",
+                "birthday": "2025-02-15",
+                "role": "AI assistant",
+                "appearance": "",
+                "likes": [],
+                "dislikes": [],
+                "language_style": {"description": "", "examples": []},
+                "personality": {
+                    "mbti": "",
+                    "description": "",
+                    "worldview_and_values": "",
+                },
+                "emotions": {"long_term": "", "short_term": ""},
+                "needs": {"long_term": "", "short_term": ""},
+                "relationship_with_user": "",
+            },
+            "user": {
+                "name": name,
+                "gender": "",
+                "birthday": "",
+                "location": "",
+                "personal_facts": [],
+                "abilities": [],
+                "likes": [],
+                "dislikes": [],
+                "personality": {
+                    "mbti": "",
+                    "description": "",
+                    "worldview_and_values": "",
+                },
+                "emotions": {"long_term": "", "short_term": ""},
+                "needs": {"long_term": "", "short_term": ""},
+            },
+            "memorable_events": {},
+            "commands_and_agreements": [],
+        }
+
+    def test_restore_session_snapshot_reverts_seele_and_cache(self, tmp_path, monkeypatch):
+        from core.config import Config
+        from memory.seele import Seele
+        import prompts
+
+        seele_path = tmp_path / "seele.json"
+        original = self._seele_data("Original")
+        changed = self._seele_data("Changed")
+        seele_path.write_text(json.dumps(original), encoding="utf-8")
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        prompts._seele_json_cache = {}
+
+        seele = Seele(db=None)
+        seele.capture_session_snapshot(7)
+        seele_path.write_text(json.dumps(changed), encoding="utf-8")
+        prompts._seele_json_cache = changed
+
+        seele.restore_session_snapshot(7)
+
+        saved = json.loads(seele_path.read_text(encoding="utf-8"))
+        assert saved["user"]["name"] == "Original"
+        assert prompts._seele_json_cache["user"]["name"] == "Original"
+
+    def test_ensure_session_snapshot_keeps_matching_snapshot(self, tmp_path, monkeypatch):
+        from core.config import Config
+        from memory.seele import Seele
+        import prompts
+
+        seele_path = tmp_path / "seele.json"
+        original = self._seele_data("Original")
+        changed = self._seele_data("Changed")
+        seele_path.write_text(json.dumps(original), encoding="utf-8")
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        prompts._seele_json_cache = {}
+
+        seele = Seele(db=None)
+        seele.capture_session_snapshot(7)
+        seele_path.write_text(json.dumps(changed), encoding="utf-8")
+        prompts._seele_json_cache = changed
+
+        seele.ensure_session_snapshot_current(7)
+
+        snapshot = json.loads(
+            (tmp_path / "seele.session_snapshot.json").read_text(encoding="utf-8")
+        )
+        assert snapshot["session_id"] == 7
+        assert snapshot["seele"]["user"]["name"] == "Original"
+
+    def test_ensure_session_snapshot_rebuilds_stale_snapshot(self, tmp_path, monkeypatch):
+        from core.config import Config
+        from memory.seele import Seele
+        import prompts
+
+        seele_path = tmp_path / "seele.json"
+        current = self._seele_data("Current")
+        stale = self._seele_data("Stale")
+        seele_path.write_text(json.dumps(current), encoding="utf-8")
+        monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+        prompts._seele_json_cache = {}
+        (tmp_path / "seele.session_snapshot.json").write_text(
+            json.dumps({"session_id": 1, "seele": stale}), encoding="utf-8"
+        )
+
+        Seele(db=None).ensure_session_snapshot_current(2)
+
+        snapshot = json.loads(
+            (tmp_path / "seele.session_snapshot.json").read_text(encoding="utf-8")
+        )
+        assert snapshot["session_id"] == 2
+        assert snapshot["seele"]["user"]["name"] == "Current"
 
 
 # Run tests if executed directly

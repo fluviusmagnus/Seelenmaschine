@@ -60,10 +60,12 @@ class MemoryManager:
         Before closing the old session, summarizes all remaining conversations
         in the context window and updates long-term memory.
         """
-        return self.sessions.new_session(
+        new_session_id = self.sessions.new_session(
             generate_summary=self._generate_summary,
             update_long_term_memory=self._update_long_term_memory,
         )
+        self.seele.capture_session_snapshot(new_session_id)
+        return new_session_id
 
     async def new_session_async(self) -> int:
         """Async version of new_session. Use this in async contexts.
@@ -72,14 +74,24 @@ class MemoryManager:
         Before closing the old session, summarizes all remaining conversations
         in the context window and updates long-term memory.
         """
-        return await self.sessions.new_session_async(
+        new_session_id = await self.sessions.new_session_async(
             generate_summary_async=self._generate_summary_async,
             update_long_term_memory_async=self._update_long_term_memory_async,
         )
+        self.seele.capture_session_snapshot(new_session_id)
+        return new_session_id
 
     def reset_session(self) -> None:
         """Delete current session and create a new one."""
+        old_session = self.db.get_active_session()
+        if old_session:
+            self.seele.restore_session_snapshot(int(old_session["session_id"]))
         self.sessions.reset_session()
+        self.seele.capture_session_snapshot(self.get_current_session_id())
+
+    def ensure_session_snapshot_current(self) -> None:
+        """Ensure the active session has a matching seele reset snapshot."""
+        self.seele.ensure_session_snapshot_current(self.get_current_session_id())
 
     def process_user_input(
         self, user_input: str, last_bot_message: Optional[str] = None
@@ -395,4 +407,3 @@ class MemoryManager:
 
     def get_recent_summaries(self) -> List[str]:
         return self.recall.get_recent_summaries()
-

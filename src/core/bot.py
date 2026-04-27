@@ -46,6 +46,7 @@ class CoreBot:
             reranker_client=self.reranker_client,
         )
         self.memory.ensure_long_term_memory_schema()
+        self.memory.ensure_session_snapshot_current()
         self.scheduler = scheduler or TaskScheduler(self.db)
         self.llm_client = llm_client or LLMClient()
         self.conversation_service: Optional[ConversationService] = None

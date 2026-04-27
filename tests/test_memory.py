@@ -153,9 +153,13 @@ class TestMemoryManager:
     def test_reset_session(self, memory_manager, mock_db):
         """Test resetting current session."""
         mock_db.get_active_session.return_value = {"session_id": 1}
-        memory_manager.reset_session()
+        with patch.object(memory_manager.seele, "restore_session_snapshot") as mock_restore:
+            with patch.object(memory_manager.seele, "capture_session_snapshot") as mock_capture:
+                memory_manager.reset_session()
         assert mock_db.delete_session.called
         assert mock_db.create_session.called
+        mock_restore.assert_called_once_with(1)
+        mock_capture.assert_called_once()
 
     def test_add_user_message(self, memory_manager, mock_db):
         """Test adding user message."""
@@ -531,4 +535,3 @@ def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_
     assert len(compacted["user"]["personal_facts"]) == PERSONAL_FACTS_LIMIT
     assert compacted["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
     fake_client.close.assert_called_once()
-
