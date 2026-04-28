@@ -13,12 +13,12 @@ Python modules:
 .venv\Scripts\python.exe -m ruff check src
 ```
 
-The virtualenv may depend on the base interpreter under
-`C:\Users\zszth\AppData\Local\Programs\Python\Python311`. Codex sandbox commands
-run as `elephantasie\codexsandboxoffline`, which can be denied access to that
-user-local Python installation. If `.venv\Scripts\python.exe` reports `No Python
-at ...` or `Access to the path ... is denied`, rerun the same command with
-escalated permissions instead of assuming the interpreter is missing.
+The Windows virtualenv may depend on a base interpreter installed in a
+user-local directory such as `%LOCALAPPDATA%\Programs\Python\...`. Codex sandbox
+commands may run under a restricted service account that cannot access that
+user-local interpreter. If `.venv\Scripts\python.exe` reports `No Python at ...`
+or `Access to the path ... is denied`, rerun the same command with escalated
+permissions instead of assuming the interpreter is missing.
 
 ### Running Application
 Use commands that work on both Windows and Unix/Linux when possible.
