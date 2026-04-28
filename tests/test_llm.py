@@ -109,6 +109,31 @@ class TestLLMClient:
 
         assert normalized[-1]["role"] == "tool"
 
+    @patch(
+        "llm.chat_client.load_seele_json",
+        return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
+    )
+    def test_format_conversation_messages_uses_readable_blocks(
+        self, mock_load_seele_json, llm_client
+    ):
+        messages = [
+            {"role": "user", "text": "First line\nSecond line"},
+            {"role": "assistant", "content": ""},
+            {"role": "system", "content": "context"},
+        ]
+
+        formatted = llm_client._format_conversation_messages(messages)
+
+        assert formatted == (
+            "#1 Alice\n"
+            "  First line\n"
+            "  Second line\n\n"
+            "#2 Seele\n"
+            "  [empty message]\n\n"
+            "#3 system\n"
+            "  context"
+        )
+
     def test_format_llm_exception_extracts_openai_error_message(self, llm_client):
         """Structured upstream errors should become readable RuntimeError messages."""
 
@@ -200,7 +225,7 @@ class TestLLMClient:
         summary = await llm_client.generate_summary_async(None, new_conversations)
         assert summary == "Summary result"
         mock_get_prompt.assert_called_once_with(
-            None, "Alice: Message 1\nSeele: Response 1"
+            None, "#1 Alice\n  Message 1\n\n#2 Seele\n  Response 1"
         )
 
     @patch("llm.chat_client.AsyncOpenAI")
@@ -237,7 +262,7 @@ class TestLLMClient:
         )
         assert update == '{"patch": "value"}'
         mock_get_prompt.assert_called_once_with(
-            "Alice: Message 1\nSeele: Response 1",
+            "#1 Alice\n  Message 1\n\n#2 Seele\n  Response 1",
             '{"bot": {}, "user": {}}',
             None,
             None,
@@ -280,7 +305,7 @@ class TestLLMClient:
 
         assert result == '{"bot": {}, "user": {}}'
         mock_get_prompt.assert_called_once_with(
-            "Alice: Message 1\nSeele: Response 1",
+            "#1 Alice\n  Message 1\n\n#2 Seele\n  Response 1",
             '{"bot": {}, "user": {}}',
             "patch failed",
             None,

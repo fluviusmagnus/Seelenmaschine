@@ -150,13 +150,17 @@ class LLMClient:
         return role_to_name.get(role, role)
 
     def _format_conversation_messages(self, messages: List[Dict[str, str]]) -> str:
-        """Format conversation messages using user/bot names instead of raw roles."""
-        return "\n".join(
-            [
-                f"{self._get_display_name_for_role(msg['role'])}: {msg.get('content', msg.get('text', ''))}"
-                for msg in messages
-            ]
-        )
+        """Format conversation messages as readable numbered blocks."""
+        formatted_messages: List[str] = []
+
+        for index, msg in enumerate(messages, start=1):
+            role_name = self._get_display_name_for_role(msg["role"])
+            content = str(msg.get("content", msg.get("text", "")))
+            content_lines = content.splitlines() or ["[empty message]"]
+            indented_content = "\n".join(f"  {line}" for line in content_lines)
+            formatted_messages.append(f"#{index} {role_name}\n{indented_content}")
+
+        return "\n\n".join(formatted_messages)
 
     def _format_tool_calls_for_api(self, tool_calls: List[Any]) -> List[Dict[str, Any]]:
         """Convert SDK tool call objects to OpenAI API message format."""
