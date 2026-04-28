@@ -4,7 +4,9 @@
 
 The `search_memories` tool supports:
 
-- FTS5 full-text keyword search
+- FTS5 full-text exact keyword search
+- Vector semantic / fuzzy search
+- Hybrid keyword + vector search
 - Mixed-language n-gram fallback for CJK and mixed-script queries
 - Boolean operators (`AND`, `OR`, `NOT`)
 - Role filtering
@@ -15,7 +17,9 @@ The `search_memories` tool supports:
 By default:
 
 - `search_target="all"`
+- `search_mode="hybrid"`
 - the tool searches both summaries and conversations
+- the tool combines exact keyword matches with vector semantic recall when `query` is provided
 - the current session is excluded unless `include_current_session=true`
 - if the search scope includes the current session, the most recent `CONTEXT_WINDOW_KEEP_MIN` conversation messages are excluded to avoid returning messages already present in the current context window
 
@@ -23,40 +27,52 @@ By default:
 
 ### 1. Single Keyword
 ```python
-search_memories(query="Anna")
+search_memories(query="Anna", search_mode="keyword")
 ```
 Finds memories containing `Anna`.
 
 ### 1b. Bare Multiple Keywords
 ```python
-search_memories(query="Anna 电影")
+search_memories(query="Anna 电影", search_mode="keyword")
 ```
-Bare multiple keywords are interpreted by SQLite FTS5. In practice, they usually behave like `AND`.
+In keyword mode, bare multiple keywords are interpreted by SQLite FTS5. In practice, they usually behave like `AND`.
 Prefer `Anna AND 电影` for clarity and predictability.
 
 ### 2. AND Operator
 ```python
-search_memories(query="Anna AND 电影")
+search_memories(query="Anna AND 电影", search_mode="keyword")
 ```
 Finds memories containing both `Anna` and `电影`.
 
 ### 3. OR Operator
 ```python
-search_memories(query="电影 OR 音乐")
+search_memories(query="电影 OR 音乐", search_mode="keyword")
 ```
 Finds memories containing either `电影` or `音乐`.
 
 ### 4. NOT Operator
 ```python
-search_memories(query="电影 NOT 恐怖")
+search_memories(query="电影 NOT 恐怖", search_mode="keyword")
 ```
 Finds memories containing `电影` but not `恐怖`.
 
 ### 5. Exact Phrase
 ```python
-search_memories(query='"Anna 喜欢"')
+search_memories(query='"Anna 喜欢"', search_mode="keyword")
 ```
 Finds the exact phrase `Anna 喜欢`.
+
+### 5b. Vector / Fuzzy Semantic Search
+```python
+search_memories(query="上次我们聊到她喜欢的那部欧洲电影", search_mode="vector")
+```
+Uses semantic similarity rather than exact FTS5 keywords. Use this when the user remembers the meaning but not the exact wording.
+
+### 5c. Hybrid Search (Default)
+```python
+search_memories(query="Anna 电影")
+```
+Defaults to `search_mode="hybrid"`, combining exact keyword matches with vector semantic recall and then fusing/reranking the candidates.
 
 ## Complex Queries
 
@@ -86,7 +102,7 @@ Boolean operators are still supported in that path.
 ```python
 search_memories(query="上次我们讨论预算和旅行安排的时候", search_target="summaries")
 ```
-For longer natural-language queries, sparse keyword summary matches may be supplemented by vector-retrieved summaries.
+The default `search_mode="hybrid"` combines exact keyword results with vector-retrieved summaries.
 The final summary order now uses weighted fusion across keyword signals, vector similarity, and light recency.
 This means a clearly stronger semantic match can outrank a weaker keyword-only hit, while exact/strong keyword hits still remain competitive.
 If a reranker is configured, the top summary candidates may also be reranked once more before final truncation.

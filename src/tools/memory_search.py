@@ -81,6 +81,12 @@ class MemorySearchTool:
                     "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["search_target"],
                     "default": "all",
                 },
+                "search_mode": {
+                    "type": "string",
+                    "enum": ["keyword", "vector", "hybrid"],
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["search_mode"],
+                    "default": "hybrid",
+                },
             },
             "required": [],
         }
@@ -187,6 +193,7 @@ class MemorySearchTool:
         end_date: str,
         session_id: int | None,
         search_target: str,
+        search_mode: str,
     ) -> None:
         """Append a one-line summary of active search filters."""
         criteria = []
@@ -198,6 +205,8 @@ class MemorySearchTool:
             criteria.append(f"session_id: {session_id}")
         if search_target != "all":
             criteria.append(f"target: {search_target}")
+        if search_mode != "hybrid":
+            criteria.append(f"mode: {search_mode}")
         if time_period:
             criteria.append(f"time: {time_period}")
         elif start_date or end_date:
@@ -312,13 +321,18 @@ class MemorySearchTool:
         query: str,
         limit: int,
         search_target: str,
+        force_vector: bool = False,
+        session_id: int | None = None,
+        exclude_session_id: int | None = None,
+        start_timestamp: int | None = None,
+        end_timestamp: int | None = None,
         query_embedding: list[float] | None = None,
     ) -> list[tuple[Any, ...]]:
         """Supplement sparse keyword summary results with vector-retrieved summaries."""
         if search_target not in {"all", "summaries"}:
             return summary_results
 
-        if not self._looks_like_natural_language_query(query):
+        if not force_vector and not self._looks_like_natural_language_query(query):
             return summary_results
 
         target_limit = limit if search_target == "summaries" else max(1, limit // 2)
@@ -335,6 +349,10 @@ class MemorySearchTool:
             embedding,
             limit=candidate_limit,
             exclude_ids=exclude_ids or None,
+            session_id=session_id,
+            exclude_session_id=exclude_session_id,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
         )
         if not vector_results:
             return summary_results
@@ -357,12 +375,13 @@ class MemorySearchTool:
         role: str | None,
         start_timestamp: int | None,
         end_timestamp: int | None,
+        force_vector: bool = False,
         query_embedding: list[float] | None = None,
     ) -> list[tuple[Any, ...]]:
         """Supplement sparse keyword conversation results with vector-retrieved conversations."""
         if search_target not in {"all", "conversations"}:
             return conversation_results
-        if not self._looks_like_natural_language_query(query):
+        if not force_vector and not self._looks_like_natural_language_query(query):
             return conversation_results
 
         target_limit = limit if search_target == "conversations" else max(1, limit // 2)
@@ -678,18 +697,25 @@ class MemorySearchTool:
         include_current_session: bool = False,
         session_id: int = None,
         search_target: str = "all",
+        search_mode: str = "hybrid",
     ) -> str:
-        """Execute keyword-based memory search with optional filters"""
+        """Execute memory search with keyword, vector, or hybrid recall."""
         if self._disabled:
             return "Memory search is disabled during response generation to prevent recursion"
 
         try:
-            # Sanitize query to fix FTS5 issues with dates
-            if query:
+            if search_mode not in {"keyword", "vector", "hybrid"}:
+                return "Invalid search_mode. Use one of: keyword, vector, hybrid"
+
+            if search_mode == "vector" and not query:
+                return "search_mode='vector' requires query"
+
+            # Sanitize query to fix FTS5 issues with dates in keyword-capable modes.
+            if query and search_mode in {"keyword", "hybrid"}:
                 query = self._sanitize_query(query)
 
-            # Validate query syntax
-            if query:
+            # Validate query syntax for keyword-capable modes.
+            if query and search_mode in {"keyword", "hybrid"}:
                 is_valid, error_msg = self._validate_fts_query(query)
 
                 if not is_valid:
@@ -750,28 +776,36 @@ class MemorySearchTool:
             summary_results = []
             conversation_results = []
             shared_query_embedding = None
-            if query and self._looks_like_natural_language_query(query):
+            should_use_vector = query and search_mode in {"vector", "hybrid"}
+            if should_use_vector:
                 shared_query_embedding = await self._get_query_embedding(query)
 
             if search_target in {"all", "summaries"}:
-                summary_results = self._search_with_fts_guard(
-                    self.db.search_summaries_by_keyword,
-                    query=query if query else None,
-                    limit=limit if search_target == "summaries" else limit // 2,
-                    session_id=effective_session_id,
-                    exclude_session_id=exclude_session_id,
-                    start_timestamp=start_timestamp,
-                    end_timestamp=end_timestamp,
-                )
-                if isinstance(summary_results, str):
-                    return summary_results
-                summary_results = await self._maybe_add_vector_summary_results(
-                    summary_results,
-                    query=query,
-                    limit=limit,
-                    search_target=search_target,
-                    query_embedding=shared_query_embedding,
-                )
+                if search_mode in {"keyword", "hybrid"}:
+                    summary_results = self._search_with_fts_guard(
+                        self.db.search_summaries_by_keyword,
+                        query=query if query else None,
+                        limit=limit if search_target == "summaries" else limit // 2,
+                        session_id=effective_session_id,
+                        exclude_session_id=exclude_session_id,
+                        start_timestamp=start_timestamp,
+                        end_timestamp=end_timestamp,
+                    )
+                    if isinstance(summary_results, str):
+                        return summary_results
+                if should_use_vector:
+                    summary_results = await self._maybe_add_vector_summary_results(
+                        summary_results,
+                        query=query,
+                        limit=limit,
+                        search_target=search_target,
+                        force_vector=True,
+                        session_id=effective_session_id,
+                        exclude_session_id=exclude_session_id,
+                        start_timestamp=start_timestamp,
+                        end_timestamp=end_timestamp,
+                        query_embedding=shared_query_embedding,
+                    )
                 summary_results = self._sort_summary_results(
                     summary_results,
                     query=query,
@@ -787,34 +821,37 @@ class MemorySearchTool:
                 ]
 
             if search_target in {"all", "conversations"}:
-                conversation_results = self._search_with_fts_guard(
-                    self.db.search_conversations_by_keyword,
-                    query=query if query else None,
-                    limit=limit if search_target == "conversations" else limit // 2,
-                    session_id=effective_session_id,
-                    exclude_session_id=exclude_session_id,
-                    exclude_recent_from_session_id=exclude_recent_from_session_id,
-                    exclude_recent_limit=exclude_recent_limit,
-                    role=role,
-                    start_timestamp=start_timestamp,
-                    end_timestamp=end_timestamp,
-                )
-                if isinstance(conversation_results, str):
-                    return conversation_results
-                conversation_results = await self._maybe_add_vector_conversation_results(
-                    conversation_results,
-                    query=query,
-                    limit=limit,
-                    search_target=search_target,
-                    session_id=effective_session_id,
-                    exclude_session_id=exclude_session_id,
-                    exclude_recent_from_session_id=exclude_recent_from_session_id,
-                    exclude_recent_limit=exclude_recent_limit,
-                    role=role,
-                    start_timestamp=start_timestamp,
-                    end_timestamp=end_timestamp,
-                    query_embedding=shared_query_embedding,
-                )
+                if search_mode in {"keyword", "hybrid"}:
+                    conversation_results = self._search_with_fts_guard(
+                        self.db.search_conversations_by_keyword,
+                        query=query if query else None,
+                        limit=limit if search_target == "conversations" else limit // 2,
+                        session_id=effective_session_id,
+                        exclude_session_id=exclude_session_id,
+                        exclude_recent_from_session_id=exclude_recent_from_session_id,
+                        exclude_recent_limit=exclude_recent_limit,
+                        role=role,
+                        start_timestamp=start_timestamp,
+                        end_timestamp=end_timestamp,
+                    )
+                    if isinstance(conversation_results, str):
+                        return conversation_results
+                if should_use_vector:
+                    conversation_results = await self._maybe_add_vector_conversation_results(
+                        conversation_results,
+                        query=query,
+                        limit=limit,
+                        search_target=search_target,
+                        session_id=effective_session_id,
+                        exclude_session_id=exclude_session_id,
+                        exclude_recent_from_session_id=exclude_recent_from_session_id,
+                        exclude_recent_limit=exclude_recent_limit,
+                        role=role,
+                        start_timestamp=start_timestamp,
+                        end_timestamp=end_timestamp,
+                        force_vector=True,
+                        query_embedding=shared_query_embedding,
+                    )
                 conversation_results = self._sort_conversation_results(
                     conversation_results,
                     query=query,
@@ -839,6 +876,7 @@ class MemorySearchTool:
                 end_date=end_date,
                 session_id=effective_session_id,
                 search_target=search_target,
+                search_mode=search_mode,
             )
             self._append_summary_results(result, summary_results)
             self._append_conversation_results(result, conversation_results)

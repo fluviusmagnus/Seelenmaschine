@@ -444,7 +444,7 @@ IMPORTANT:
             return "\n".join(lines)
 
     class MemorySearch:
-        DESCRIPTION = """Search your long-term memory (conversation history and summaries) using keywords and filters.
+        DESCRIPTION = """Search your long-term memory (conversation history and summaries) using exact keywords, vector recall, or both.
 
 WHEN TO USE:
 - User asks about past conversations, previous topics, or things mentioned before
@@ -455,33 +455,39 @@ WHEN TO USE:
 
 QUERY SYNTAX (FTS5):
 - Single keyword: coffee
-- Multiple bare keywords separated by spaces usually behave like AND in FTS5; prefer explicit AND/OR for clarity
+- In keyword mode, multiple bare keywords separated by spaces usually behave like AND in FTS5; use explicit AND for clarity
 - AND (both required): coffee AND morning
 - OR (either acceptable): tea OR coffee
 - Exact phrase: "morning routine"
 - Exclude: coffee NOT decaf
 - Grouping: (tea OR coffee) AND morning
+- Need any keyword: coffee OR morning
+- Need exact phrase: "coffee morning"
 
 MIXED-LANGUAGE QUERY NOTES:
 - Queries containing CJK text may use a mixed-language n-gram fallback instead of raw FTS tokenization
 - In that fallback path, boolean operators like AND/OR/NOT and parentheses are still supported
 - Longer CJK phrases and explicit operators are usually more predictable than very short ambiguous terms
 
-VECTOR-ASSISTED RECALL:
-- For longer natural-language queries, this tool may supplement keyword matches with vector-retrieved summaries when keyword results are sparse
-- Vector recall is used as a fallback supplement, not as a replacement for exact keyword / boolean filtering
+SEARCH MODES:
+- search_mode="hybrid" (default): run exact keyword search plus vector semantic recall, then fuse/rerank results
+- search_mode="keyword": exact keyword / boolean search only; no vector or semantic fallback
+- search_mode="vector": fuzzy semantic vector search only; requires query
 
 BEST PRACTICES:
 1. Use specific keywords relevant to the topic
 2. Use the same language as the user's conversation (e.g., if user speaks Chinese, search with Chinese keywords)
 3. Combine keywords with AND for precise results
-4. Use time filters when timeframe is known
-5. Use role filter to find specific speaker's messages
-6. Start with broader keywords, then narrow down if needed
-7. query is optional: you may search using only filters such as session_id, role, or time range
-8. If you want to see what a specific session was about, prefer session_id + search_target="summaries" for a concise overview
-9. Use session_id + search_target="conversations" only when you need verbatim messages from that session
-10. By default, this tool excludes the current conversation session. Only set include_current_session=true when you explicitly need to search the current session as well.
+4. Use search_mode="keyword" for exact terms, boolean logic, and quoted phrases
+5. Use search_mode="vector" for fuzzy semantic recall when exact wording is unknown
+6. Use the default search_mode="hybrid" when either exact words or semantic similarity may help
+7. Use time filters when timeframe is known
+8. Use role filter to find specific speaker's messages
+9. Start with broader keywords, then narrow down if needed
+10. query is optional except in vector mode: you may search using only filters such as session_id, role, or time range
+11. If you want to see what a specific session was about, prefer session_id + search_target="summaries" for a concise overview
+12. Use session_id + search_target="conversations" only when you need verbatim messages from that session
+13. By default, this tool excludes the current conversation session. Only set include_current_session=true when you explicitly need to search the current session as well.
 
 COMMON PATTERNS:
 - Browse one session overview: search_memories(session_id=60, search_target="summaries")
@@ -496,7 +502,7 @@ COMMON PATTERNS:
 
 Examples:
 - "coffee" - find conversations about coffee
-- "coffee morning" - bare multiple keywords usually behave like AND in FTS5; prefer "coffee AND morning" for clarity
+- "coffee morning" - in keyword mode, bare multiple keywords usually behave like AND in FTS5; prefer "coffee AND morning" for clarity
 - "coffee AND morning" - both keywords must appear
 - "tea OR coffee" - either keyword is acceptable
 - '"morning routine"' - exact phrase match
@@ -505,7 +511,8 @@ Examples:
 
 Leave empty to search using only filters (session_id, role, time range).
 If you only want to inspect one session, leaving query empty is valid; prefer search_target='summaries' for a concise overview.
-Queries containing CJK text may automatically use a mixed-language n-gram fallback that still supports AND/OR/NOT and parentheses.""",
+Queries containing CJK text may automatically use a mixed-language n-gram fallback that still supports AND/OR/NOT and parentheses.
+In vector mode, query is treated as semantic search text rather than FTS5 syntax.""",
             "limit": "Maximum number of results to return (default: 10). Increase for broader searches, decrease for specific queries.",
             "role": "Filter by speaker role. Use 'user' to search only user's messages, 'assistant' to search only your own responses.",
             "time_period": "Quick time filter for recent conversations. Use this when user mentions vague timeframes like 'recently', 'lately', 'the other day'.",
@@ -514,6 +521,7 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
             "include_current_session": "Whether to include the current conversation session in results. Defaults to false. Set to true only when you need to search the current ongoing session as well.",
             "session_id": "Search only within a specific session_id. When provided, this takes precedence over include_current_session behavior. This can be used without query; if you only want to inspect a session, prefer search_target='summaries' first.",
             "search_target": "Choose which memory type to search. Defaults to 'all'. If using only session_id without query, prefer 'summaries' to review the session overview before using 'conversations' for verbatim details.",
+            "search_mode": "Choose recall mode. Defaults to 'hybrid': exact keyword/boolean search plus vector semantic recall. Use 'keyword' for exact keyword, boolean, and quoted phrase matching only; multiple bare space-separated keywords usually behave like AND, so prefer explicit AND/OR/NOT. Use 'vector' for fuzzy semantic recall when exact wording is unknown; vector mode requires query.",
         }
 
         @classmethod

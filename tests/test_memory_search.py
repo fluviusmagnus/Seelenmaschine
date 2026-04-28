@@ -63,6 +63,13 @@ class TestMemorySearchTool:
         assert "search_target" in params["properties"]
         assert params["properties"]["search_target"]["default"] == "all"
         assert "prefer 'summaries'" in params["properties"]["search_target"]["description"]
+        assert "search_mode" in params["properties"]
+        assert params["properties"]["search_mode"]["enum"] == [
+            "keyword",
+            "vector",
+            "hybrid",
+        ]
+        assert params["properties"]["search_mode"]["default"] == "hybrid"
 
     def test_disable(self, memory_search_tool):
         """Test disabling tool."""
@@ -130,7 +137,7 @@ class TestMemorySearchTool:
         assert "No relevant memories found" in result
 
     @pytest.mark.asyncio
-    async def test_execute_can_use_vector_summary_fallback_for_natural_language_query(
+    async def test_execute_uses_vector_summary_recall_by_default(
         self, mock_db
     ):
         embedding_client = Mock()
@@ -144,28 +151,97 @@ class TestMemorySearchTool:
             session_id="123", db=mock_db, embedding_client=embedding_client
         )
 
-        result = await tool.execute(query="上次我们讨论预算和旅行安排的时候")
+        result = await tool.execute(query="预算", search_target="summaries")
 
         assert "Vector matched summary" in result
         embedding_client.get_embedding_async.assert_awaited_once()
         mock_db.search_summaries.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_execute_does_not_use_vector_fallback_for_boolean_query(
+    async def test_execute_hybrid_uses_vector_recall_for_boolean_query(
         self, mock_db
     ):
         embedding_client = Mock()
         embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
         mock_db.search_summaries_by_keyword.return_value = []
         mock_db.search_conversations_by_keyword.return_value = []
+        mock_db.search_summaries.return_value = [
+            (7, 999, "Vector matched summary", 10, 20, 0.12)
+        ]
         tool = MemorySearchTool(
             session_id="123", db=mock_db, embedding_client=embedding_client
         )
 
-        await tool.execute(query="预算 AND 旅行")
+        result = await tool.execute(
+            query="预算 AND 旅行",
+            search_target="summaries",
+        )
 
+        assert "Vector matched summary" in result
+        embedding_client.get_embedding_async.assert_awaited_once()
+        mock_db.search_summaries.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_keyword_mode_does_not_use_vector_recall(self, mock_db):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries_by_keyword.return_value = [
+            (1, 100, "Exact keyword summary", 1, 100, 0.0)
+        ]
+        mock_db.search_conversations_by_keyword.return_value = []
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(
+            query="预算和旅行安排的那次讨论",
+            search_target="summaries",
+            search_mode="keyword",
+        )
+
+        assert "Exact keyword summary" in result
         embedding_client.get_embedding_async.assert_not_called()
         mock_db.search_summaries.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_vector_mode_skips_keyword_search(self, mock_db):
+        embedding_client = Mock()
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1, 0.2])
+        mock_db.search_summaries.return_value = [
+            (7, 999, "Vector only summary", 10, 20, 0.12)
+        ]
+        tool = MemorySearchTool(
+            session_id="123", db=mock_db, embedding_client=embedding_client
+        )
+
+        result = await tool.execute(
+            query="语义近似回忆",
+            search_target="summaries",
+            search_mode="vector",
+        )
+
+        assert "Vector only summary" in result
+        mock_db.search_summaries_by_keyword.assert_not_called()
+        mock_db.search_conversations_by_keyword.assert_not_called()
+        mock_db.search_summaries.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_vector_mode_requires_query(self, memory_search_tool):
+        result = await memory_search_tool.execute(
+            role="user",
+            search_mode="vector",
+        )
+
+        assert "search_mode='vector' requires query" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_invalid_search_mode(self, memory_search_tool):
+        result = await memory_search_tool.execute(
+            query="test",
+            search_mode="semantic",
+        )
+
+        assert "Invalid search_mode" in result
 
     @pytest.mark.asyncio
     async def test_execute_sorts_keyword_summary_before_vector_fallback(self, mock_db):

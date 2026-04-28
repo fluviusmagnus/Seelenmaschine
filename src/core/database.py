@@ -1007,6 +1007,10 @@ class DatabaseManager:
         query_embedding: List[float],
         limit: int = 5,
         exclude_ids: Optional[List[int]] = None,
+        session_id: Optional[int] = None,
+        exclude_session_id: Optional[int] = None,
+        start_timestamp: Optional[int] = None,
+        end_timestamp: Optional[int] = None,
     ) -> List[Tuple[int, int, str, int, int, float]]:
         """Search summaries by vector similarity.
 
@@ -1014,6 +1018,10 @@ class DatabaseManager:
             query_embedding: Query embedding vector
             limit: Maximum number of results to return
             exclude_ids: Optional list of summary_ids to exclude from results
+            session_id: Optional session_id to include exclusively
+            exclude_session_id: Optional session_id to exclude
+            start_timestamp: Optional start time (matches if summary ends after it)
+            end_timestamp: Optional end time (matches if summary starts before it)
 
         Returns:
             List of tuples: (summary_id, session_id, summary, first_timestamp, last_timestamp, distance)
@@ -1024,33 +1032,35 @@ class DatabaseManager:
             embedding_blob = self._serialize_embedding(query_embedding)
 
             try:
-                # Build query with optional exclusion
+                conditions = ["vec_summaries.embedding MATCH ?", "k = ?"]
+                params: list[Any] = [embedding_blob, limit]
+
                 if exclude_ids and len(exclude_ids) > 0:
                     placeholders = ",".join("?" * len(exclude_ids))
-                    query = f"""
-                        SELECT 
-                            s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
-                            distance
-                        FROM vec_summaries
-                        JOIN summaries s ON vec_summaries.summary_id = s.summary_id
-                        WHERE vec_summaries.embedding MATCH ? AND k = ?
-                            AND s.summary_id NOT IN ({placeholders})
-                        ORDER BY distance
-                    """
-                    params = (embedding_blob, limit + len(exclude_ids)) + tuple(
-                        exclude_ids
-                    )
-                else:
-                    query = """
-                        SELECT 
-                            s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
-                            distance
-                        FROM vec_summaries
-                        JOIN summaries s ON vec_summaries.summary_id = s.summary_id
-                        WHERE vec_summaries.embedding MATCH ? AND k = ?
-                        ORDER BY distance
-                    """
-                    params = (embedding_blob, limit)
+                    conditions.append(f"s.summary_id NOT IN ({placeholders})")
+                    params.extend(exclude_ids)
+                if session_id is not None:
+                    conditions.append("s.session_id = ?")
+                    params.append(session_id)
+                if exclude_session_id is not None:
+                    conditions.append("s.session_id != ?")
+                    params.append(exclude_session_id)
+                if start_timestamp is not None:
+                    conditions.append("s.last_timestamp >= ?")
+                    params.append(start_timestamp)
+                if end_timestamp is not None:
+                    conditions.append("s.first_timestamp <= ?")
+                    params.append(end_timestamp)
+
+                query = f"""
+                    SELECT 
+                        s.summary_id, s.session_id, s.summary, s.first_timestamp, s.last_timestamp,
+                        distance
+                    FROM vec_summaries
+                    JOIN summaries s ON vec_summaries.summary_id = s.summary_id
+                    WHERE {" AND ".join(conditions)}
+                    ORDER BY distance
+                """
 
                 cursor.execute(query, params)
 
