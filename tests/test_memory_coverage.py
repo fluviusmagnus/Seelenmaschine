@@ -273,7 +273,8 @@ class TestMemoryManagerJsonUtils:
 class TestSeeleRepairPaths:
     """Test LLM-driven persisted seele.json repair flows."""
 
-    def test_ensure_seele_schema_current_repairs_malformed_json(self, tmp_path, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_ensure_seele_schema_current_repairs_malformed_json(self, tmp_path, monkeypatch):
         """Malformed persisted JSON should trigger the shared LLM repair path."""
         from core.config import Config
         from memory.seele import Seele
@@ -285,15 +286,20 @@ class TestSeeleRepairPaths:
 
         seele = Seele(db=None)
 
-        with patch.object(seele, "_repair_persisted_seele_json", return_value=True) as mock_repair:
-            result = seele.ensure_seele_schema_current("test runtime repair")
+        with patch.object(
+            seele,
+            "_repair_persisted_seele_json_async",
+            new=AsyncMock(return_value=True),
+        ) as mock_repair:
+            result = await seele.ensure_seele_schema_current_async("test runtime repair")
 
         assert result is True
-        mock_repair.assert_called_once()
+        mock_repair.assert_awaited_once()
         assert "malformed JSON" in mock_repair.call_args.kwargs["error_message"]
         assert mock_repair.call_args.kwargs["repair_context"] == "test runtime repair"
 
-    def test_ensure_seele_schema_current_repairs_legacy_structure(self, tmp_path, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_ensure_seele_schema_current_repairs_legacy_structure(self, tmp_path, monkeypatch):
         """Legacy list-based memorable_events should trigger LLM repair instead of mechanical migration."""
         from core.config import Config
         from memory.seele import Seele
@@ -308,14 +314,19 @@ class TestSeeleRepairPaths:
 
         seele = Seele(db=None)
 
-        with patch.object(seele, "_repair_persisted_seele_json", return_value=True) as mock_repair:
-            result = seele.ensure_seele_schema_current("test migration repair")
+        with patch.object(
+            seele,
+            "_repair_persisted_seele_json_async",
+            new=AsyncMock(return_value=True),
+        ) as mock_repair:
+            result = await seele.ensure_seele_schema_current_async("test migration repair")
 
         assert result is True
-        mock_repair.assert_called_once()
+        mock_repair.assert_awaited_once()
         assert "legacy or non-canonical structure" in mock_repair.call_args.kwargs["error_message"]
 
-    def test_repair_persisted_seele_json_writes_repaired_result(self, tmp_path, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_repair_persisted_seele_json_writes_repaired_result(self, tmp_path, monkeypatch):
         """LLM repair should persist the repaired complete seele.json output."""
         from core.config import Config
         from memory.seele import Seele
@@ -372,7 +383,7 @@ class TestSeeleRepairPaths:
         fake_client.close_async = AsyncMock()
 
         with patch("llm.chat_client.LLMClient", return_value=fake_client):
-            result = seele._repair_persisted_seele_json(
+            result = await seele._repair_persisted_seele_json_async(
                 repair_context="unit test",
                 error_message="needs repair",
                 current_content='{"broken": true}',

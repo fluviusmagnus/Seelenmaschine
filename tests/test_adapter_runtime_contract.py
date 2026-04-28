@@ -7,6 +7,30 @@ import pytest
 
 
 @pytest.mark.asyncio
+async def test_core_bot_create_async_runs_memory_bootstrap_once():
+    """Async factory should own startup bootstrap without work in __init__."""
+    from core.bot import CoreBot
+
+    memory = Mock()
+    memory.ensure_long_term_memory_schema_async = AsyncMock(return_value=True)
+    memory.ensure_session_snapshot_current = Mock()
+
+    core_bot = await CoreBot.create_async(
+        config=Mock(),
+        db=Mock(),
+        embedding_client=Mock(),
+        reranker_client=Mock(),
+        memory=memory,
+        scheduler=Mock(),
+        llm_client=Mock(),
+    )
+    await core_bot.initialize_async()
+
+    memory.ensure_long_term_memory_schema_async.assert_awaited_once_with()
+    memory.ensure_session_snapshot_current.assert_called_once_with()
+
+
+@pytest.mark.asyncio
 async def test_core_runtime_initializes_with_fake_adapter_capabilities():
     """Core runtime should initialize without any Telegram-specific object."""
     from core.bot import CoreBot

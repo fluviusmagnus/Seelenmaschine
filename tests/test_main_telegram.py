@@ -4,7 +4,7 @@ This module tests the main entry point for the Telegram bot,
 including argument parsing, initialization, and signal handling.
 """
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -69,7 +69,9 @@ class TestMainTelegramInitialization:
                                     mock_adapter.return_value = adapter_instance
                                     core_bot_instance = Mock()
                                     core_bot_instance.scheduler = Mock()
-                                    mock_core_bot.return_value = core_bot_instance
+                                    mock_core_bot.create_async = AsyncMock(
+                                        return_value=core_bot_instance
+                                    )
                                     mock_init_config.side_effect = (
                                         lambda profile: call_order.append(
                                             ("init_config", profile)
@@ -105,7 +107,9 @@ class TestMainTelegramInitialization:
                                 with patch("main_telegram.register_stop_signal_handlers"):
                                     core_bot_instance = Mock()
                                     core_bot_instance.scheduler = Mock()
-                                    mock_core_bot.return_value = core_bot_instance
+                                    mock_core_bot.create_async = AsyncMock(
+                                        return_value=core_bot_instance
+                                    )
                                     adapter_instance = Mock()
                                     mock_adapter.return_value = adapter_instance
 
@@ -113,7 +117,7 @@ class TestMainTelegramInitialization:
 
                                     main_telegram.main()
 
-        mock_core_bot.assert_called_once_with()
+        mock_core_bot.create_async.assert_awaited_once_with()
         mock_controller.assert_called_once_with(core_bot=core_bot_instance)
 
     def test_main_creates_application_and_registers_stop_handlers(self):
@@ -131,7 +135,9 @@ class TestMainTelegramInitialization:
                                 ) as mock_register_stop_signal_handlers:
                                     core_bot_instance = Mock()
                                     core_bot_instance.scheduler = Mock()
-                                    mock_core_bot.return_value = core_bot_instance
+                                    mock_core_bot.create_async = AsyncMock(
+                                        return_value=core_bot_instance
+                                    )
 
                                     adapter_instance = Mock()
                                     mock_adapter.return_value = adapter_instance

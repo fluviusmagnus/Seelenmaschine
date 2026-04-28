@@ -61,8 +61,6 @@ class CoreBot:
             embedding_client=self.embedding_client,
             reranker_client=self.reranker_client,
         )
-        self.memory.ensure_long_term_memory_schema()
-        self.memory.ensure_session_snapshot_current()
         self.scheduler = scheduler or TaskScheduler(self.db)
         self.llm_client = llm_client or LLMClient()
         self.conversation_service: Optional[ConversationService] = None
@@ -86,6 +84,23 @@ class CoreBot:
         self._preview_text: Optional[Callable[[Optional[str], int], str]] = None
         self._send_status_message: Optional[Callable[[str], Any]] = None
         self._stop_controller = StopController()
+        self._bootstrap_initialized = False
+
+    @classmethod
+    async def create_async(cls, **kwargs: Any) -> "CoreBot":
+        """Construct and initialize the core runtime."""
+        bot = cls(**kwargs)
+        await bot.initialize_async()
+        return bot
+
+    async def initialize_async(self) -> None:
+        """Run async startup bootstrap tasks once."""
+        if self._bootstrap_initialized:
+            return
+
+        await self.memory.ensure_long_term_memory_schema_async()
+        self.memory.ensure_session_snapshot_current()
+        self._bootstrap_initialized = True
 
     def _initialize_tool_runtime_state(self) -> None:
         """Initialize core-owned tool runtime fields."""

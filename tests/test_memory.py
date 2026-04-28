@@ -348,7 +348,7 @@ class TestMemoryManager:
         """Retry should pass the raw failed generation output into the next attempt."""
         memory_manager.seele.validate_seele_structure = Mock(return_value=True)
         memory_manager.seele.clean_json_response = Mock(side_effect=lambda value: value)
-        memory_manager.seele._write_complete_seele_json = Mock()
+        write_complete_json = AsyncMock()
 
         messages = []
         generate_complete_json = AsyncMock(
@@ -363,7 +363,7 @@ class TestMemoryManager:
             messages=messages,
             error_message="patch failed",
             generate_complete_json=generate_complete_json,
-            write_complete_json=memory_manager.seele._write_complete_seele_json,
+            write_complete_json=write_complete_json,
         )
 
         assert result is True
@@ -482,7 +482,8 @@ async def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_m
             ) as mock_compact:
                 with patch.object(
                     memory_manager.seele,
-                    "_write_complete_seele_json",
+                    "_write_complete_seele_json_async",
+                    new=AsyncMock(),
                 ) as mock_write:
                     result = await memory_manager.seele._apply_generated_patch_async(
                         1,
@@ -492,10 +493,11 @@ async def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_m
 
     assert result is True
     mock_compact.assert_awaited_once_with(oversized_memory)
-    mock_write.assert_called_once_with(compacted_memory)
+    mock_write.assert_awaited_once_with(compacted_memory)
 
 
-def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_manager):
+@pytest.mark.asyncio
+async def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_manager):
     """Invalid compaction output should fall back to deterministic truncation."""
     from memory.seele import PERSONAL_FACTS_LIMIT
 
@@ -538,11 +540,11 @@ def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_
     fake_client.close_async = AsyncMock()
 
     with patch("llm.chat_client.LLMClient", return_value=fake_client):
-        compacted = memory_manager.seele._compact_overflowing_memory(oversized_memory)
+        compacted = await memory_manager.seele._compact_overflowing_memory_async(oversized_memory)
 
     assert len(compacted["user"]["personal_facts"]) == PERSONAL_FACTS_LIMIT
     assert compacted["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
-    fake_client.close_async.assert_called_once()
+    fake_client.close_async.assert_awaited_once()
 
 
 @pytest.mark.asyncio

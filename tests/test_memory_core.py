@@ -128,7 +128,8 @@ class TestMemoryManagerLongTermMemory:
         assert success is True
         mock_update.assert_called_once()
 
-    def test_ensure_long_term_memory_schema_delegates_to_seele(self, mock_dependencies):
+    @pytest.mark.asyncio
+    async def test_ensure_long_term_memory_schema_delegates_to_seele(self, mock_dependencies):
         """Test schema bootstrap delegates to Seele normalizer."""
         from memory.manager import MemoryManager
 
@@ -145,11 +146,15 @@ class TestMemoryManagerLongTermMemory:
                 reranker_client=mock_dependencies['reranker_client']
             )
 
-        with patch.object(mm.seele, 'ensure_seele_schema_current', return_value=True) as mock_ensure:
-            result = mm.ensure_long_term_memory_schema()
+        with patch.object(
+            mm.seele,
+            'ensure_seele_schema_current_async',
+            new=AsyncMock(return_value=True),
+        ) as mock_ensure:
+            result = await mm.ensure_long_term_memory_schema_async()
 
         assert result is True
-        mock_ensure.assert_called_once_with()
+        mock_ensure.assert_awaited_once_with()
 
 
 class TestMemoryManagerCompleteFlows:

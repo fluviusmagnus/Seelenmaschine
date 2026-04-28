@@ -17,7 +17,7 @@
 
 - `[x]` `.venv\Scripts\python.exe -m ruff check src tests`
 - `[x]` `.venv\Scripts\python.exe -m pytest tests -q`
-- 最近一次全量测试结果：`618 passed`
+- 最近一次全量测试结果：`619 passed`
 
 ## 执行原则
 
@@ -70,12 +70,13 @@
 | `[x]` | 阶段 9 | `src/memory/seele.py` repair/compaction 业务实现 | 已统一到 async 实现；同步入口只剩启动期薄 wrapper | focused tests 与全量测试通过 | 无 |
 | `[x]` | 阶段 9 | `src/llm/chat_client.py::LLMClient._get_event_loop` | 已删除，event-loop 处理移到共享 `utils.async_utils` | `_get_event_loop` 无剩余引用 | 无 |
 | `[x]` | 阶段 9 | `src/memory/seele.py::_write_complete_seele_json_async` | 已补 async 完整写入与 fallback compaction 回归测试 | `tests/test_memory.py` focused tests 通过 | 无 |
+| `[x]` | 阶段 9 | `CoreBot` 启动/bootstrap | 已新增 `CoreBot.create_async()` / `initialize_async()`，Telegram main 改为 async bootstrap | main、core runtime、memory focused tests 与全量测试通过 | 无 |
+| `[x]` | 阶段 9 | `src/memory/seele.py` 同步 bootstrap/schema repair wrapper | 已删除；schema repair、compaction、完整写入均走 async owner | `src` 无 `run_sync` 调用方 | 无 |
 
 ## 保留项与原因
 
 | 状态 | 项目/符号 | 当前结果 | 保留原因 | 后续条件 |
 |---|---|---|---|---|
-| `[!]` | `src/memory/seele.py` 同步 bootstrap/schema repair 薄 wrapper | repair/compaction 业务实现已统一到 async；同步 wrapper 仅保留给当前 `CoreBot.__init__` 启动链路 | 当前启动链路仍是同步构造，直接删除会把 `CoreBot` 初始化改成 async 架构迁移 | 只有当 `CoreBot` 启动/bootstrap 明确改成 async 工厂或 async 初始化流程后再删除 |
 | `[!]` | 数据库层同步 API | 未 async 化 | SQLite 层按项目说明不需要 async 化 | 本轮不处理 |
 | `[!]` | `ToolExecutor`、`ToolRegistry`、`ToolSafetyPolicy`、`ToolTraceService` | 保留 | 它们有清晰职责，不属于冗余壳 | 不应作为精简目标 |
 | `[!]` | `ConversationService` | 保留 | 虽由 `CoreBot` 持有，但承担完整对话编排职责 | 暂不折叠 |
@@ -83,15 +84,14 @@
 ## 本轮完成的后续任务
 
 1. `[x]` 已为 `src/memory/seele.py` 的 async fallback 路径补充回归测试，覆盖 `_write_complete_seele_json_async` 和 async fallback compaction。
-2. `[x]` 已将 repair/compaction 业务实现统一到 async 方法，同步入口仅作为启动期薄 wrapper。
+2. `[x]` 已将 repair/compaction 业务实现统一到 async 方法，并删除启动期同步 wrapper。
 3. `[x]` 已删除 `LLMClient._get_event_loop`，不再让 LLM client 保存同步兼容事件循环状态。
-4. `[x]` 已评估启动期 `Seele` schema validation/repair async 化：当前 `CoreBot.__init__` 仍是同步启动入口，本轮不强行改成 async 构造，以避免扩大 Telegram 启动链路改动。
+4. `[x]` 已完成启动期 `Seele` schema validation/repair async 化：`CoreBot.__init__` 不再执行 schema bootstrap，Telegram main 通过 `CoreBot.create_async()` 显式初始化。
 
 ## 未来可选任务
 
-1. 若后续决定把 `CoreBot` 启动/bootstrap 改为 async 工厂或 async 初始化流程，再删除 `Seele` 中最后两个 `run_sync(...)` 薄 wrapper。
-2. 发布前审计外部脚本、README、示例和私有运维脚本中是否仍引用已删除 public API，例如 `EmbeddingClient.get_embedding`、`RerankerClient.rerank`、`LLMClient.close`、包级 `prompts.*`。
-3. 若后续继续整理 prompt，不做纯 cosmetic 拆分；只有在语义调整、测试隔离或复用收益明确时再拆 `src/prompts/memory_prompts.py`。
+1. 发布前审计外部脚本、README、示例和私有运维脚本中是否仍引用已删除 public API，例如 `EmbeddingClient.get_embedding`、`RerankerClient.rerank`、`LLMClient.close`、包级 `prompts.*`。
+2. 若后续继续整理 prompt，不做纯 cosmetic 拆分；只有在语义调整、测试隔离或复用收益明确时再拆 `src/prompts/memory_prompts.py`。
 
 ## 验收清单
 
@@ -100,9 +100,10 @@
 - `[x]` Telegram 启动、消息处理、文件处理、审批、调度、MCP 工具调用相关测试纳入全量测试。
 - `[x]` memory/llm 主流程不再维护重复 sync/async 业务实现。
 - `[x]` ruff 通过。
-- `[x]` 全量 pytest 通过，最近结果为 `618 passed`。
+- `[x]` 全量 pytest 通过，最近结果为 `619 passed`。
 - `[x]` `LLMClient._get_event_loop` 已删除。
-- `[!]` 同步桥接仅剩 `Seele` 启动期 repair/compaction 薄 wrapper；这是当前同步 `CoreBot.__init__` 架构下的保留项，不再属于本轮冗余清单。
+- `[x]` `src/memory/seele.py` 同步 repair/compaction/schema bootstrap wrapper 已删除。
+- `[x]` `src` 中无 `run_sync` 调用方；`run_sync` 仅作为共享工具保留并由自身单元测试覆盖。
 
 ## 后续任务执行规则
 

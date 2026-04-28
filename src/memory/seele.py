@@ -12,7 +12,6 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import jsonpatch
 
 from memory.context import Message
-from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -644,13 +643,6 @@ class Seele:
         )
         return compacted
 
-    def _compact_overflowing_memory(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Use the tool model to compact overgrown long-term memory sections from sync bootstrap code."""
-        ensure_not_in_async_context(
-            "Use _compact_overflowing_memory_async from async contexts"
-        )
-        return run_sync(lambda: self._compact_overflowing_memory_async(data))
-
     async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Async version of overflowing long-term memory compaction."""
         if not self._memory_limits_exceeded(data):
@@ -730,7 +722,7 @@ class Seele:
             current_memory = self.get_long_term_memory()
             compacted_data = await self._compact_overflowing_memory_async(current_memory)
             if compacted_data != current_memory:
-                self._write_complete_seele_json(compacted_data)
+                await self._write_complete_seele_json_async(compacted_data)
             self._log_patch_update_success(summary_id, patch_data)
             return True
 
@@ -1020,25 +1012,6 @@ class Seele:
 
         return issues
 
-    def _repair_persisted_seele_json(
-        self,
-        *,
-        repair_context: str,
-        error_message: str,
-        current_content: Optional[str] = None,
-    ) -> bool:
-        """Repair persisted seele.json via LLM and persist the repaired result."""
-        ensure_not_in_async_context(
-            "Use an async schema repair flow before calling from async contexts"
-        )
-        return run_sync(
-            lambda: self._repair_persisted_seele_json_async(
-                repair_context=repair_context,
-                error_message=error_message,
-                current_content=current_content,
-            )
-        )
-
     async def _repair_persisted_seele_json_async(
         self,
         *,
@@ -1113,7 +1086,9 @@ class Seele:
 
         return False
 
-    def ensure_seele_schema_current(self, repair_context: str = "runtime bootstrap") -> bool:
+    async def ensure_seele_schema_current_async(
+        self, repair_context: str = "runtime bootstrap"
+    ) -> bool:
         """Ensure persisted seele.json matches the current schema, using LLM for repairs."""
         from core.config import Config
         import prompts.runtime as prompts_runtime
@@ -1123,7 +1098,7 @@ class Seele:
 
         if not config.SEELE_JSON_PATH.exists():
             logger.info("seele.json missing; initializing from current template")
-            self._write_complete_seele_json(template_data)
+            await self._write_complete_seele_json_async(template_data)
             return True
 
         raw_content = config.SEELE_JSON_PATH.read_text(encoding="utf-8")
@@ -1131,7 +1106,7 @@ class Seele:
         try:
             current_data = json.loads(raw_content)
         except json.JSONDecodeError as error:
-            return self._repair_persisted_seele_json(
+            return await self._repair_persisted_seele_json_async(
                 repair_context=repair_context,
                 error_message=(
                     "The persisted seele.json is malformed JSON. "
@@ -1142,7 +1117,7 @@ class Seele:
 
         issues = self._collect_schema_issues(current_data, template_data=template_data)
         if issues:
-            return self._repair_persisted_seele_json(
+            return await self._repair_persisted_seele_json_async(
                 repair_context=repair_context,
                 error_message="\n".join(f"- {issue}" for issue in issues),
                 current_content=json.dumps(current_data, ensure_ascii=False, indent=2),
@@ -1166,21 +1141,6 @@ class Seele:
         prompts_runtime._seele_json_cache = normalized_data
         logger.info("Normalized seele.json schema and pruned expired memorable events")
         return True
-
-    def _write_complete_seele_json(self, complete_data: dict) -> None:
-        """Write a full seele.json object and clear the prompt cache."""
-        from core.config import Config
-        import prompts.runtime as prompts_runtime
-
-        config = Config()
-        complete_data, _ = normalize_seele_data(complete_data, logger)
-        complete_data = self._compact_overflowing_memory(complete_data)
-        seele_path = config.SEELE_JSON_PATH
-        seele_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(seele_path, "w", encoding="utf-8") as f:
-            json.dump(complete_data, f, indent=2, ensure_ascii=False)
-
-        prompts_runtime._seele_json_cache = complete_data
 
     async def _write_complete_seele_json_async(self, complete_data: dict) -> None:
         """Write a full seele.json object from async memory update flows."""
