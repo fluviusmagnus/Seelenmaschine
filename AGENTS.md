@@ -4,6 +4,22 @@ This file provides guidelines for AI agents working on the Seelenmaschine codeba
 
 ## Build, Lint, and Test Commands
 
+### Codex Python Environment
+On Windows, Codex should prefer the project virtualenv interpreter when running
+Python modules:
+
+```bash
+.venv\Scripts\python.exe -m pytest tests
+.venv\Scripts\python.exe -m ruff check src
+```
+
+The virtualenv may depend on the base interpreter under
+`C:\Users\zszth\AppData\Local\Programs\Python\Python311`. Codex sandbox commands
+run as `elephantasie\codexsandboxoffline`, which can be denied access to that
+user-local Python installation. If `.venv\Scripts\python.exe` reports `No Python
+at ...` or `Access to the path ... is denied`, rerun the same command with
+escalated permissions instead of assuming the interpreter is missing.
+
 ### Running Application
 Use commands that work on both Windows and Unix/Linux when possible.
 
