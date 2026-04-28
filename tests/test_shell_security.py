@@ -4,6 +4,55 @@ from core.config import Config
 from utils.tool_safety import is_dangerous_command, is_path_outside_allowed_dirs
 
 
+def test_shell_environment_info_describes_windows_cmd(monkeypatch):
+    import tools.shell as shell_module
+
+    monkeypatch.setattr(shell_module.sys, "platform", "win32")
+    monkeypatch.setattr(shell_module.platform, "system", lambda: "Windows")
+
+    info = shell_module.get_shell_environment_info()
+
+    assert info["os_name"] == "Windows"
+    assert info["platform"] == "win32"
+    assert info["shell"] == "cmd.exe via cmd /D /S /C"
+    assert info["path_style"] == "Windows drive-letter paths with backslashes"
+    assert "Do not mix Bash, PowerShell, and cmd.exe syntax" in info["command_guidance"]
+
+
+def test_shell_environment_info_describes_posix_shell(monkeypatch):
+    import tools.shell as shell_module
+
+    monkeypatch.setattr(shell_module.sys, "platform", "linux")
+    monkeypatch.setattr(shell_module.platform, "system", lambda: "Linux")
+
+    info = shell_module.get_shell_environment_info()
+
+    assert info["os_name"] == "Linux"
+    assert info["platform"] == "linux"
+    assert info["shell"] == "default POSIX shell via asyncio.create_subprocess_shell"
+    assert info["path_style"] == "POSIX paths with forward slashes"
+
+
+def test_shell_environment_info_normalizes_macos_name_and_is_side_effect_free(
+    monkeypatch,
+):
+    import tools.shell as shell_module
+
+    def fail_if_subprocess_starts(*args, **kwargs):
+        raise AssertionError("get_shell_environment_info should not start subprocesses")
+
+    monkeypatch.setattr(shell_module.sys, "platform", "darwin")
+    monkeypatch.setattr(shell_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(shell_module.subprocess, "Popen", fail_if_subprocess_starts)
+    monkeypatch.setattr(shell_module.subprocess, "call", fail_if_subprocess_starts)
+
+    info = shell_module.get_shell_environment_info()
+
+    assert info["os_name"] == "macOS"
+    assert info["platform"] == "darwin"
+    assert info["shell"] == "default POSIX shell via asyncio.create_subprocess_shell"
+
+
 def test_safe_tmp_deletion():
     # rm /tmp/file should be safe
     is_dangerous, reason = is_dangerous_command("rm /tmp/test.txt")

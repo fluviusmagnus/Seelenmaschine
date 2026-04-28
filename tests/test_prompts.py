@@ -307,6 +307,50 @@ class TestGetCacheableSystemPrompt:
         assert "## Your Self-Awareness" not in prompt
         assert "## User Profile" not in prompt
 
+    def test_build_cacheable_system_prompt_includes_shell_environment_near_workspace(
+        self, tmp_path
+    ):
+        """Shell environment facts should be included with workspace guidance."""
+        from prompts.system_prompt import build_cacheable_system_prompt
+
+        shell_environment_info = {
+            "os_name": "Windows",
+            "platform": "win32",
+            "shell": "cmd.exe via cmd /D /S /C",
+            "path_style": "Windows drive-letter paths with backslashes",
+            "command_guidance": (
+                "Generate commands for this shell and path style. Do not mix Bash, "
+                "PowerShell, and cmd.exe syntax."
+            ),
+        }
+
+        prompt = build_cacheable_system_prompt(
+            seele_data=self._build_seele_data(),
+            workspace_dir=tmp_path,
+            shell_environment_info=shell_environment_info,
+        )
+
+        assert f"Your default workspace is `{tmp_path.resolve()}`" in prompt
+        assert "Shell environment: OS is Windows (win32)" in prompt
+        assert "`execute_shell_command` runs commands in cmd.exe via cmd /D /S /C" in prompt
+        assert "path style is Windows drive-letter paths with backslashes" in prompt
+        assert "Do not mix Bash, PowerShell, and cmd.exe syntax" in prompt
+        assert prompt.index("Your default workspace") < prompt.index("Shell environment")
+
+    def test_build_cacheable_system_prompt_allows_missing_shell_environment(
+        self, tmp_path
+    ):
+        """Direct prompt construction should still work without shell facts."""
+        from prompts.system_prompt import build_cacheable_system_prompt
+
+        prompt = build_cacheable_system_prompt(
+            seele_data=self._build_seele_data(),
+            workspace_dir=tmp_path,
+        )
+
+        assert f"Your default workspace is `{tmp_path.resolve()}`" in prompt
+        assert "Shell environment:" not in prompt
+
     def test_get_cacheable_system_prompt_includes_workspace_agents_md_after_commands(
         self, tmp_path, monkeypatch
     ):

@@ -54,10 +54,33 @@ def _load_workspace_agents_md(workspace_dir: Any) -> str:
         return ""
 
 
+def _format_shell_environment(shell_environment_info: Optional[Dict[str, str]]) -> str:
+    """Format shell environment facts for the workspace guideline section."""
+    if not shell_environment_info:
+        return ""
+
+    os_name = shell_environment_info.get("os_name", "Unknown")
+    platform_name = shell_environment_info.get("platform", "unknown")
+    shell = shell_environment_info.get("shell", "unknown shell")
+    path_style = shell_environment_info.get("path_style", "current OS path style")
+    command_guidance = shell_environment_info.get(
+        "command_guidance",
+        "Generate commands that match the current shell and path style.",
+    )
+
+    return (
+        "\n"
+        f"   Shell environment: OS is {os_name} ({platform_name}); "
+        f"`execute_shell_command` runs commands in {shell}; path style is "
+        f"{path_style}. {command_guidance}"
+    )
+
+
 def build_cacheable_system_prompt(
     seele_data: Dict[str, Any],
     workspace_dir: Any,
     recent_summaries: Optional[List[str]] = None,
+    shell_environment_info: Optional[Dict[str, str]] = None,
 ) -> str:
     """Build the cacheable system prompt from profile data."""
     bot = seele_data.get("bot", {})
@@ -70,6 +93,7 @@ def build_cacheable_system_prompt(
 
     bot_name = bot.get("name", "AI Assistant")
     user_name = user.get("name", "User")
+    shell_environment_text = _format_shell_environment(shell_environment_info)
     sections = []
 
     sections.append(
@@ -97,7 +121,7 @@ Core principles to follow in this conversation:
 
 7. **Multimedia handling**: If the user sends multimedia content (images, audio, video), acknowledge it in your response and reference it as needed. If the LLM or you are not capable of processing the content, use proper tool calls to retrieve information about it or ask the user for clarification.
 
-8. **Workspace Guidelines**: Your default workspace is `{workspace_dir.resolve()}`. Prefer absolute paths when referencing files in this workspace. Never reference files outside the workspace.
+8. **Workspace Guidelines**: Your default workspace is `{workspace_dir.resolve()}`. Prefer absolute paths when referencing files in this workspace. Never reference files outside the workspace.{shell_environment_text}
 
 </system_instruction>"""
     )

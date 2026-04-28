@@ -20,6 +20,7 @@ from prompts.system_prompt import (
     build_cacheable_system_prompt,
     get_current_time_str as _build_current_time_str,
 )
+from tools.shell import get_shell_environment_info
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -83,6 +84,7 @@ def get_cacheable_system_prompt(recent_summaries: Optional[List[str]] = None) ->
         seele_data=load_seele_json(),
         workspace_dir=config.WORKSPACE_DIR,
         recent_summaries=recent_summaries,
+        shell_environment_info=get_shell_environment_info(),
     )
 
 
@@ -161,4 +163,3 @@ def get_seele_compaction_prompt(
         personal_facts_limit=personal_facts_limit,
         memorable_events_limit=memorable_events_limit,
     )
-

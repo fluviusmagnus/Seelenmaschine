@@ -1,6 +1,7 @@
 import asyncio
 import locale
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -12,6 +13,34 @@ from core.config import Config
 from utils.logger import get_logger
 
 logger = get_logger()
+
+
+def get_shell_environment_info() -> Dict[str, str]:
+    """Return the shell semantics used by ShellCommandTool."""
+    os_name = platform.system() or "Unknown"
+    if os_name == "Darwin":
+        display_os_name = "macOS"
+    else:
+        display_os_name = os_name
+
+    if sys.platform == "win32":
+        shell = "cmd.exe via cmd /D /S /C"
+        path_style = "Windows drive-letter paths with backslashes"
+    else:
+        shell = "default POSIX shell via asyncio.create_subprocess_shell"
+        path_style = "POSIX paths with forward slashes"
+
+    return {
+        "os_name": display_os_name,
+        "platform": sys.platform,
+        "shell": shell,
+        "path_style": path_style,
+        "command_guidance": (
+            "Generate commands for this shell and path style. Do not mix Bash, "
+            "PowerShell, and cmd.exe syntax; prefer cross-platform Python when "
+            "a command must work across operating systems."
+        ),
+    }
 
 
 def smart_decode(data: bytes) -> str:
@@ -307,4 +336,3 @@ class ShellCommandTool:
 
         except Exception as e:
             return f"Error: Shell command execution failed due to \n{e}"
-
