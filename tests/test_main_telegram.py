@@ -3,6 +3,7 @@
 This module tests the main entry point for the Telegram bot,
 including argument parsing, initialization, and signal handling.
 """
+import asyncio
 import sys
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -150,6 +151,39 @@ class TestMainTelegramInitialization:
         mock_register_stop_signal_handlers.assert_called_once_with(
             adapter_instance.stop
         )
+
+    def test_main_runs_adapter_outside_running_event_loop(self):
+        """PTB run_polling owns the loop and must not be called inside asyncio.run."""
+        test_args = ["main_telegram.py", "test_profile"]
+
+        def assert_no_running_loop() -> None:
+            with pytest.raises(RuntimeError, match="no running event loop"):
+                asyncio.get_running_loop()
+
+        with patch.object(sys, "argv", test_args):
+            with patch("main_telegram.init_config"):
+                with patch("main_telegram.init_logger"):
+                    with patch("main_telegram.CoreBot") as mock_core_bot:
+                        with patch("main_telegram.TelegramController"):
+                            with patch("main_telegram.TelegramAdapter") as mock_adapter:
+                                with patch("main_telegram.register_stop_signal_handlers"):
+                                    core_bot_instance = Mock()
+                                    core_bot_instance.scheduler = Mock()
+                                    mock_core_bot.create_async = AsyncMock(
+                                        return_value=core_bot_instance
+                                    )
+
+                                    adapter_instance = Mock()
+                                    adapter_instance.run.side_effect = (
+                                        assert_no_running_loop
+                                    )
+                                    mock_adapter.return_value = adapter_instance
+
+                                    import main_telegram
+
+                                    main_telegram.main()
+
+        adapter_instance.run.assert_called_once_with()
 
 
 class TestMainTelegramBotLifecycle:
