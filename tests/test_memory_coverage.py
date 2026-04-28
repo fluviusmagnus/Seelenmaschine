@@ -4,7 +4,7 @@ This module tests methods not covered by existing tests to increase coverage.
 """
 
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -24,8 +24,7 @@ class TestMemoryManagerSessionOperations:
         db.delete_session = Mock()
         
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
-        embedding_client.get_embedding_async.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         
         reranker_client = Mock()
         
@@ -78,7 +77,7 @@ class TestMemoryManagerMessageOperations:
         db.insert_summary.return_value = 200
         
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         
         reranker_client = Mock()
         
@@ -88,7 +87,8 @@ class TestMemoryManagerMessageOperations:
             'reranker_client': reranker_client,
         }
     
-    def test_add_user_message(self, mock_dependencies):
+    @pytest.mark.asyncio
+    async def test_add_user_message(self, mock_dependencies):
         """Test add_user_message method"""
         from memory.manager import MemoryManager
         
@@ -108,7 +108,7 @@ class TestMemoryManagerMessageOperations:
                         )
                         
                         # Add user message
-                        conversation_id, embedding = mm.add_user_message(
+                        conversation_id, embedding = await mm.add_user_message_async(
                             "Hello, this is a test message"
                         )
                         
@@ -117,7 +117,8 @@ class TestMemoryManagerMessageOperations:
                         assert embedding == [0.1] * 1536
                         mock_dependencies['db'].insert_conversation.assert_called_once()
     
-    def test_add_assistant_message(self, mock_dependencies):
+    @pytest.mark.asyncio
+    async def test_add_assistant_message(self, mock_dependencies):
         """Test add_assistant_message method"""
         from memory.manager import MemoryManager
         
@@ -138,7 +139,9 @@ class TestMemoryManagerMessageOperations:
                         )
                         
                         # Add assistant message
-                        conversation_id, summary_id = mm.add_assistant_message("This is a response")
+                        conversation_id, summary_id = await mm.add_assistant_message_async(
+                            "This is a response"
+                        )
                         
                         # Verify conversation was inserted
                         assert conversation_id == 100
@@ -157,8 +160,7 @@ class TestMemoryManagerUtilityMethods:
         db.get_unsummarized_conversations.return_value = []
         
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
-        embedding_client.get_embedding_async.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         reranker_client = Mock()
         
         return {
@@ -366,8 +368,8 @@ class TestSeeleRepairPaths:
         seele = Seele(db=None)
 
         fake_client = Mock()
-        fake_client.generate_seele_repair.return_value = repaired_output
-        fake_client.close = Mock()
+        fake_client.generate_seele_repair_async = AsyncMock(return_value=repaired_output)
+        fake_client.close_async = AsyncMock()
 
         with patch("llm.chat_client.LLMClient", return_value=fake_client):
             result = seele._repair_persisted_seele_json(
@@ -382,6 +384,8 @@ class TestSeeleRepairPaths:
         assert saved["bot"]["name"] == "TestBot"
         assert saved["user"]["name"] == "TestUser"
         assert saved["user"]["location"] == ""
+        fake_client.generate_seele_repair_async.assert_awaited_once()
+        fake_client.close_async.assert_awaited_once()
 
 
 class TestSeeleSessionSnapshot:
@@ -431,7 +435,7 @@ class TestSeeleSessionSnapshot:
     def test_restore_session_snapshot_reverts_seele_and_cache(self, tmp_path, monkeypatch):
         from core.config import Config
         from memory.seele import Seele
-        import prompts
+        import prompts.runtime as prompts
 
         seele_path = tmp_path / "seele.json"
         original = self._seele_data("Original")
@@ -454,7 +458,7 @@ class TestSeeleSessionSnapshot:
     def test_ensure_session_snapshot_keeps_matching_snapshot(self, tmp_path, monkeypatch):
         from core.config import Config
         from memory.seele import Seele
-        import prompts
+        import prompts.runtime as prompts
 
         seele_path = tmp_path / "seele.json"
         original = self._seele_data("Original")
@@ -479,7 +483,7 @@ class TestSeeleSessionSnapshot:
     def test_ensure_session_snapshot_rebuilds_stale_snapshot(self, tmp_path, monkeypatch):
         from core.config import Config
         from memory.seele import Seele
-        import prompts
+        import prompts.runtime as prompts
 
         seele_path = tmp_path / "seele.json"
         current = self._seele_data("Current")

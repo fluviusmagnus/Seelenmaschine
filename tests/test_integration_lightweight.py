@@ -57,8 +57,8 @@ class TestPromptBuildingIntegration:
     
     def test_system_prompt_with_seele_data(self, tmp_path):
         """Test building system prompt with actual seele.json"""
-        from prompts import get_cacheable_system_prompt
-        import prompts
+        from prompts.runtime import get_cacheable_system_prompt
+        import prompts.runtime as prompts
         
         # Create test seele.json
         seele_data = {
@@ -83,8 +83,8 @@ class TestPromptBuildingIntegration:
         # Clear cache
         prompts._seele_json_cache = {}
         
-        with patch('prompts.Config.SEELE_JSON_PATH', seele_path):
-            with patch('prompts.Config.DATA_DIR', tmp_path):
+        with patch('prompts.runtime.Config.SEELE_JSON_PATH', seele_path):
+            with patch('prompts.runtime.Config.DATA_DIR', tmp_path):
                 # Build prompt
                 prompt = get_cacheable_system_prompt(recent_summaries=["Previous chat summary"])
                 

@@ -24,8 +24,8 @@ class TestMemoryManagerSessionManagement:
     @pytest.fixture
     def mock_embedding_client(self):
         """Create a mock EmbeddingClient"""
-        client = Mock(spec=['get_embedding', 'get_embedding_async'])
-        client.get_embedding.return_value = [0.1] * 1536
+        client = Mock(spec=['get_embedding_async'])
+        client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
     @pytest.fixture
@@ -117,7 +117,6 @@ class TestMemoryManagerSummarization:
     def mock_embedding_client(self):
         """Create a mock EmbeddingClient"""
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
         client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
@@ -148,19 +147,20 @@ class TestMemoryManagerRetrieval:
     @pytest.fixture
     def mock_embedding_client(self):
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
+        client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
     @pytest.fixture
     def mock_reranker_client(self):
         client = Mock()
-        client.rerank.return_value = [
+        client.rerank_async = AsyncMock(return_value=[
             {"id": 1, "score": 0.9},
             {"id": 2, "score": 0.8}
-        ]
+        ])
         return client
     
-    def test_retrieve_excludes_recent_summaries(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_retrieve_excludes_recent_summaries(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that recent summaries in context window are excluded from search"""
         from memory.manager import MemoryManager
         
@@ -172,10 +172,11 @@ class TestMemoryManagerRetrieval:
             with patch('memory.manager.VectorRetriever') as mock_retriever_class:
                 mock_ctx = Mock()
                 mock_ctx.get_recent_summary_ids.return_value = [1, 2, 3]
+                mock_ctx.get_messages.return_value = []
                 mock_ctx_class.return_value = mock_ctx
                 
                 mock_retriever = Mock()
-                mock_retriever.retrieve_related_memories.return_value = ([], [])
+                mock_retriever.retrieve_related_memories_async = AsyncMock(return_value=([], []))
                 mock_retriever.format_summaries_for_prompt.return_value = []
                 mock_retriever.format_conversations_for_prompt.return_value = []
                 mock_retriever_class.return_value = mock_retriever
@@ -187,15 +188,13 @@ class TestMemoryManagerRetrieval:
                 )
                 
                 # Call process_user_input
-                mm.process_user_input("Test query")
+                await mm.process_user_input_async("Test query")
                 
                 # Verify that recent summary IDs were passed to retriever
-                call_args = mock_retriever.retrieve_related_memories.call_args
+                call_args = mock_retriever.retrieve_related_memories_async.await_args
                 assert call_args.kwargs['exclude_summary_ids'] == [1, 2, 3]
 
 
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-

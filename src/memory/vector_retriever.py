@@ -1,11 +1,9 @@
-import asyncio
 from typing import Any, Callable, List, Tuple, Optional
 from dataclasses import dataclass
 
 from core.database import DatabaseManager
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
-from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.time import timestamp_to_str
 from utils.logger import get_logger
 
@@ -42,13 +40,6 @@ class VectorRetriever:
         self.db = db
         self.embedding_client = embedding_client
         self.reranker_client = reranker_client
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-
-    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-        return self._loop
 
     @staticmethod
     def _merge_query_results(
@@ -228,53 +219,6 @@ class VectorRetriever:
         )
         return summaries_result, conversations_result
 
-    def retrieve_related_memories(
-        self,
-        query: str,
-        last_bot_message: Optional[str] = None,
-        query_embedding: Optional[List[float]] = None,
-        last_bot_embedding: Optional[List[float]] = None,
-        exclude_summary_ids: Optional[List[int]] = None,
-    ) -> Tuple[List[RetrievedSummary], List[RetrievedConversation]]:
-        """Retrieve related memories via vector search.
-
-        Args:
-            query: Query text (only used if query_embedding not provided)
-            last_bot_message: Optional last bot message for dual-query
-            query_embedding: Optional pre-computed query embedding
-            last_bot_embedding: Optional pre-computed bot embedding
-            exclude_summary_ids: Optional list of summary_ids to exclude
-        """
-        ensure_not_in_async_context(
-            "retrieve_related_memories() called from async context. "
-            "Use await retrieve_related_memories_async() instead."
-        )
-
-        async def _embedding_fetcher(text: str) -> List[float]:
-            return await self.embedding_client.get_embedding_async(text)
-
-        async def _rerank_fetcher(
-            current_query: str, documents: List[dict], top_n: int
-        ) -> List[dict]:
-            return await self.reranker_client.rerank_async(
-                query=current_query,
-                documents=documents,
-                top_n=top_n,
-            )
-
-        return run_sync(
-            lambda: self._retrieve_related_memories_impl(
-                query=query,
-                last_bot_message=last_bot_message,
-                query_embedding=query_embedding,
-                last_bot_embedding=last_bot_embedding,
-                exclude_summary_ids=exclude_summary_ids,
-                embedding_fetcher=_embedding_fetcher,
-                rerank_fetcher=_rerank_fetcher,
-            ),
-            self._get_event_loop,
-        )
-
     async def retrieve_related_memories_async(
         self,
         query: str,
@@ -335,7 +279,7 @@ class VectorRetriever:
         formatted = []
 
         from core.config import Config
-        from prompts import load_seele_json
+        from prompts.runtime import load_seele_json
 
         seele_data = load_seele_json()
         bot_name = (

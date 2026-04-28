@@ -42,7 +42,6 @@ class TestRerankerClient:
         assert client.model == "test-reranker-model"
         assert client._enabled is True
         assert client._client is None
-        assert client._loop is None
 
     def test_initialization_custom_values(self, mock_config):
         """Test initialization with custom values."""
@@ -67,18 +66,6 @@ class TestRerankerClient:
         """Test is_enabled method."""
         assert reranker_client.is_enabled() is True
         assert disabled_reranker.is_enabled() is False
-
-    def test_get_event_loop_creates_new_loop(self, reranker_client):
-        """Test _get_event_loop creates new loop if needed."""
-        loop = reranker_client._get_event_loop()
-        assert loop is not None
-        assert not loop.is_closed()
-
-    def test_get_event_loop_reuses_existing_loop(self, reranker_client):
-        """Test _get_event_loop reuses existing loop."""
-        loop1 = reranker_client._get_event_loop()
-        loop2 = reranker_client._get_event_loop()
-        assert loop1 is loop2
 
     def test_ensure_client_initialized(self, reranker_client):
         """Test _ensure_client_initialized creates httpx client."""
@@ -207,57 +194,6 @@ class TestRerankerClient:
 
             assert result == documents
 
-    def test_rerank_sync(self, reranker_client):
-        """Test synchronous rerank."""
-        documents = [{"text": "Doc 1"}, {"text": "Doc 2"}]
-
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {"index": 1, "relevance_score": 0.90},
-                {"index": 0, "relevance_score": 0.70},
-            ]
-        }
-
-        with patch.object(reranker_client, "_ensure_client_initialized"):
-            reranker_client._client = AsyncMock()
-            reranker_client._client.post = AsyncMock(return_value=mock_response)
-
-            result = reranker_client.rerank("query", documents)
-
-            assert len(result) == 2
-            assert result[0]["text"] == "Doc 2"
-            assert result[1]["text"] == "Doc 1"
-
-    def test_rerank_sync_disabled(self, disabled_reranker):
-        """Test sync rerank when disabled."""
-        documents = [{"text": "Doc 1"}, {"text": "Doc 2"}]
-        result = disabled_reranker.rerank("query", documents, top_n=1)
-        assert result == [{"text": "Doc 1"}]
-
-    def test_rerank_sync_no_top_n(self, reranker_client):
-        """Test sync rerank without top_n parameter."""
-        documents = [{"text": "Doc 1"}, {"text": "Doc 2"}, {"text": "Doc 3"}]
-
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {"index": 2, "relevance_score": 0.95},
-                {"index": 1, "relevance_score": 0.80},
-                {"index": 0, "relevance_score": 0.60},
-            ]
-        }
-
-        with patch.object(reranker_client, "_ensure_client_initialized"):
-            reranker_client._client = AsyncMock()
-            reranker_client._client.post = AsyncMock(return_value=mock_response)
-
-            result = reranker_client.rerank("query", documents)
-
-            assert len(result) == 3
-
     @pytest.mark.asyncio
     async def test_rerank_async(self, reranker_client):
         """Test asynchronous rerank."""
@@ -282,28 +218,6 @@ class TestRerankerClient:
             assert result[0]["text"] == "Doc 1"
             assert result[1]["text"] == "Doc 2"
 
-    def test_close(self, reranker_client):
-        """Test closing client."""
-        import asyncio
-
-        mock_client = Mock()
-        mock_client.aclose = AsyncMock()
-        reranker_client._client = mock_client
-        reranker_client._loop = asyncio.new_event_loop()
-
-        reranker_client.close()
-
-        # Verify the client was set to None after close
-        assert reranker_client._client is None
-
-        if not reranker_client._loop.is_closed():
-            reranker_client._loop.close()
-
-    def test_close_when_no_client(self, reranker_client):
-        """Test close when no client exists."""
-        reranker_client._client = None
-        reranker_client.close()
-
     @pytest.mark.asyncio
     async def test_close_async(self, reranker_client):
         """Async close should close the underlying client."""
@@ -315,22 +229,3 @@ class TestRerankerClient:
 
         mock_client.aclose.assert_awaited_once()
         assert reranker_client._client is None
-
-    @pytest.mark.asyncio
-    async def test_close_in_async_context_points_to_close_async(self, reranker_client):
-        """Sync close should reject async contexts with the public async API."""
-        with pytest.raises(RuntimeError, match=r"Use await close_async\(\) instead"):
-            reranker_client.close()
-
-    def test_rerank_in_async_context_raises(self, reranker_client):
-        """Test rerank raises RuntimeError in async context."""
-
-        async def async_func():
-            with pytest.raises(
-                RuntimeError, match="rerank\\(\\) called from async context"
-            ):
-                reranker_client.rerank("query", [])
-
-        import asyncio
-
-        asyncio.run(async_func())

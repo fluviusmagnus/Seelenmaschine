@@ -38,7 +38,6 @@ def mock_db():
 def mock_embedding_client():
     """Mock EmbeddingClient"""
     client = Mock()
-    client.get_embedding.return_value = [0.1] * 1536
     client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
     return client
 
@@ -316,7 +315,7 @@ def test_execute_tool_memory_search(
     memory_search_tool = Mock()
     memory_search_tool.name = "search_memories"
     memory_search_tool.execute = AsyncMock(return_value="Found memories")
-    handler.core_bot.tool_runtime_state.registry_service.register_named(
+    handler.core_bot.registry_service.register_named(
         "search_memories", memory_search_tool
     )
 
@@ -368,7 +367,7 @@ async def test_non_dangerous_tool_sends_telegram_notification(core_bot):
     read_tool = Mock()
     read_tool.name = "read_file"
     read_tool.execute = AsyncMock(return_value="file content")
-    handler.core_bot.tool_runtime_state.registry_service.register_named(
+    handler.core_bot.registry_service.register_named(
         "read_file", read_tool
     )
 

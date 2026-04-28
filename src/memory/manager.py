@@ -4,11 +4,10 @@ from memory.context import ContextWindow, Message
 from core.database import DatabaseManager
 from memory.vector_retriever import VectorRetriever
 from llm.embedding import EmbeddingClient
+from llm.chat_client import LLMClient
 from llm.reranker import RerankerClient
-from memory.recall import MemoryRecall
 from memory.seele import Seele
 from memory.sessions import SessionMemory
-from memory.summaries import SummaryGenerator
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -33,11 +32,6 @@ class MemoryManager:
             embedding_client=embedding_client,
             context_window=self.context_window,
         )
-        self.summary_generator = SummaryGenerator()
-        self.recall = MemoryRecall(
-            context_window=self.context_window,
-            retriever=self.retriever,
-        )
 
         self._ensure_active_session()
 
@@ -53,19 +47,6 @@ class MemoryManager:
         if active_session:
             return active_session["session_id"]
         raise RuntimeError("No active session found")
-
-    def new_session(self) -> int:
-        """Create a new session and close the old one if exists.
-
-        Before closing the old session, summarizes all remaining conversations
-        in the context window and updates long-term memory.
-        """
-        new_session_id = self.sessions.new_session(
-            generate_summary=self._generate_summary,
-            update_long_term_memory=self._update_long_term_memory,
-        )
-        self.seele.capture_session_snapshot(new_session_id)
-        return new_session_id
 
     async def new_session_async(self) -> int:
         """Async version of new_session. Use this in async contexts.
@@ -93,18 +74,6 @@ class MemoryManager:
         """Ensure the active session has a matching seele reset snapshot."""
         self.seele.ensure_session_snapshot_current(self.get_current_session_id())
 
-    def process_user_input(
-        self, user_input: str, last_bot_message: Optional[str] = None
-    ) -> Tuple[List[str], List[str]]:
-        """Process user input and retrieve related memories.
-
-        Excludes recent summaries already in context window from vector search.
-        """
-        return self.recall.process_user_input(
-            user_input=user_input,
-            last_bot_message=last_bot_message,
-        )
-
     async def process_user_input_async(
         self,
         user_input: str,
@@ -120,20 +89,30 @@ class MemoryManager:
             last_bot_message: Optional last bot message for dual-query
             user_input_embedding: Optional pre-computed embedding
         """
-        return await self.recall.process_user_input_async(
-            user_input=user_input,
-            last_bot_message=last_bot_message,
-            user_input_embedding=user_input_embedding,
-        )
+        exclude_summary_ids = self.context_window.get_recent_summary_ids()
+        messages = self.context_window.get_messages()
+        last_bot_embedding = None
 
-    def add_user_message(
-        self, text: str, embedding: Optional[List[float]] = None
-    ) -> Tuple[int, List[float]]:
-        session_id = self.get_current_session_id()
-        return self.sessions.add_user_message(
-            session_id=session_id,
-            text=text,
-            embedding=embedding,
+        for msg in reversed(messages):
+            if msg.role == "assistant" and msg.embedding:
+                last_bot_embedding = msg.embedding
+                break
+
+        if user_input_embedding is None and messages:
+            last_msg = messages[-1]
+            if last_msg.role == "user" and last_msg.text == user_input:
+                user_input_embedding = last_msg.embedding
+
+        summaries, conversations = await self.retriever.retrieve_related_memories_async(
+            query=user_input,
+            last_bot_message=last_bot_message,
+            query_embedding=user_input_embedding,
+            last_bot_embedding=last_bot_embedding,
+            exclude_summary_ids=exclude_summary_ids,
+        )
+        return (
+            self.retriever.format_summaries_for_prompt(summaries),
+            self.retriever.format_conversations_for_prompt(conversations),
         )
 
     async def add_user_message_async(
@@ -146,16 +125,6 @@ class MemoryManager:
         """
         session_id = self.get_current_session_id()
         return await self.sessions.add_user_message_async(
-            session_id=session_id,
-            text=text,
-            embedding=embedding,
-        )
-
-    def add_assistant_message(
-        self, text: str, embedding: Optional[List[float]] = None
-    ) -> Tuple[int, Optional[int]]:
-        session_id = self.get_current_session_id()
-        return self.sessions.add_assistant_message(
             session_id=session_id,
             text=text,
             embedding=embedding,
@@ -179,28 +148,6 @@ class MemoryManager:
             await self._update_long_term_memory_async(summary_id, summarized_messages)
         return summary_id
 
-    def add_context_message(
-        self,
-        text: str,
-        *,
-        role: str,
-        message_type: str,
-        include_in_turn_count: bool,
-        include_in_summary: bool,
-        embedding: Optional[List[float]] = None,
-    ) -> int:
-        """Persist a generic context message in the current session."""
-        session_id = self.get_current_session_id()
-        return self.sessions.add_context_message(
-            session_id=session_id,
-            text=text,
-            role=role,
-            message_type=message_type,
-            include_in_turn_count=include_in_turn_count,
-            include_in_summary=include_in_summary,
-            embedding=embedding,
-        )
-
     async def add_context_message_async(
         self,
         text: str,
@@ -223,19 +170,6 @@ class MemoryManager:
             embedding=embedding,
         )
 
-    def _check_and_create_summary(
-        self,
-    ) -> Tuple[Optional[int], Optional[List[Message]]]:
-        """Check if summary should be created and create it.
-
-        Returns:
-            Tuple of (summary_id, messages_used_for_summary)
-        """
-        return self.sessions.check_and_create_summary(
-            get_current_session_id=self.get_current_session_id,
-            generate_summary=self._generate_summary,
-        )
-
     async def _check_and_create_summary_async(
         self,
     ) -> Tuple[Optional[int], Optional[List[Message]]]:
@@ -249,73 +183,20 @@ class MemoryManager:
             generate_summary_async=self._generate_summary_async,
         )
 
-    def _generate_summary(self, messages: List[Message]) -> str:
-        """Generate an independent summary for the given messages.
-
-        Each summary is independent and only covers the specific messages provided.
-        Summaries are later retrieved via vector search based on relevance, not
-        by sequential order.
-        """
-        return self.summary_generator.generate_summary(messages)
-
     async def _generate_summary_async(self, messages: List[Message]) -> str:
         """Async version of _generate_summary. Use this in async contexts."""
-        return await self.summary_generator.generate_summary_async(messages)
-
-    def _generate_memory_update(self, messages: List[Message], summary_id: int) -> str:
-        """Generate a memory update JSON patch from summarized messages."""
-        return self.seele.generate_memory_update(messages, summary_id)
-
-    def _generate_complete_memory_json(
-        self, messages: List[Message], error_message: str, summary_id: int
-    ) -> str:
-        """Generate a complete seele.json document when patching fails."""
-        return self.seele.generate_complete_memory_json(
-            messages,
-            error_message,
-            summary_id,
-        )
+        client = LLMClient()
+        messages_dict = [msg.to_dict() for msg in messages]
+        try:
+            return await client.generate_summary_async(None, messages_dict)
+        finally:
+            await client.close_async()
 
     async def _generate_memory_update_async(
         self, messages: List[Message], summary_id: int
     ) -> str:
         """Async version of _generate_memory_update."""
         return await self.seele.generate_memory_update_async(messages, summary_id)
-
-    async def _generate_complete_memory_json_async(
-        self, messages: List[Message], error_message: str, summary_id: int
-    ) -> str:
-        """Async version of _generate_complete_memory_json."""
-        return await self.seele.generate_complete_memory_json_async(
-            messages,
-            error_message,
-            summary_id,
-        )
-
-    def _update_long_term_memory(
-        self, summary_id: int, messages: List[Message]
-    ) -> bool:
-        """Update long-term memory using the messages that were just summarized.
-
-        Args:
-            summary_id: The ID of the summary that was just created
-            messages: The messages that were used to generate the summary
-
-        Returns:
-            True if update was successful, False otherwise
-        """
-        try:
-            if not messages:
-                return False
-
-            json_patch = self._generate_memory_update(messages, summary_id)
-            if not json_patch:
-                return False
-
-            return self.update_long_term_memory(summary_id, json_patch, messages)
-        except Exception as e:
-            logger.error(f"Failed to update long-term memory: {e}")
-            return False
 
     async def _update_long_term_memory_async(
         self, summary_id: int, messages: List[Message]
@@ -343,24 +224,6 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to update long-term memory: {e}")
             return False
-
-    def update_long_term_memory(
-        self, summary_id: int, json_patch: str, messages: Optional[List[Message]] = None
-    ) -> bool:
-        """Update long-term memory (seele.json) with a JSON Patch.
-
-        If JSON Patch fails, falls back to generating complete seele.json.
-
-        Args:
-            summary_id: ID of the summary triggering the update
-            json_patch: JSON string - should be a JSON Patch array (RFC 6902)
-                       Also accepts dict format for backward compatibility
-            messages: Optional messages used for fallback if patch fails
-
-        Returns:
-            True if successful, False otherwise
-        """
-        return self.seele.update_long_term_memory(summary_id, json_patch, messages)
 
     def _clean_json_response(self, response: str) -> str:
         """Clean LLM response to extract valid JSON.
@@ -403,7 +266,7 @@ class MemoryManager:
         return self.seele.ensure_seele_schema_current()
 
     def get_context_messages(self) -> List[Dict[str, str]]:
-        return self.recall.get_context_messages()
+        return self.context_window.get_context_as_messages()
 
     def get_recent_summaries(self) -> List[str]:
-        return self.recall.get_recent_summaries()
+        return self.context_window.get_recent_summaries_as_text()

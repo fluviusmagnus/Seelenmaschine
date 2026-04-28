@@ -89,7 +89,6 @@ class TestMemoryManagerIntegration:
     def mock_embedding_for_test(self):
         """Create mock embedding client"""
         mock_client = Mock()
-        mock_client.get_embedding.return_value = [0.1] * 1536
         mock_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return mock_client
     
@@ -193,10 +192,10 @@ class TestPromptsIntegration:
     
     def test_system_prompt_uses_test_config(self, test_config):
         """Test system prompt generation uses test config"""
-        from prompts import get_cacheable_system_prompt
+        from prompts.runtime import get_cacheable_system_prompt
         
         # Clear cache to force reload
-        import prompts
+        import prompts.runtime as prompts
         prompts._seele_json_cache = {}
         
         # Generate prompt
@@ -210,6 +209,3 @@ class TestPromptsIntegration:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
-
-

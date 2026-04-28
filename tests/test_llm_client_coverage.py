@@ -117,21 +117,6 @@ class TestLLMClientClose:
                         # Verify close was called
                         client._async_close.assert_called_once()
     
-    def test_close_sync(self):
-        """Test close method (sync)"""
-        from llm.chat_client import LLMClient
-        
-        with patch('llm.chat_client.Config.OPENAI_API_KEY', "test_key"):
-            with patch('llm.chat_client.Config.OPENAI_API_BASE', "https://api.openai.com/v1"):
-                with patch('llm.chat_client.Config.CHAT_MODEL', "gpt-4o"):
-                    with patch('llm.chat_client.Config.TOOL_MODEL', "gpt-4o"):
-                        client = LLMClient()
-                        
-                        # Close sync
-                        client.close()
-                        
-                        # Should complete without error
-                        assert True
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

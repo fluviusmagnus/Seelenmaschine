@@ -3,23 +3,39 @@
 import asyncio
 from typing import Any, Callable, Optional
 
-from core.adapter_contracts import AdapterApprovalDelegate, AdapterRuntimeCapabilities
+from core.adapter_contracts import AdapterApprovalDelegate
 from core.config import Config
 from core.conversation import ConversationService
 from core.database import DatabaseManager
 from core.file_service import FileArtifactService, FileDeliveryService
 from core.hitl import ApprovalService, StopController
 from core.scheduler import TaskScheduler
-from core.session_service import SessionService
 from core.tools import (
     ToolExecutor,
-    ToolRuntime,
-    ToolRuntimeState,
+    ToolRegistry,
+    ToolSafetyPolicy,
+    ToolTraceService,
 )
 from llm.chat_client import LLMClient
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
 from memory.manager import MemoryManager
+from tools.file_io import (
+    AppendFileTool,
+    ReadFileTool,
+    ReplaceFileContentTool,
+    WriteFileTool,
+)
+from tools.file_search import GlobSearchTool, GrepSearchTool
+from tools.mcp_client import MCPClient
+from tools.memory_search import MemorySearchTool
+from tools.scheduled_tasks import ScheduledTaskTool
+from tools.send_file import SendFileTool
+from tools.shell import ShellCommandTool
+from tools.tool_trace import ToolTraceQueryTool, ToolTraceStore
+from utils.logger import get_logger
+
+logger = get_logger()
 
 
 class CoreBot:
@@ -50,67 +66,70 @@ class CoreBot:
         self.scheduler = scheduler or TaskScheduler(self.db)
         self.llm_client = llm_client or LLMClient()
         self.conversation_service: Optional[ConversationService] = None
-        self.session_service: Optional[SessionService] = None
-        self.tool_runtime_state: Optional[ToolRuntimeState] = None
+        self._tool_runtime_initialized = False
+        self.tool_trace_store: Optional[Any] = None
+        self.tool_trace_query_tool: Optional[Any] = None
+        self.tool_trace_service: Optional[Any] = None
+        self.registry_service: Optional[ToolRegistry] = None
+        self.safety_policy: Optional[ToolSafetyPolicy] = None
+        self.memory_search_tool: Optional[Any] = None
+        self.scheduled_task_tool: Optional[Any] = None
+        self.send_file_tool: Optional[Any] = None
+        self.mcp_client: Optional[Any] = None
+        self.mcp_connected = False
         self.approval_service = ApprovalService()
         self.file_artifact_service = FileArtifactService(config=self.config)
         self.file_delivery_service: Optional[FileDeliveryService] = None
         self._approval_delegate: Optional[Any] = None
-        self._tool_runtime: Optional[ToolRuntime] = None
         self._tool_executor_service: Optional[ToolExecutor] = None
         self._send_file_to_user: Optional[Callable[..., Any]] = None
         self._preview_text: Optional[Callable[[Optional[str], int], str]] = None
         self._send_status_message: Optional[Callable[[str], Any]] = None
         self._stop_controller = StopController()
 
-    def create_tool_runtime_state(
-        self,
-        *,
-        get_current_session_id: Callable[[], Any],
-    ) -> ToolRuntimeState:
-        """Build and cache the shared tool runtime state."""
-        self.tool_runtime_state = ToolRuntimeState(
-            config=self.config,
-            get_current_session_id=get_current_session_id,
+    def _initialize_tool_runtime_state(self) -> None:
+        """Initialize core-owned tool runtime fields."""
+        self.tool_trace_store = ToolTraceStore(self.config.DATA_DIR)
+        self.tool_trace_query_tool = ToolTraceQueryTool(
+            self.tool_trace_store,
+            self.memory.get_current_session_id,
         )
-        return self.tool_runtime_state
+        self.tool_trace_service = ToolTraceService(
+            store=self.tool_trace_store,
+            get_current_session_id=self.memory.get_current_session_id,
+        )
+        self.registry_service = ToolRegistry()
+        self.safety_policy = ToolSafetyPolicy(self.config)
+        self._tool_runtime_initialized = True
 
-    def get_tool_runtime(self) -> ToolRuntime:
-        """Lazily resolve the tool runtime helper."""
-        if self._send_file_to_user is None:
-            raise RuntimeError("Tool runtime send_file capability has not been attached")
-        if self._tool_runtime is None:
-            self._tool_runtime = ToolRuntime(
-                core_bot=self,
-                send_file_to_user=self._send_file_to_user,
-            )
-        return self._tool_runtime
+    def _require_tool_runtime(self) -> None:
+        """Ensure the tool runtime fields are initialized."""
+        if not self._tool_runtime_initialized:
+            raise RuntimeError("Tool runtime state has not been initialized on CoreBot")
 
-    def get_tool_executor_service(self) -> ToolExecutor:
+    def _get_tool_executor(self) -> ToolExecutor:
         """Lazily resolve the tool executor."""
         if self._approval_delegate is None:
             raise RuntimeError("Tool runtime approval delegate has not been attached")
         if self._preview_text is None:
             raise RuntimeError("Tool runtime capabilities have not been attached")
 
-        if self.tool_runtime_state is None:
-            raise RuntimeError("Tool runtime state has not been initialized")
+        self._require_tool_runtime()
+        if self.registry_service is None or self.safety_policy is None or self.tool_trace_service is None:
+            raise RuntimeError("Tool runtime services have not been initialized on CoreBot")
 
         if self._tool_executor_service is None:
-            registry_service = self.tool_runtime_state.registry_service
-            if registry_service is None:
-                raise RuntimeError("Tool registry has not been initialized on CoreBot")
             self._tool_executor_service = ToolExecutor(
                 config=self.config,
-                tool_registry=registry_service,
-                get_mcp_client=lambda: self.tool_runtime_state.mcp_client,
+                tool_registry=self.registry_service,
+                get_mcp_client=lambda: self.mcp_client,
                 ensure_mcp_connected=self.ensure_mcp_connected,
-                is_mcp_connected=lambda: bool(self.tool_runtime_state.mcp_connected),
-                is_dangerous_action=self.tool_runtime_state.safety_policy.is_dangerous_action,
+                is_mcp_connected=lambda: bool(self.mcp_connected),
+                is_dangerous_action=self.safety_policy.is_dangerous_action,
                 request_approval=self._approval_delegate.request_approval,
-                record_tool_trace=self.tool_runtime_state.tool_trace_service.record_trace,
-                infer_tool_trace_status=self.tool_runtime_state.tool_trace_service.infer_status,
-                sanitize_result_preview=lambda result, max_length: self.tool_runtime_state.tool_trace_service.sanitize_result_preview(
+                record_tool_trace=self.tool_trace_service.record_trace,
+                infer_tool_trace_status=self.tool_trace_service.infer_status,
+                sanitize_result_preview=lambda result, max_length: self.tool_trace_service.sanitize_result_preview(
                     result,
                     max_length=max_length,
                 ),
@@ -122,52 +141,165 @@ class CoreBot:
             )
         return self._tool_executor_service
 
+    def _register_stateful_tool(
+        self, *, state_attr: str, factory: Callable[[], Any], label: str
+    ) -> None:
+        """Create and register a core-owned tool instance."""
+        self._require_tool_runtime()
+        if self.registry_service is None:
+            raise RuntimeError("Tool registry has not been initialized on CoreBot")
+        try:
+            tool = factory()
+            setattr(self, state_attr, tool)
+            self.registry_service.register_named(tool.name, tool)
+            logger.info(f"Registered {label} tool")
+        except Exception as error:
+            logger.error(f"Failed to register {label} tool: {error}")
+            setattr(self, state_attr, None)
+
+    def _ensure_memory_search_tool(self) -> Any:
+        """Create the memory search tool lazily."""
+        self._require_tool_runtime()
+        if self.memory_search_tool is None:
+            session_id = self.memory.get_current_session_id()
+            self.memory_search_tool = MemorySearchTool(
+                session_id=str(session_id),
+                db=self.db,
+                embedding_client=self.embedding_client,
+                reranker_client=self.reranker_client,
+            )
+        return self.memory_search_tool
+
+    def _register_local_runtime_tools(self) -> None:
+        """Ensure every local runtime tool is present in the registry."""
+        self._require_tool_runtime()
+        if self.registry_service is None:
+            raise RuntimeError("Tool registry has not been initialized on CoreBot")
+        registry = self.registry_service
+        if self.tool_trace_query_tool:
+            registry.register_named(
+                self.tool_trace_query_tool.name, self.tool_trace_query_tool
+            )
+            logger.info("Added query_tool_history tool")
+
+        memory_search_tool = self._ensure_memory_search_tool()
+        if memory_search_tool:
+            registry.register_named(memory_search_tool.name, memory_search_tool)
+            logger.info("Added memory_search tool")
+
+        if self.scheduled_task_tool:
+            registry.register_named(
+                self.scheduled_task_tool.name, self.scheduled_task_tool
+            )
+            logger.info("Added scheduled_task tool")
+
+        if self.send_file_tool:
+            registry.register_named(self.send_file_tool.name, self.send_file_tool)
+            logger.info("Added send_file tool")
+
+    def _register_core_tools(self) -> None:
+        """Register stateful core-owned tools needed by the runtime."""
+        if self._send_file_to_user is None:
+            raise RuntimeError("Tool runtime send_file capability has not been attached")
+
+        self._register_stateful_tool(
+            state_attr="scheduled_task_tool",
+            factory=lambda: ScheduledTaskTool(self.scheduler),
+            label="scheduled_task",
+        )
+        self._register_stateful_tool(
+            state_attr="send_file_tool",
+            factory=lambda: SendFileTool(
+                lambda **kwargs: self._send_file_to_user(**kwargs)
+            ),
+            label="send_file",
+        )
+
+    def _register_builtin_tools(self) -> None:
+        """Register builtin file and shell tools."""
+        try:
+            builtin_tools = [
+                ReadFileTool(),
+                WriteFileTool(),
+                ReplaceFileContentTool(),
+                AppendFileTool(),
+                GrepSearchTool(),
+                GlobSearchTool(),
+                ShellCommandTool(),
+            ]
+            self._require_tool_runtime()
+            if self.registry_service is None:
+                raise RuntimeError("Tool registry has not been initialized on CoreBot")
+            registry = self.registry_service
+            for tool in builtin_tools:
+                registry.register_named(tool.name, tool)
+            logger.info("Registered builtin file and shell tools")
+        except Exception as error:
+            logger.error(f"Failed to register builtin tools: {error}")
+
+    def _publish_tools(self, extra_tools: Optional[list[dict[str, Any]]] = None) -> None:
+        """Publish local tools plus optional remote tools to the LLM client."""
+        self._register_local_runtime_tools()
+        if self.registry_service is None:
+            raise RuntimeError("Tool registry has not been initialized on CoreBot")
+        tools = self.registry_service.collect_tool_defs()
+        if extra_tools:
+            tools.extend(extra_tools)
+
+        self.llm_client.set_tools(tools)
+        self.llm_client.set_tool_executor(self.execute_tool)
+        logger.info(f"Tools registered: {len(tools)}")
+
+    def _setup_tools(self) -> None:
+        """Initialize MCP state and register tools with the LLM client."""
+        self._require_tool_runtime()
+        if self.config.ENABLE_MCP:
+            self.mcp_client = MCPClient(file_artifact_service=self.file_artifact_service)
+            self.mcp_connected = False
+        else:
+            self.mcp_client = None
+            self.mcp_connected = False
+
+        self._publish_tools()
+
     def initialize_adapter_runtime(
         self,
         *,
         approval_delegate: AdapterApprovalDelegate,
-        capabilities: AdapterRuntimeCapabilities,
+        preview_text: Callable[[Optional[str], int], str],
+        send_file_to_user: Callable[..., Any],
+        send_status_message: Optional[Callable[[str], Any]] = None,
     ) -> ToolExecutor:
         """Initialize the core services needed by an adapter runtime."""
-        if self.tool_runtime_state is None:
-            self.create_tool_runtime_state(
-                get_current_session_id=self.memory.get_current_session_id,
-            )
+        if not self._tool_runtime_initialized:
+            self._initialize_tool_runtime_state()
 
         self._approval_delegate = approval_delegate
-        self._tool_runtime = None
         self._tool_executor_service = None
-        self._send_file_to_user = capabilities.send_file_to_user
-        self._preview_text = capabilities.preview_text
-        self._send_status_message = capabilities.send_status_message
+        self._send_file_to_user = send_file_to_user
+        self._preview_text = preview_text
+        self._send_status_message = send_status_message
 
-        tool_runtime = self.get_tool_runtime()
-        tool_runtime.register_core_tools()
-        tool_runtime.register_builtin_tools()
-        tool_runtime.setup_tools()
+        self._register_core_tools()
+        self._register_builtin_tools()
+        self._setup_tools()
 
-        if self.tool_runtime_state is None:
-            raise RuntimeError("Tool runtime state has not been initialized")
+        self._require_tool_runtime()
 
         self.conversation_service = ConversationService(
             config=self.config,
             memory=self.memory,
             embedding_client=self.embedding_client,
             llm_client=self.llm_client,
-            memory_search_tool=self.tool_runtime_state.memory_search_tool,
-            mcp_client=self.tool_runtime_state.mcp_client,
+            memory_search_tool=self.memory_search_tool,
+            mcp_client=self.mcp_client,
             ensure_mcp_connected=self.ensure_mcp_connected,
-            preview_text=capabilities.preview_text,
+            preview_text=preview_text,
             begin_run=self.begin_tool_loop_run,
             end_run=self.end_tool_loop_run,
             check_stop_requested=self.check_stop_requested,
         )
-        self.session_service = SessionService(
-            memory=self.memory,
-            tool_trace_store=self.tool_runtime_state.tool_trace_store,
-            memory_search_tool=self.tool_runtime_state.memory_search_tool,
-        )
-        return self.get_tool_executor_service()
+        return self._get_tool_executor()
 
     async def process_message(
         self,
@@ -243,29 +375,74 @@ class CoreBot:
 
     async def create_new_session(self) -> int:
         """Archive the current session and start a new one."""
-        if self.session_service is None:
-            raise RuntimeError("Session service has not been initialized")
-        return await self.session_service.create_new_session()
+        self._require_tool_runtime()
+        if self.tool_trace_store is None:
+            raise RuntimeError("Tool trace store has not been initialized on CoreBot")
+        logger.info("Creating new session")
+        new_session_id = await self.memory.new_session_async()
+        logger.info(f"Created new session {new_session_id}")
+        self._sync_memory_search_session(int(new_session_id))
+        self.tool_trace_store.prune_to_max_records()
+        return int(new_session_id)
 
     def reset_session(self) -> int:
         """Reset the current session and return the fresh active session id."""
-        if self.session_service is None:
-            raise RuntimeError("Session service has not been initialized")
-        return self.session_service.reset_session()
+        self._require_tool_runtime()
+        if self.tool_trace_store is None:
+            raise RuntimeError("Tool trace store has not been initialized on CoreBot")
+        logger.info("Resetting session")
+        self.memory.reset_session()
+        session_id = int(self.memory.get_current_session_id())
+        self._sync_memory_search_session(session_id)
+        self.tool_trace_store.prune_to_max_records()
+        return session_id
+
+    def _sync_memory_search_session(self, session_id: int) -> None:
+        """Keep the memory search tool aligned with the active session."""
+        self._require_tool_runtime()
+        if self.memory_search_tool is None:
+            return
+        self.memory_search_tool.session_id = int(session_id)
+        logger.info(f"Updated memory_search_tool session_id to {session_id}")
 
     async def ensure_mcp_connected(self) -> None:
         """Ensure MCP is connected through the core-owned tool runtime."""
-        await self.get_tool_runtime().ensure_mcp_connected()
+        self._require_tool_runtime()
+        if self.mcp_client and not self.mcp_connected:
+            try:
+                await self.mcp_client.__aenter__()
+                self.mcp_connected = True
+
+                mcp_tools = await self.mcp_client.list_tools()
+                logger.info(f"Connected MCP client with {len(mcp_tools)} tools")
+                tool_names = [
+                    tool.get("function", {}).get("name", "Unknown")
+                    for tool in mcp_tools
+                ]
+                logger.debug(f"MCP tool names: {tool_names}")
+
+                self._publish_tools(mcp_tools)
+                logger.info(f"Updated tools: local + {len(mcp_tools)} MCP tools")
+            except Exception as error:
+                logger.error(f"Failed to connect MCP client: {error}")
+                self.mcp_connected = False
+                self._publish_tools()
 
     async def warmup_tool_runtime(self) -> None:
         """Warm up tool runtime integrations during application startup."""
-        await self.get_tool_runtime().warmup()
+        self._require_tool_runtime()
+        if not self.mcp_client:
+            logger.debug("Skipping tool runtime warmup because MCP is disabled")
+            return
+
+        logger.info("Warming up core MCP integration")
+        await self.ensure_mcp_connected()
 
     async def execute_tool(self, tool_name: str, arguments_json: str) -> Any:
         """Execute an LLM tool call through the core-owned tool executor."""
-        if self.tool_runtime_state is None:
+        if not self._tool_runtime_initialized:
             raise RuntimeError("Tool runtime state has not been initialized")
 
-        if self.tool_runtime_state.registry_service is None:
+        if self.registry_service is None:
             raise RuntimeError("Tool registry has not been initialized on CoreBot")
-        return await self.get_tool_executor_service().execute_tool(tool_name, arguments_json)
+        return await self._get_tool_executor().execute_tool(tool_name, arguments_json)

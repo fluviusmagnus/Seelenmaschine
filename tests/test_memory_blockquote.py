@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 from memory.manager import MemoryManager
 from core.config import Config
 
@@ -12,13 +12,14 @@ def mock_deps():
     db.get_unsummarized_conversations.return_value = []
 
     embedding_client = Mock()
-    embedding_client.get_embedding.return_value = [0.1] * 1536
+    embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
 
     reranker_client = Mock()
     return db, embedding_client, reranker_client
 
 
-def test_add_assistant_message_strips_blockquote_when_debug_off(mock_deps, monkeypatch):
+@pytest.mark.asyncio
+async def test_add_assistant_message_strips_blockquote_when_debug_off(mock_deps, monkeypatch):
     db, embedding_client, reranker_client = mock_deps
     monkeypatch.setattr(Config, "DEBUG_MODE", False)
 
@@ -28,7 +29,7 @@ def test_add_assistant_message_strips_blockquote_when_debug_off(mock_deps, monke
     memory = MemoryManager(db, embedding_client, reranker_client)
 
     text = "Reply <blockquote>thought</blockquote> here"
-    memory.add_assistant_message(text)
+    await memory.add_assistant_message_async(text)
 
     # Check what was saved to DB
     insert_call = db.insert_conversation.call_args
@@ -38,12 +39,13 @@ def test_add_assistant_message_strips_blockquote_when_debug_off(mock_deps, monke
     assert saved_text == "Reply\n\nhere"
 
     # Check what was passed to embedding (should always be stripped)
-    embedding_call = embedding_client.get_embedding.call_args
-    embedded_text = embedding_call[0][0]
+    embedding_call = embedding_client.get_embedding_async.await_args
+    embedded_text = embedding_call.args[0]
     assert embedded_text == "Reply\n\nhere"
 
 
-def test_add_assistant_message_keeps_blockquote_when_debug_on(mock_deps, monkeypatch):
+@pytest.mark.asyncio
+async def test_add_assistant_message_keeps_blockquote_when_debug_on(mock_deps, monkeypatch):
     db, embedding_client, reranker_client = mock_deps
     monkeypatch.setattr(Config, "DEBUG_MODE", True)
     monkeypatch.setattr(Config, "CONTEXT_WINDOW_TRIGGER_SUMMARY", 100)
@@ -51,7 +53,7 @@ def test_add_assistant_message_keeps_blockquote_when_debug_on(mock_deps, monkeyp
     memory = MemoryManager(db, embedding_client, reranker_client)
 
     text = "Reply <blockquote>thought</blockquote> here"
-    memory.add_assistant_message(text)
+    await memory.add_assistant_message_async(text)
 
     # Check what was saved to DB (should keep blockquote)
     insert_call = db.insert_conversation.call_args
@@ -59,18 +61,19 @@ def test_add_assistant_message_keeps_blockquote_when_debug_on(mock_deps, monkeyp
     assert "<blockquote>thought</blockquote>" in saved_text
 
     # Check what was passed to embedding (should ALWAYS be stripped)
-    embedding_call = embedding_client.get_embedding.call_args
-    embedded_text = embedding_call[0][0]
+    embedding_call = embedding_client.get_embedding_async.await_args
+    embedded_text = embedding_call.args[0]
     assert "<blockquote>" not in embedded_text
     assert embedded_text == "Reply\n\nhere"
 
 
-def test_add_user_message_always_strips_for_embedding(mock_deps, monkeypatch):
+@pytest.mark.asyncio
+async def test_add_user_message_always_strips_for_embedding(mock_deps, monkeypatch):
     db, embedding_client, reranker_client = mock_deps
     memory = MemoryManager(db, embedding_client, reranker_client)
 
     text = "User message <blockquote>not possible but test</blockquote>"
-    memory.add_user_message(text)
+    await memory.add_user_message_async(text)
 
     # User message storage should NOT be stripped (though it usually doesn't have blockquotes)
     insert_call = db.insert_conversation.call_args
@@ -78,7 +81,7 @@ def test_add_user_message_always_strips_for_embedding(mock_deps, monkeypatch):
     assert "<blockquote>" in saved_text
 
     # But embedding should be stripped
-    embedding_call = embedding_client.get_embedding.call_args
-    embedded_text = embedding_call[0][0]
+    embedding_call = embedding_client.get_embedding_async.await_args
+    embedded_text = embedding_call.args[0]
     assert "<blockquote>" not in embedded_text
     assert embedded_text == "User message"

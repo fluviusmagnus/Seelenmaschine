@@ -9,7 +9,6 @@ import pytest
 @pytest.mark.asyncio
 async def test_core_runtime_initializes_with_fake_adapter_capabilities():
     """Core runtime should initialize without any Telegram-specific object."""
-    from core.adapter_contracts import AdapterRuntimeCapabilities
     from core.bot import CoreBot
 
     config = Mock()
@@ -42,19 +41,15 @@ async def test_core_runtime_initializes_with_fake_adapter_capabilities():
 
     send_file_to_user = AsyncMock(return_value={"result": "sent"})
     send_status_message = AsyncMock()
-    capabilities = AdapterRuntimeCapabilities(
+
+    core_bot.initialize_adapter_runtime(
+        approval_delegate=approval_delegate,
         preview_text=lambda text, max_length=120: str(text)[:max_length],
         send_file_to_user=send_file_to_user,
         send_status_message=send_status_message,
     )
 
-    core_bot.initialize_adapter_runtime(
-        approval_delegate=approval_delegate,
-        capabilities=capabilities,
-    )
-
-    assert core_bot.get_tool_runtime() is not None
-    assert core_bot.get_tool_executor_service() is not None
+    assert core_bot._tool_runtime_initialized is True
     llm_client.set_tools.assert_called()
     llm_client.set_tool_executor.assert_called_once_with(core_bot.execute_tool)
 
@@ -62,7 +57,6 @@ async def test_core_runtime_initializes_with_fake_adapter_capabilities():
 @pytest.mark.asyncio
 async def test_core_execute_tool_uses_live_runtime_providers_without_executor_resync():
     """CoreBot.execute_tool should use current runtime providers without mutating executor fields."""
-    from core.adapter_contracts import AdapterRuntimeCapabilities
     from core.bot import CoreBot
 
     config = Mock()
@@ -95,20 +89,17 @@ async def test_core_execute_tool_uses_live_runtime_providers_without_executor_re
 
     send_file_to_user = AsyncMock(return_value={"result": "sent"})
     first_status_message = AsyncMock()
-    capabilities = AdapterRuntimeCapabilities(
+
+    core_bot.initialize_adapter_runtime(
+        approval_delegate=approval_delegate,
         preview_text=lambda text, max_length=120: str(text)[:max_length],
         send_file_to_user=send_file_to_user,
         send_status_message=first_status_message,
     )
 
-    core_bot.initialize_adapter_runtime(
-        approval_delegate=approval_delegate,
-        capabilities=capabilities,
-    )
-
     read_tool = Mock()
     read_tool.execute = AsyncMock(return_value="content")
-    core_bot.tool_runtime_state.registry_service.register_named("read_file", read_tool)
+    core_bot.registry_service.register_named("read_file", read_tool)
 
     second_status_message = AsyncMock()
     core_bot._send_status_message = second_status_message

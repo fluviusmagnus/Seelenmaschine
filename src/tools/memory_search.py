@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from core.database import DatabaseManager
 from utils.time import timestamp_to_str
 from core.config import Config
-from prompts import load_seele_json
+from prompts.runtime import load_seele_json
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -363,14 +363,9 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
             return None
 
         get_embedding_async = getattr(self.embedding_client, "get_embedding_async", None)
-        if callable(get_embedding_async):
-            return await get_embedding_async(query)
-
-        get_embedding = getattr(self.embedding_client, "get_embedding", None)
-        if callable(get_embedding):
-            return get_embedding(query)
-
-        return None
+        if not callable(get_embedding_async):
+            return None
+        return await get_embedding_async(query)
 
     async def _maybe_add_vector_summary_results(
         self,
@@ -654,13 +649,9 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
         documents = [{"text": row[4], "row_index": index} for index, row in enumerate(candidates)]
 
         rerank_async = getattr(self.reranker_client, "rerank_async", None)
-        rerank = getattr(self.reranker_client, "rerank", None)
-        if callable(rerank_async):
-            reranked_docs = await rerank_async(query, documents, top_n=min(target_limit, len(documents)))
-        elif callable(rerank):
-            reranked_docs = rerank(query, documents, top_n=min(target_limit, len(documents)))
-        else:
+        if not callable(rerank_async):
             return conversation_results
+        reranked_docs = await rerank_async(query, documents, top_n=min(target_limit, len(documents)))
 
         if not reranked_docs:
             return conversation_results
@@ -711,14 +702,9 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
         ]
 
         rerank_async = getattr(self.reranker_client, "rerank_async", None)
-        rerank = getattr(self.reranker_client, "rerank", None)
-
-        if callable(rerank_async):
-            reranked_docs = await rerank_async(query, documents, top_n=min(target_limit, len(documents)))
-        elif callable(rerank):
-            reranked_docs = rerank(query, documents, top_n=min(target_limit, len(documents)))
-        else:
+        if not callable(rerank_async):
             return summary_results
+        reranked_docs = await rerank_async(query, documents, top_n=min(target_limit, len(documents)))
 
         if not reranked_docs:
             return summary_results
@@ -927,4 +913,3 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
         except Exception as e:
             logger.error(f"Memory search failed: {e}", exc_info=True)
             return f"Memory search failed: {str(e)}"
-

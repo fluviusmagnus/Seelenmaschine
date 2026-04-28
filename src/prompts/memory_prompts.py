@@ -6,6 +6,47 @@ from typing import Any, Dict, Optional
 from utils.time import format_timestamp_range
 
 
+def _build_time_context(
+    *,
+    first_timestamp: Optional[int],
+    last_timestamp: Optional[int],
+    timezone: Any,
+    instruction: str,
+) -> str:
+    """Build an optional time-context block for memory prompts."""
+    if not first_timestamp or not last_timestamp:
+        return ""
+
+    start_time, end_time = format_timestamp_range(
+        first_timestamp,
+        last_timestamp,
+        tz=timezone,
+    )
+    return (
+        f"<time_context>\nThese conversations occurred between {start_time} and {end_time}. "
+        f"{instruction}\n</time_context>\n"
+    )
+
+
+def _build_previous_attempt_section(
+    previous_attempt: Optional[str],
+    *,
+    intro: str,
+) -> str:
+    """Build an optional previous-attempt block."""
+    if not previous_attempt:
+        return ""
+
+    return f"""
+<previous_attempt>
+{intro}
+
+{previous_attempt}
+</previous_attempt>
+
+"""
+
+
 def build_summary_prompt(
     seele_data: Dict[str, Any],
     existing_summary: Optional[str],
@@ -75,18 +116,15 @@ def build_memory_update_prompt(
     bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
     user_name = seele_data.get("user", {}).get("name", "User")
 
-    time_info = ""
-    if first_timestamp and last_timestamp:
-        start_time, end_time = format_timestamp_range(
-            first_timestamp,
-            last_timestamp,
-            tz=timezone,
-        )
-        time_info = (
-            f"<time_context>\nThese conversations occurred between {start_time} and {end_time}. "
+    time_info = _build_time_context(
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+        timezone=timezone,
+        instruction=(
             "Use this temporal context when updating time-sensitive fields like "
-            "short_term emotions, short_term needs, or memorable_events.\n</time_context>\n"
-        )
+            "short_term emotions, short_term needs, or memorable_events."
+        ),
+    )
 
     return f"""<memory_update_task>
 <role>
@@ -266,6 +304,7 @@ CURRENT seele.json:
 
 <conversations>
 Conversations to analyze:
+
 {messages}
 </conversations>
 
@@ -288,29 +327,19 @@ def build_complete_memory_json_prompt(
     seele_data = json.loads(current_seele_json)
     bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
 
-    time_info = ""
-    if first_timestamp and last_timestamp:
-        start_time, end_time = format_timestamp_range(
-            first_timestamp,
-            last_timestamp,
-            tz=timezone,
-        )
-        time_info = (
-            f"<time_context>\nThese conversations occurred between {start_time} and {end_time}. "
-            "Use this temporal context when updating time-sensitive fields.\n</time_context>\n"
-        )
-
-    previous_attempt_section = ""
-    if previous_attempt:
-        previous_attempt_section = f"""
-<previous_attempt>
-The previous complete seele.json generation attempt returned the following output.
-Analyze it carefully, preserve any valid parts only when appropriate, and fix the exact problems instead of repeating them verbatim:
-
-{previous_attempt}
-</previous_attempt>
-
-"""
+    time_info = _build_time_context(
+        first_timestamp=first_timestamp,
+        last_timestamp=last_timestamp,
+        timezone=timezone,
+        instruction="Use this temporal context when updating time-sensitive fields.",
+    )
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous complete seele.json generation attempt returned the following output.\n"
+            "Analyze it carefully, preserve any valid parts only when appropriate, and fix the exact problems instead of repeating them verbatim:"
+        ),
+    )
 
     return f"""<complete_memory_json_task>
 <role>
@@ -324,7 +353,8 @@ The previous JSON Patch operation failed with this error:
 ERROR: {error_message}
 </previous_error>
 
-{time_info}<task>
+{time_info}
+<task>
 Instead of generating a JSON Patch, please output a COMPLETE, VALID seele.json that:
 1. Incorporates the insights from the conversations below
 2. Strictly follows the seele.json schema structure
@@ -437,6 +467,7 @@ CURRENT seele.json:
 
 <conversations>
 Conversations to analyze:
+
 {messages}
 </conversations>
 
@@ -474,17 +505,13 @@ def build_seele_repair_prompt(
     previous_attempt: Optional[str] = None,
 ) -> str:
     """Build prompt for LLM-driven seele.json migration/repair."""
-    previous_attempt_section = ""
-    if previous_attempt:
-        previous_attempt_section = f"""
-<previous_attempt>
-The previous repair attempt returned the following output.
-Preserve valid parts only when appropriate, and fix the exact issues instead of repeating them:
-
-{previous_attempt}
-</previous_attempt>
-
-"""
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous repair attempt returned the following output.\n"
+            "Preserve valid parts only when appropriate, and fix the exact issues instead of repeating them:"
+        ),
+    )
 
     return f"""<seele_repair_task>
 <role>
@@ -526,7 +553,8 @@ The current file needs repair for the following reason(s):
 {error_message}
 </current_issues>
 
-{previous_attempt_section}<target_schema_template>
+{previous_attempt_section}
+<target_schema_template>
 CURRENT TARGET SCHEMA TEMPLATE:
 {schema_template}
 </target_schema_template>

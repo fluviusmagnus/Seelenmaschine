@@ -26,7 +26,6 @@ class TestVectorRetrieverDualQuery:
     def mock_embedding_client(self):
         """Create a mock EmbeddingClient"""
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
         client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
@@ -35,11 +34,11 @@ class TestVectorRetrieverDualQuery:
         """Create a mock RerankerClient"""
         client = Mock()
         client.is_enabled.return_value = True
-        client.rerank.return_value = []
         client.rerank_async = AsyncMock(return_value=[])
         return client
     
-    def test_retrieve_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_retrieve_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that both user query and bot message are embedded and searched"""
         from memory.vector_retriever import VectorRetriever
         
@@ -57,7 +56,7 @@ class TestVectorRetrieverDualQuery:
         mock_db.get_conversations_by_time_ranges.return_value = []
         
         # Call retrieve
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             query=user_query,
             last_bot_message=bot_message
         )
@@ -70,7 +69,8 @@ class TestVectorRetrieverDualQuery:
         assert call_args_list[0][0][0] == user_query
         assert call_args_list[1][0][0] == bot_message
     
-    def test_retrieve_without_bot_message_single_query(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_retrieve_without_bot_message_single_query(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that only user query is embedded when no bot message"""
         from memory.vector_retriever import VectorRetriever
         
@@ -87,7 +87,7 @@ class TestVectorRetrieverDualQuery:
         mock_db.search_conversations.return_value = []
         
         # Call retrieve without bot message
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             query=user_query,
             last_bot_message=None
         )
@@ -108,7 +108,6 @@ class TestVectorRetrieverReranking:
     @pytest.fixture
     def mock_embedding_client(self):
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
         client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
@@ -119,7 +118,8 @@ class TestVectorRetrieverReranking:
         client.rerank_async = AsyncMock(return_value=[])
         return client
     
-    def test_reranking_applied_to_results(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_reranking_applied_to_results(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that reranking is applied to search results"""
         from memory.vector_retriever import VectorRetriever
         
@@ -156,7 +156,7 @@ class TestVectorRetrieverReranking:
         mock_reranker_client.rerank_async.side_effect = mock_rerank_side_effect
         
         # Call retrieve
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             query="test query"
         )
         
@@ -177,7 +177,6 @@ class TestVectorRetrieverExclusion:
     @pytest.fixture
     def mock_embedding_client(self):
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
         client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
@@ -185,11 +184,11 @@ class TestVectorRetrieverExclusion:
     def mock_reranker_client(self):
         client = Mock()
         client.is_enabled.return_value = True
-        client.rerank.return_value = []
         client.rerank_async = AsyncMock(return_value=[])
         return client
     
-    def test_exclude_recent_summaries_from_search(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_exclude_recent_summaries_from_search(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that recent summary IDs are excluded from search"""
         from memory.vector_retriever import VectorRetriever
         
@@ -203,7 +202,7 @@ class TestVectorRetrieverExclusion:
         exclude_ids = [1, 2, 3]
         
         # Call retrieve with excluded IDs
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             query="test query",
             exclude_summary_ids=exclude_ids
         )
@@ -268,7 +267,7 @@ class TestVectorRetrieverFormatting:
         ]
 
         with patch("core.config.Config.TIMEZONE", ZoneInfo("UTC")):
-            with patch("prompts.load_seele_json") as mock_load_seele_json:
+            with patch("prompts.runtime.load_seele_json") as mock_load_seele_json:
                 mock_load_seele_json.return_value = {
                     "bot": {"name": "Seele"},
                     "user": {"name": "Anna"},

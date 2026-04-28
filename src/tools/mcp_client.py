@@ -1,13 +1,10 @@
 import json
-import warnings
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from fastmcp import Client
-import asyncio
 import re
 
 from core.config import Config
-from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -139,21 +136,6 @@ class MCPClient:
         except Exception as e:
             logger.error(f"Failed to list tools: {e}", exc_info=True)
             return []
-
-    def get_tools_sync(self) -> List[Dict]:
-        """Deprecated sync wrapper retained for compatibility."""
-        warnings.warn(
-            "MCPClient.get_tools_sync() is deprecated; use await list_tools() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if self._tools_cache is not None:
-            return self._tools_cache
-
-        ensure_not_in_async_context(
-            "get_tools_sync() called from async context. Use await list_tools() instead."
-        )
-        return run_sync(self.list_tools, asyncio.new_event_loop)
 
     def _extract_text_from_content_block(self, content_block: Any) -> str:
         """Extract text from an MCP content block."""
@@ -444,20 +426,4 @@ class MCPClient:
                 f"{error_msg} (tool={tool_name}, args={arguments})", exc_info=True
             )
             return error_msg
-
-    def call_tool_sync(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """Deprecated sync wrapper retained for compatibility."""
-        warnings.warn(
-            "MCPClient.call_tool_sync() is deprecated; use await call_tool() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        ensure_not_in_async_context(
-            "call_tool_sync() called from async context. Use await call_tool() instead."
-        )
-        return run_sync(
-            lambda: self.call_tool(tool_name, arguments),
-            asyncio.new_event_loop,
-        )
-
 

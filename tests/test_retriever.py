@@ -18,7 +18,6 @@ def mock_db():
 def mock_embedding_client():
     """Create mock EmbeddingClient."""
     client = Mock(EmbeddingClient)
-    client.get_embedding.return_value = [0.1] * 1536
     client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
     return client
 
@@ -53,7 +52,8 @@ class TestVectorRetriever:
         assert retriever.embedding_client == mock_embedding_client
         assert retriever.reranker_client == mock_reranker_client
 
-    def test_retrieve_retrieve_memories_without_reranker(
+    @pytest.mark.asyncio
+    async def test_retrieve_retrieve_memories_without_reranker(
         self, retriever, mock_db, mock_embedding_client, monkeypatch
     ):
         """Test retrieving memories without reranker."""
@@ -70,7 +70,7 @@ class TestVectorRetriever:
             (1, 11, 150, "user", "Test message")  # No distance score in time-range search
         ]
 
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             "test query", None
         )
 
@@ -79,7 +79,8 @@ class TestVectorRetriever:
         assert summaries[0].summary == "Summary 1"
         assert conversations[0].text == "Test message"
 
-    def test_retrieve_memories_with_bot_message(
+    @pytest.mark.asyncio
+    async def test_retrieve_memories_with_bot_message(
         self, retriever, mock_db, mock_embedding_client, monkeypatch
     ):
         """Test retrieving memories with bot message."""
@@ -94,7 +95,7 @@ class TestVectorRetriever:
         mock_db.search_summaries.return_value = [(1, 11, "Summary 1", 100, 200, 0.5)]
         mock_db.get_conversations_by_time_ranges.return_value = []
 
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             "test query", "bot response"
         )
 
@@ -120,12 +121,6 @@ class TestVectorRetriever:
             limit_per_range=4,
         )
         assert [conversation.conversation_id for conversation in conversations] == [1, 2]
-
-    @pytest.mark.asyncio
-    async def test_sync_retrieve_rejects_async_context(self, retriever):
-        """Sync retrieval wrapper should not run from async contexts."""
-        with pytest.raises(RuntimeError, match="retrieve_related_memories_async"):
-            retriever.retrieve_related_memories("test query")
 
     def test_format_summaries_for_prompt(self, retriever, monkeypatch):
         """Test formatting summaries for prompt."""
@@ -168,7 +163,7 @@ class TestVectorRetriever:
             )
         ]
 
-        with patch("prompts.load_seele_json") as mock_load_seele_json:
+        with patch("prompts.runtime.load_seele_json") as mock_load_seele_json:
             mock_load_seele_json.return_value = {
                 "bot": {"name": "Assistant"},
                 "user": {"name": "User"},
@@ -178,4 +173,3 @@ class TestVectorRetriever:
         assert len(formatted) == 1
         assert "User: Test message" in formatted[0]
         assert "[session_id=22]" in formatted[0]
-

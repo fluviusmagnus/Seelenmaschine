@@ -1,4 +1,3 @@
-import asyncio
 import re
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 
@@ -9,7 +8,7 @@ from llm.memory_client import MemoryClient
 from llm.request_executor import ChatRequestExecutor
 from llm.tool_loop import ToolLoop
 from prompts.chat_prompt import ChatMessageBuilder
-from prompts import (
+from prompts.runtime import (
     get_complete_memory_json_prompt,
     get_cacheable_system_prompt,
     get_current_time_str,
@@ -20,7 +19,6 @@ from prompts import (
     load_seele_json,
 )
 from utils.logger import get_logger
-from utils.async_utils import ensure_not_in_async_context, run_sync
 
 logger = get_logger()
 
@@ -42,7 +40,6 @@ class LLMClient:
 
         self._chat_client: Optional[AsyncOpenAI] = None
         self._tool_client: Optional[AsyncOpenAI] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         self._tools_cache: Optional[List[Dict[str, Any]]] = None
         self._tool_executor: Optional[Callable] = None
@@ -74,12 +71,6 @@ class LLMClient:
                 tool_names.append(str(name))
 
         return tool_names
-
-    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-        return self._loop
 
     def _ensure_chat_client_initialized(self) -> None:
         if self._chat_client is None:
@@ -497,15 +488,6 @@ class LLMClient:
             custom_message_role=custom_message_role,
         )
 
-    def generate_summary(
-        self, existing_summary: Optional[str], new_conversations: List[Dict[str, str]]
-    ) -> str:
-        return self._memory_client.generate_summary(
-            existing_summary=existing_summary,
-            new_conversations=new_conversations,
-            prompt_builder=get_summary_prompt,
-        )
-
     async def generate_summary_async(
         self, existing_summary: Optional[str], new_conversations: List[Dict[str, str]]
     ) -> str:
@@ -514,22 +496,6 @@ class LLMClient:
             existing_summary=existing_summary,
             new_conversations=new_conversations,
             prompt_builder=get_summary_prompt,
-        )
-
-    def generate_memory_update(
-        self,
-        messages: List[Dict[str, str]],
-        current_seele_json: str,
-        first_timestamp: Optional[int] = None,
-        last_timestamp: Optional[int] = None,
-    ) -> str:
-        """Synchronous wrapper for generate_memory_update. Use generate_memory_update_async in async contexts."""
-        return self._memory_client.generate_memory_update(
-            messages=messages,
-            current_seele_json=current_seele_json,
-            prompt_builder=get_memory_update_prompt,
-            first_timestamp=first_timestamp,
-            last_timestamp=last_timestamp,
         )
 
     async def generate_memory_update_async(
@@ -544,26 +510,6 @@ class LLMClient:
             messages=messages,
             current_seele_json=current_seele_json,
             prompt_builder=get_memory_update_prompt,
-            first_timestamp=first_timestamp,
-            last_timestamp=last_timestamp,
-        )
-
-    def generate_complete_memory_json(
-        self,
-        messages: List[Dict[str, str]],
-        current_seele_json: str,
-        error_message: str,
-        previous_attempt: Optional[str] = None,
-        first_timestamp: Optional[int] = None,
-        last_timestamp: Optional[int] = None,
-    ) -> str:
-        """Synchronous wrapper for generating complete seele.json. Use generate_complete_memory_json_async in async contexts."""
-        return self._memory_client.generate_complete_memory_json(
-            messages=messages,
-            current_seele_json=current_seele_json,
-            error_message=error_message,
-            previous_attempt=previous_attempt,
-            prompt_builder=get_complete_memory_json_prompt,
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,
         )
@@ -588,24 +534,6 @@ class LLMClient:
             last_timestamp=last_timestamp,
         )
 
-    def generate_seele_repair(
-        self,
-        current_content: str,
-        schema_template: str,
-        error_message: str,
-        repair_context: str,
-        previous_attempt: Optional[str] = None,
-    ) -> str:
-        """Synchronously repair or migrate a persisted seele.json document."""
-        return self._memory_client.generate_seele_repair(
-            current_content=current_content,
-            schema_template=schema_template,
-            error_message=error_message,
-            repair_context=repair_context,
-            previous_attempt=previous_attempt,
-            prompt_builder=get_seele_repair_prompt,
-        )
-
     async def generate_seele_repair_async(
         self,
         current_content: str,
@@ -614,7 +542,7 @@ class LLMClient:
         repair_context: str,
         previous_attempt: Optional[str] = None,
     ) -> str:
-        """Asynchronously repair or migrate a persisted seele.json document."""
+        """Repair or migrate a persisted seele.json document."""
         return await self._memory_client.generate_seele_repair_async(
             current_content=current_content,
             schema_template=schema_template,
@@ -622,20 +550,6 @@ class LLMClient:
             repair_context=repair_context,
             previous_attempt=previous_attempt,
             prompt_builder=get_seele_repair_prompt,
-        )
-
-    def generate_seele_compaction(
-        self,
-        current_seele_json: str,
-        personal_facts_limit: int,
-        memorable_events_limit: int,
-    ) -> str:
-        """Synchronously compact overgrown seele memory sections."""
-        return self._memory_client.generate_seele_compaction(
-            current_seele_json=current_seele_json,
-            personal_facts_limit=personal_facts_limit,
-            memorable_events_limit=memorable_events_limit,
-            prompt_builder=get_seele_compaction_prompt,
         )
 
     async def generate_seele_compaction_async(
@@ -660,14 +574,6 @@ class LLMClient:
             await self._tool_client.close()
             self._tool_client = None
 
-    def close(self) -> None:
-        """Synchronous wrapper for close. Use close_async in async contexts."""
-        ensure_not_in_async_context(
-            "close() called from async context. Use await close_async() instead."
-        )
-        run_sync(self._async_close, self._get_event_loop)
-
     async def close_async(self) -> None:
         """Async version of close. Use this in async contexts."""
         await self._async_close()
-

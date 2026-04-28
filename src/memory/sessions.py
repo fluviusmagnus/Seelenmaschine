@@ -1,11 +1,9 @@
-import asyncio
 import inspect
 from typing import Any, Awaitable, Callable, List, Optional, Tuple
 
 from memory.context import ContextWindow, Message
 from core.database import DatabaseManager
 from llm.embedding import EmbeddingClient
-from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 from utils.text import strip_blockquotes
 from utils.time import get_current_timestamp
@@ -25,14 +23,6 @@ class SessionMemory:
         self.db = db
         self.embedding_client = embedding_client
         self.context_window = context_window
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-
-    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
-        """Provide a reusable event loop for sync wrappers."""
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-        return self._loop
 
     def _estimate_summary_window(
         self, messages: List[Message]
@@ -406,24 +396,6 @@ class SessionMemory:
 
         logger.info(f"Restored {total_count} unsummarized messages to context window")
 
-    def new_session(
-        self,
-        generate_summary: Callable[[List[Message]], str],
-        update_long_term_memory: Callable[[int, List[Message]], bool],
-    ) -> int:
-        """Create a new session and close the old one if needed."""
-        ensure_not_in_async_context(
-            "new_session() called from async context. Use await new_session_async() instead."
-        )
-        return run_sync(
-            lambda: self._new_session_impl(
-                generate_summary,
-                update_long_term_memory,
-                self.embedding_client.get_embedding,
-            ),
-            self._get_event_loop,
-        )
-
     async def new_session_async(
         self,
         generate_summary_async: Callable[[List[Message]], Awaitable[str]],
@@ -448,23 +420,6 @@ class SessionMemory:
 
         self._create_fresh_session("Created new session after reset")
 
-    def add_user_message(
-        self, session_id: int, text: str, embedding: Optional[List[float]] = None
-    ) -> Tuple[int, List[float]]:
-        """Store a user message and append it to the context window."""
-        ensure_not_in_async_context(
-            "add_user_message() called from async context. Use await add_user_message_async() instead."
-        )
-        return run_sync(
-            lambda: self._add_user_message_impl(
-                session_id,
-                text,
-                embedding,
-                self.embedding_client.get_embedding,
-            ),
-            self._get_event_loop,
-        )
-
     async def add_user_message_async(
         self, session_id: int, text: str, embedding: Optional[List[float]] = None
     ) -> Tuple[int, List[float]]:
@@ -474,26 +429,6 @@ class SessionMemory:
             text,
             embedding,
             self.embedding_client.get_embedding_async,
-        )
-
-    def add_assistant_message(
-        self,
-        session_id: int,
-        text: str,
-        embedding: Optional[List[float]] = None,
-    ) -> Tuple[int, Optional[int]]:
-        """Store an assistant message without triggering summarization."""
-        ensure_not_in_async_context(
-            "add_assistant_message() called from async context. Use await add_assistant_message_async() instead."
-        )
-        return run_sync(
-            lambda: self._add_assistant_message_impl(
-                session_id,
-                text,
-                embedding,
-                self.embedding_client.get_embedding,
-            ),
-            self._get_event_loop,
         )
 
     async def add_assistant_message_async(
@@ -508,24 +443,6 @@ class SessionMemory:
             text,
             embedding,
             self.embedding_client.get_embedding_async,
-        )
-
-    def check_and_create_summary(
-        self,
-        get_current_session_id: Callable[[], int],
-        generate_summary: Callable[[List[Message]], str],
-    ) -> Tuple[Optional[int], Optional[List[Message]]]:
-        """Create a summary when the context window exceeds the threshold."""
-        ensure_not_in_async_context(
-            "check_and_create_summary() called from async context. Use await check_and_create_summary_async() instead."
-        )
-        return run_sync(
-            lambda: self._check_and_create_summary_impl(
-                get_current_session_id,
-                generate_summary,
-                self.embedding_client.get_embedding,
-            ),
-            self._get_event_loop,
         )
 
     async def check_and_create_summary_async(

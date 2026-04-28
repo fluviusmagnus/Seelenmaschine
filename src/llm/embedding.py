@@ -1,10 +1,8 @@
-import asyncio
 from collections import OrderedDict
 from typing import List, Optional, cast
 from openai import AsyncOpenAI
 
 from core.config import Config
-from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -24,14 +22,7 @@ class EmbeddingClient:
         self.cache_max_entries = max(0, Config.EMBEDDING_CACHE_MAX_ENTRIES)
 
         self._client: Optional[AsyncOpenAI] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._cache: OrderedDict[str, List[float]] = OrderedDict()
-
-    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-        return self._loop
 
     def _ensure_client_initialized(self) -> None:
         if self._client is None:
@@ -77,13 +68,6 @@ class EmbeddingClient:
         except Exception as e:
             logger.error(f"Failed to get embedding: {e}")
             raise
-
-    def get_embedding(self, text: str) -> List[float]:
-        """Synchronous wrapper for get_embedding. Use get_embedding_async in async contexts."""
-        ensure_not_in_async_context(
-            "get_embedding() called from async context. Use await get_embedding_async() instead."
-        )
-        return run_sync(lambda: self._async_get_embedding(text), self._get_event_loop)
 
     async def get_embedding_async(self, text: str) -> List[float]:
         """Async method for getting embeddings. Use this in async contexts."""
@@ -147,9 +131,3 @@ class EmbeddingClient:
     async def close_async(self) -> None:
         """Async method for closing the underlying client."""
         await self._async_close()
-
-    def close(self) -> None:
-        ensure_not_in_async_context(
-            "close() called from async context. Use await close_async() instead."
-        )
-        run_sync(self._async_close, self._get_event_loop)

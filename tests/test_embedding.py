@@ -34,7 +34,6 @@ class TestEmbeddingClient:
         assert client.dimension == 768
         assert client.cache_max_entries == 2048
         assert client._client is None
-        assert client._loop is None
 
     def test_initialization_custom_values(self, mock_config):
         """Test initialization with custom values."""
@@ -46,18 +45,6 @@ class TestEmbeddingClient:
         assert client.api_key == "custom-key"
         assert client.base_url == "https://custom.api.com/v1"
         assert client.model == "custom-model"
-
-    def test_get_event_loop_creates_new_loop(self, embedding_client):
-        """Test _get_event_loop creates new loop if needed."""
-        loop = embedding_client._get_event_loop()
-        assert loop is not None
-        assert not loop.is_closed()
-
-    def test_get_event_loop_reuses_existing_loop(self, embedding_client):
-        """Test _get_event_loop reuses existing loop."""
-        loop1 = embedding_client._get_event_loop()
-        loop2 = embedding_client._get_event_loop()
-        assert loop1 is loop2
 
     def test_ensure_client_initialized(self, embedding_client):
         """Test _ensure_client_initialized creates client."""
@@ -86,41 +73,9 @@ class TestEmbeddingClient:
 
             assert call_count_1 == call_count_2
 
-    def test_get_embedding_sync(self, embedding_client):
-        """Test synchronous get_embedding."""
-        mock_response = Mock()
-        mock_response.data = [Mock()]
-        mock_response.data[0].embedding = [0.1] * 768
-
-        with patch.object(embedding_client, "_ensure_client_initialized"):
-            embedding_client._client = AsyncMock()
-            embedding_client._client.embeddings.create = AsyncMock(
-                return_value=mock_response
-            )
-
-            embedding = embedding_client.get_embedding("test text")
-
-            assert len(embedding) == 768
-            assert all(isinstance(x, float) for x in embedding)
-
-    def test_get_embedding_dimension_mismatch(self, embedding_client, caplog):
-        """Test get_embedding logs warning on dimension mismatch."""
-        mock_response = Mock()
-        mock_response.data = [Mock()]
-        mock_response.data[0].embedding = [0.1] * 512
-
-        with patch.object(embedding_client, "_ensure_client_initialized"):
-            embedding_client._client = AsyncMock()
-            embedding_client._client.embeddings.create = AsyncMock(
-                return_value=mock_response
-            )
-
-            embedding = embedding_client.get_embedding("test text")
-
-            assert len(embedding) == 512
-
-    def test_get_embedding_error_handling(self, embedding_client):
-        """Test get_embedding raises on API error."""
+    @pytest.mark.asyncio
+    async def test_get_embedding_error_handling(self, embedding_client):
+        """Test get_embedding_async raises on API error."""
         with patch.object(embedding_client, "_ensure_client_initialized"):
             embedding_client._client = AsyncMock()
             embedding_client._client.embeddings.create = AsyncMock(
@@ -128,7 +83,7 @@ class TestEmbeddingClient:
             )
 
             with pytest.raises(Exception, match="API Error"):
-                embedding_client.get_embedding("test text")
+                await embedding_client.get_embedding_async("test text")
 
     @pytest.mark.asyncio
     async def test_get_embedding_async(self, embedding_client):
@@ -303,28 +258,6 @@ class TestEmbeddingClient:
         assert client._cache == {}
         assert client._client.embeddings.create.await_count == 2
 
-    def test_close(self, embedding_client):
-        """Test closing client."""
-        import asyncio
-
-        mock_client = Mock()
-        mock_client.close = AsyncMock()
-        embedding_client._client = mock_client
-        embedding_client._loop = asyncio.new_event_loop()
-
-        embedding_client.close()
-
-        # Verify the client was set to None after close
-        assert embedding_client._client is None
-
-        if not embedding_client._loop.is_closed():
-            embedding_client._loop.close()
-
-    def test_close_when_no_client(self, embedding_client):
-        """Test close when no client exists."""
-        embedding_client._client = None
-        embedding_client.close()
-
     @pytest.mark.asyncio
     async def test_close_async(self, embedding_client):
         """Async close should close the underlying client."""
@@ -336,22 +269,3 @@ class TestEmbeddingClient:
 
         mock_client.close.assert_awaited_once()
         assert embedding_client._client is None
-
-    @pytest.mark.asyncio
-    async def test_close_in_async_context_points_to_close_async(self, embedding_client):
-        """Sync close should reject async contexts with the public async API."""
-        with pytest.raises(RuntimeError, match=r"Use await close_async\(\) instead"):
-            embedding_client.close()
-
-    def test_get_embedding_in_async_context_raises(self, embedding_client):
-        """Test get_embedding raises RuntimeError in async context."""
-
-        async def async_func():
-            with pytest.raises(
-                RuntimeError, match="get_embedding\\(\\) called from async context"
-            ):
-                embedding_client.get_embedding("test")
-
-        import asyncio
-
-        asyncio.run(async_func())

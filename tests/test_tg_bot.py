@@ -384,18 +384,7 @@ class TestTelegramAdapterApplication:
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
                 mock_message_handler.core_bot.warmup_tool_runtime = AsyncMock()
                 mock_message_handler.core_bot.scheduler.start = Mock()
-                adapter._application = adapter._application_setup.create_application(
-                    application_builder_factory=mock_builder,
-                    command_handler_cls=__import__(
-                        "telegram.ext", fromlist=["CommandHandler"]
-                    ).CommandHandler,
-                    message_handler_cls=__import__(
-                        "telegram.ext", fromlist=["MessageHandler"]
-                    ).MessageHandler,
-                    filters_module=__import__(
-                        "telegram.ext", fromlist=["filters"]
-                    ).filters,
-                )
+                adapter.create_application()
 
                 assert mock_application.post_init is not None
 
@@ -450,18 +439,7 @@ class TestTelegramAdapterApplication:
                 adapter = TelegramAdapter(message_handler=mock_message_handler)
                 mock_message_handler.core_bot.scheduler.stop = Mock()
                 mock_message_handler.core_bot.scheduler.wait_stopped = AsyncMock()
-                adapter._application = adapter._application_setup.create_application(
-                    application_builder_factory=mock_builder,
-                    command_handler_cls=__import__(
-                        "telegram.ext", fromlist=["CommandHandler"]
-                    ).CommandHandler,
-                    message_handler_cls=__import__(
-                        "telegram.ext", fromlist=["MessageHandler"]
-                    ).MessageHandler,
-                    filters_module=__import__(
-                        "telegram.ext", fromlist=["filters"]
-                    ).filters,
-                )
+                adapter.create_application()
 
                 assert mock_application.post_shutdown is not None
                 asyncio.run(mock_application.post_shutdown(Mock()))

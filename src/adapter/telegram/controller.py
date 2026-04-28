@@ -11,7 +11,6 @@ from adapter.telegram.delivery import (
 )
 from adapter.telegram.files import TelegramFiles
 from adapter.telegram.formatter import TelegramResponseFormatter
-from core.adapter_contracts import AdapterRuntimeCapabilities
 from core.bot import CoreBot
 from core.file_service import FileDeliveryService
 from core.hitl import ApprovalService, ToolLoopAbortedError
@@ -131,18 +130,14 @@ class TelegramController:
                 parse_mode="HTML",
             )
 
-        capabilities = AdapterRuntimeCapabilities(
+        self.core_bot.initialize_adapter_runtime(
+            approval_delegate=self.commands,
             preview_text=self._preview_text,
             send_file_to_user=lambda **kwargs: self._send_file_to_user_via_telegram(
                 files=file_service,
                 **kwargs,
             ),
             send_status_message=_send_status_message,
-        )
-
-        self.core_bot.initialize_adapter_runtime(
-            approval_delegate=self.commands,
-            capabilities=capabilities,
         )
         logger.info("TelegramController initialized")
 

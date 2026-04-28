@@ -1,9 +1,7 @@
-import asyncio
 from typing import List, Optional, Dict, Any
 import httpx
 
 from core.config import Config
-from utils.async_utils import ensure_not_in_async_context, run_sync
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -22,7 +20,6 @@ class RerankerClient:
         
         self._enabled = bool(self.api_key and self.model and self.base_url)
         self._client: Optional[httpx.AsyncClient] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
         
         if self._enabled:
             logger.info(f"RerankerClient initialized: {self.model}")
@@ -31,12 +28,6 @@ class RerankerClient:
 
     def is_enabled(self) -> bool:
         return self._enabled
-
-    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None or self._loop.is_closed():
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-        return self._loop
 
     def _ensure_client_initialized(self) -> None:
         if not self._enabled:
@@ -106,24 +97,6 @@ class RerankerClient:
             logger.error(f"Rerank failed, returning original documents: {e}")
             return documents[:top_n] if top_n else documents
 
-    def rerank(
-        self,
-        query: str,
-        documents: List[Dict[str, Any]],
-        top_n: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Synchronous wrapper for rerank. Use rerank_async in async contexts."""
-        if not self._enabled:
-            return documents[:top_n] if top_n else documents
-
-        ensure_not_in_async_context(
-            "rerank() called from async context. Use await rerank_async() instead."
-        )
-        return run_sync(
-            lambda: self._async_rerank(query, documents, top_n),
-            self._get_event_loop,
-        )
-    
     async def rerank_async(
         self,
         query: str,
@@ -141,9 +114,3 @@ class RerankerClient:
     async def close_async(self) -> None:
         """Async method for closing the underlying client."""
         await self._async_close()
-
-    def close(self) -> None:
-        ensure_not_in_async_context(
-            "close() called from async context. Use await close_async() instead."
-        )
-        run_sync(self._async_close, self._get_event_loop)

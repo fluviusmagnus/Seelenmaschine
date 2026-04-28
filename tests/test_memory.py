@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from memory.manager import MemoryManager
 from core.database import DatabaseManager
@@ -23,8 +23,7 @@ def mock_db():
 def mock_embedding_client():
     """Create mock EmbeddingClient."""
     client = Mock(EmbeddingClient)
-    client.get_embedding.return_value = [0.1] * 1536
-    client.get_embedding_async.return_value = [0.1] * 1536
+    client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
     return client
 
 
@@ -75,15 +74,17 @@ class TestMemoryManager:
         with pytest.raises(RuntimeError):
             memory_manager.get_current_session_id()
 
-    def test_new_session(self, memory_manager, mock_db):
+    @pytest.mark.asyncio
+    async def test_new_session(self, memory_manager, mock_db):
         """Test creating a new session."""
         mock_db.get_active_session.return_value = {"session_id": 1}
-        new_id = memory_manager.new_session()
+        new_id = await memory_manager.new_session_async()
         assert mock_db.close_session.called
         assert mock_db.create_session.called
         assert new_id == 1
 
-    def test_new_session_with_remaining_messages(self, memory_manager, mock_db):
+    @pytest.mark.asyncio
+    async def test_new_session_with_remaining_messages(self, memory_manager, mock_db):
         """Test creating new session summarizes remaining messages."""
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_summary.return_value = 10
@@ -94,33 +95,38 @@ class TestMemoryManager:
         memory_manager.context_window.add_message("user", "How are you?", timestamp=160)
 
         with patch.object(
-            memory_manager, "_generate_summary", return_value="Final summary"
+            memory_manager,
+            "_generate_summary_async",
+            new=AsyncMock(return_value="Final summary"),
         ) as mock_summary:
             with patch.object(
-                memory_manager, "_update_long_term_memory", return_value=True
+                memory_manager,
+                "_update_long_term_memory_async",
+                new=AsyncMock(return_value=True),
             ) as mock_update_ltm:
-                memory_manager.new_session()
+                await memory_manager.new_session_async()
 
                 # Verify summary was created for remaining messages
-                assert mock_summary.called
+                assert mock_summary.await_count
                 assert mock_db.insert_summary.called
                 assert mock_db.insert_summary.call_args.kwargs["first_timestamp"] == 100
                 assert mock_db.insert_summary.call_args.kwargs["last_timestamp"] == 160
 
                 # Verify long-term memory was updated with the remaining messages
-                assert mock_update_ltm.called
-                update_call_args = mock_update_ltm.call_args[0]
+                assert mock_update_ltm.await_count
+                update_call_args = mock_update_ltm.await_args.args
                 assert update_call_args[0] == 10  # summary_id
                 assert len(update_call_args[1]) == 3  # 3 remaining messages
 
-    def test_new_session_ignores_scheduled_task_messages_in_summary(self, memory_manager, mock_db):
+    @pytest.mark.asyncio
+    async def test_new_session_ignores_scheduled_task_messages_in_summary(self, memory_manager, mock_db):
         """Scheduled-task trigger messages should not pollute final summary input."""
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_summary.return_value = 10
         mock_db.insert_conversation.return_value = 20
 
         memory_manager.context_window.add_message("user", "Hello", timestamp=100)
-        memory_manager.add_context_message(
+        await memory_manager.add_context_message_async(
             "[Scheduled Task Trigger]\n提醒喝水",
             role="system",
             message_type="scheduled_task",
@@ -131,22 +137,27 @@ class TestMemoryManager:
         memory_manager.context_window.add_message("assistant", "Hi there", timestamp=130)
 
         with patch.object(
-            memory_manager, "_generate_summary", return_value="Final summary"
+            memory_manager,
+            "_generate_summary_async",
+            new=AsyncMock(return_value="Final summary"),
         ) as mock_summary:
             with patch.object(
-                memory_manager, "_update_long_term_memory", return_value=True
+                memory_manager,
+                "_update_long_term_memory_async",
+                new=AsyncMock(return_value=True),
             ):
-                memory_manager.new_session()
+                await memory_manager.new_session_async()
 
-        summarized_messages = mock_summary.call_args[0][0]
+        summarized_messages = mock_summary.await_args.args[0]
         assert [message.text for message in summarized_messages] == ["Hello", "Hi there"]
         assert mock_db.close_session.called
         assert mock_db.create_session.called
 
-    def test_new_session_no_existing(self, memory_manager, mock_db):
+    @pytest.mark.asyncio
+    async def test_new_session_no_existing(self, memory_manager, mock_db):
         """Test creating new session when none exists."""
         mock_db.get_active_session.return_value = None
-        memory_manager.new_session()
+        await memory_manager.new_session_async()
         assert not mock_db.close_session.called
         assert mock_db.create_session.called
 
@@ -161,19 +172,21 @@ class TestMemoryManager:
         mock_restore.assert_called_once_with(1)
         mock_capture.assert_called_once()
 
-    def test_add_user_message(self, memory_manager, mock_db):
+    @pytest.mark.asyncio
+    async def test_add_user_message(self, memory_manager, mock_db):
         """Test adding user message."""
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_conversation.return_value = 10
 
-        conv_id, embedding = memory_manager.add_user_message("Hello")
+        conv_id, embedding = await memory_manager.add_user_message_async("Hello")
 
         assert conv_id == 10
         assert len(embedding) == 1536
         assert mock_db.insert_conversation.called
         assert memory_manager.context_window.get_total_message_count() == 1
 
-    def test_add_assistant_message(self, memory_manager, mock_db, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_add_assistant_message(self, memory_manager, mock_db, monkeypatch):
         """Test adding assistant message."""
         # Mock Config values using monkeypatch
         from core.config import Config
@@ -183,36 +196,15 @@ class TestMemoryManager:
         mock_db.get_active_session.return_value = {"session_id": 1}
         mock_db.insert_conversation.return_value = 11
 
-        conv_id, summary_id = memory_manager.add_assistant_message("Response")
+        conv_id, summary_id = await memory_manager.add_assistant_message_async(
+            "Response"
+        )
 
         assert conv_id == 11
         assert mock_db.insert_conversation.called
 
     @pytest.mark.asyncio
-    async def test_sync_memory_api_rejects_async_context(self, memory_manager, mock_db):
-        """Sync session APIs should fail clearly inside async contexts."""
-        mock_db.get_active_session.return_value = {"session_id": 1}
-
-        with pytest.raises(RuntimeError, match="new_session\\(\\) called from async context"):
-            memory_manager.new_session()
-
-        with pytest.raises(
-            RuntimeError, match="add_user_message\\(\\) called from async context"
-        ):
-            memory_manager.add_user_message("Hello")
-
-        with pytest.raises(
-            RuntimeError, match="add_assistant_message\\(\\) called from async context"
-        ):
-            memory_manager.add_assistant_message("Response")
-
-        with pytest.raises(
-            RuntimeError,
-            match="check_and_create_summary\\(\\) called from async context",
-        ):
-            memory_manager._check_and_create_summary()
-
-    def test_add_assistant_message_triggers_summary(
+    async def test_add_assistant_message_triggers_summary(
         self, memory_manager, mock_db, monkeypatch
     ):
         """Test that adding assistant message triggers summary when threshold reached."""
@@ -236,22 +228,28 @@ class TestMemoryManager:
 
         # add_assistant_message 本身不再自动触发 summary，需显式执行 summary check
         with patch.object(
-            memory_manager, "_generate_summary", return_value="Test summary"
+            memory_manager,
+            "_generate_summary_async",
+            new=AsyncMock(return_value="Test summary"),
         ):
             with patch.object(
                 memory_manager,
-                "_generate_memory_update",
-                return_value='{"user": {"name": "Test"}}',
+                "_generate_memory_update_async",
+                new=AsyncMock(return_value='{"user": {"name": "Test"}}'),
             ) as mock_memory_update:
                 with patch.object(
-                    memory_manager, "update_long_term_memory", return_value=True
+                    memory_manager,
+                    "update_long_term_memory_async",
+                    new=AsyncMock(return_value=True),
                 ):
-                    conv_id, summary_id = memory_manager.add_assistant_message("Response")
+                    conv_id, summary_id = await memory_manager.add_assistant_message_async(
+                        "Response"
+                    )
                     summary_id, summarized_messages = (
-                        memory_manager._check_and_create_summary()
+                        await memory_manager._check_and_create_summary_async()
                     )
                     if summary_id is not None and summarized_messages is not None:
-                        memory_manager._update_long_term_memory(
+                        await memory_manager._update_long_term_memory_async(
                             summary_id, summarized_messages
                         )
 
@@ -262,15 +260,16 @@ class TestMemoryManager:
 
                     # Verify that _generate_memory_update was called with the correct messages
                     # It should be called with the 12 messages that were summarized (the earliest ones)
-                    assert mock_memory_update.called
-                    called_messages = mock_memory_update.call_args[0][0]
+                    assert mock_memory_update.await_count
+                    called_messages = mock_memory_update.await_args.args[0]
 
                     # The first 12 messages should have been used for the summary and memory update
                     assert len(called_messages) == 12
                     assert called_messages[0].text == "Message 0"
                     assert called_messages[11].text == "Message 11"
 
-    def test_process_user_input(self, memory_manager):
+    @pytest.mark.asyncio
+    async def test_process_user_input(self, memory_manager):
         """Test processing user input retrieves related memories."""
         summaries = [
             RetrievedSummary(
@@ -295,8 +294,8 @@ class TestMemoryManager:
 
         with patch.object(
             memory_manager.retriever,
-            "retrieve_related_memories",
-            return_value=(summaries, conversations),
+            "retrieve_related_memories_async",
+            new=AsyncMock(return_value=(summaries, conversations)),
         ):
             with patch.object(
                 memory_manager.retriever,
@@ -309,7 +308,7 @@ class TestMemoryManager:
                     return_value=["Formatted Conv 1"],
                 ):
                     formatted_summaries, formatted_convs = (
-                        memory_manager.process_user_input("Hello")
+                        await memory_manager.process_user_input_async("Hello")
                     )
 
                     assert len(formatted_summaries) == 1
@@ -338,26 +337,28 @@ class TestMemoryManager:
         assert len(summaries) == 2
         assert summaries[0] == "Summary 1"
 
-    def test_update_long_term_memory_invalid_json(self, memory_manager):
+    @pytest.mark.asyncio
+    async def test_update_long_term_memory_invalid_json(self, memory_manager):
         """Test update_long_term_memory returns False for invalid JSON."""
-        result = memory_manager.update_long_term_memory(1, "not json")
+        result = await memory_manager.update_long_term_memory_async(1, "not json")
         assert result is False
 
-    def test_fallback_retry_reuses_previous_failed_output(self, memory_manager):
+    @pytest.mark.asyncio
+    async def test_fallback_retry_reuses_previous_failed_output(self, memory_manager):
         """Retry should pass the raw failed generation output into the next attempt."""
         memory_manager.seele.validate_seele_structure = Mock(return_value=True)
         memory_manager.seele.clean_json_response = Mock(side_effect=lambda value: value)
         memory_manager.seele._write_complete_seele_json = Mock()
 
         messages = []
-        generate_complete_json = Mock(
+        generate_complete_json = AsyncMock(
             side_effect=[
                 '{"bot": {oops}}',
                 '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
             ]
         )
 
-        result = memory_manager.seele._retry_complete_json_generation(
+        result = await memory_manager.seele._retry_complete_json_generation_async(
             summary_id=1,
             messages=messages,
             error_message="patch failed",
@@ -366,13 +367,13 @@ class TestMemoryManager:
         )
 
         assert result is True
-        assert generate_complete_json.call_args_list[0].args == (
+        assert generate_complete_json.await_args_list[0].args == (
             messages,
             "patch failed",
             1,
             None,
         )
-        assert generate_complete_json.call_args_list[1].args == (
+        assert generate_complete_json.await_args_list[1].args == (
             messages,
             memory_manager.seele._build_parse_retry_message(
                 json.JSONDecodeError(
@@ -449,7 +450,8 @@ def test_fallback_compact_memorable_events_prioritizes_importance_then_date():
     assert set(compacted.keys()) == {"evt_high", "evt_mid_old"}
 
 
-def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_manager):
+@pytest.mark.asyncio
+async def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_manager):
     """Successful patch application should trigger follow-up compaction when needed."""
     from memory.seele import PERSONAL_FACTS_LIMIT
 
@@ -471,21 +473,25 @@ def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_manager
         },
     }
 
-    with patch("prompts.update_seele_json", return_value=True):
+    with patch("prompts.runtime.update_seele_json", return_value=True):
         with patch.object(memory_manager.seele, "get_long_term_memory", return_value=oversized_memory):
             with patch.object(
                 memory_manager.seele,
-                "_compact_overflowing_memory",
-                return_value=compacted_memory,
+                "_compact_overflowing_memory_async",
+                new=AsyncMock(return_value=compacted_memory),
             ) as mock_compact:
                 with patch.object(
                     memory_manager.seele,
                     "_write_complete_seele_json",
                 ) as mock_write:
-                    result = memory_manager.seele._apply_generated_patch(1, [], None)
+                    result = await memory_manager.seele._apply_generated_patch_async(
+                        1,
+                        [],
+                        None,
+                    )
 
     assert result is True
-    mock_compact.assert_called_once_with(oversized_memory)
+    mock_compact.assert_awaited_once_with(oversized_memory)
     mock_write.assert_called_once_with(compacted_memory)
 
 
@@ -526,12 +532,74 @@ def test_compact_overflowing_memory_uses_fallback_for_invalid_llm_output(memory_
     }
 
     fake_client = Mock()
-    fake_client.generate_seele_compaction.return_value = '{"personal_facts": [""], "memorable_events": {}}'
-    fake_client.close = Mock()
+    fake_client.generate_seele_compaction_async = AsyncMock(
+        return_value='{"personal_facts": [""], "memorable_events": {}}'
+    )
+    fake_client.close_async = AsyncMock()
 
     with patch("llm.chat_client.LLMClient", return_value=fake_client):
         compacted = memory_manager.seele._compact_overflowing_memory(oversized_memory)
 
     assert len(compacted["user"]["personal_facts"]) == PERSONAL_FACTS_LIMIT
     assert compacted["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
-    fake_client.close.assert_called_once()
+    fake_client.close_async.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_write_complete_seele_json_async_compacts_with_async_fallback(
+    memory_manager, tmp_path, monkeypatch
+):
+    """Async full writes should compact oversized memory without sync bridge calls."""
+    from core.config import Config
+    from memory.seele import PERSONAL_FACTS_LIMIT
+    import prompts.runtime as prompts_runtime
+
+    seele_path = tmp_path / "seele.json"
+    monkeypatch.setattr(Config, "SEELE_JSON_PATH", seele_path)
+    prompts_runtime._seele_json_cache = {}
+
+    oversized_memory = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": ""},
+            "needs": {"long_term": "", "short_term": ""},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [f"Fact {i}" for i in range(PERSONAL_FACTS_LIMIT + 3)],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": ""},
+            "needs": {"long_term": "", "short_term": ""},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+    fake_client = Mock()
+    fake_client.generate_seele_compaction_async = AsyncMock(
+        return_value='{"personal_facts": [""], "memorable_events": {}}'
+    )
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        await memory_manager.seele._write_complete_seele_json_async(oversized_memory)
+
+    saved = json.loads(seele_path.read_text(encoding="utf-8"))
+    assert saved["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
+    assert prompts_runtime._seele_json_cache == saved
+    fake_client.generate_seele_compaction_async.assert_awaited_once()
+    fake_client.close_async.assert_awaited_once()

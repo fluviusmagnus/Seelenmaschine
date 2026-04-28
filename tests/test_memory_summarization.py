@@ -31,7 +31,6 @@ class TestMemoryManagerAutomaticSummarization:
     def mock_embedding_client(self):
         """Create a mock EmbeddingClient"""
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
         client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
@@ -74,7 +73,8 @@ class TestMemoryManagerLongTermMemory:
             "reranker_client": reranker_client,
         }
     
-    def test_memory_update_json_patch_generation(self, mock_dependencies):
+    @pytest.mark.asyncio
+    async def test_memory_update_json_patch_generation(self, mock_dependencies):
         """Test that memory update generates valid JSON Patch"""
         from memory.manager import MemoryManager
 
@@ -84,9 +84,10 @@ class TestMemoryManagerLongTermMemory:
         ]
 
         llm_client = Mock()
-        llm_client.generate_memory_update.return_value = (
+        llm_client.generate_memory_update_async = AsyncMock(return_value=(
             '[{"op":"add","path":"/user/preferences/coffee","value":"black"}]'
-        )
+        ))
+        llm_client.close_async = AsyncMock()
 
         with patch("memory.manager.ContextWindow") as mock_ctx_class:
             mock_ctx = Mock()
@@ -107,21 +108,22 @@ class TestMemoryManagerLongTermMemory:
             return_value={"user": {"preferences": {}}},
         ):
             with patch("llm.chat_client.LLMClient", return_value=llm_client):
-                json_patch = mm._generate_memory_update(messages, summary_id=42)
+                json_patch = await mm._generate_memory_update_async(messages, summary_id=42)
 
         assert json_patch == (
             '[{"op":"add","path":"/user/preferences/coffee","value":"black"}]'
         )
         mock_dependencies["db"].get_summary_by_id.assert_called_once_with(42)
-        llm_client.generate_memory_update.assert_called_once_with(
+        llm_client.generate_memory_update_async.assert_awaited_once_with(
             [msg.to_dict() for msg in messages],
             '{\n  "user": {\n    "preferences": {}\n  }\n}',
             1000,
             2000,
         )
-        llm_client.close.assert_called_once()
+        llm_client.close_async.assert_awaited_once()
     
-    def test_memory_update_applies_to_seele_json(self, mock_dependencies):
+    @pytest.mark.asyncio
+    async def test_memory_update_applies_to_seele_json(self, mock_dependencies):
         """Test that generated memory updates are forwarded to seele.json updater."""
         from memory.manager import MemoryManager
 
@@ -145,17 +147,22 @@ class TestMemoryManagerLongTermMemory:
 
         with patch.object(
             mm,
-            "_generate_memory_update",
-            return_value='[{"op":"replace","path":"/user/name","value":"Test"}]',
+            "_generate_memory_update_async",
+            new=AsyncMock(return_value='[{"op":"replace","path":"/user/name","value":"Test"}]'),
         ) as mock_generate:
             with patch.object(
-                mm, "update_long_term_memory", return_value=True
+                mm,
+                "update_long_term_memory_async",
+                new=AsyncMock(return_value=True),
             ) as mock_update:
-                success = mm._update_long_term_memory(summary_id=7, messages=messages)
+                success = await mm._update_long_term_memory_async(
+                    summary_id=7,
+                    messages=messages,
+                )
 
         assert success is True
-        mock_generate.assert_called_once_with(messages, 7)
-        mock_update.assert_called_once_with(
+        mock_generate.assert_awaited_once_with(messages, 7)
+        mock_update.assert_awaited_once_with(
             7,
             '[{"op":"replace","path":"/user/name","value":"Test"}]',
             messages,
@@ -176,7 +183,6 @@ class TestMemoryManagerRetrievalFlow:
     def mock_embedding_client(self):
         """Create a mock EmbeddingClient"""
         client = Mock()
-        client.get_embedding.return_value = [0.1] * 1536
         client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         return client
     
@@ -189,10 +195,6 @@ class TestMemoryManagerRetrievalFlow:
             {"text": "Summary 1", "summary_id": 1, "session_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95},
             {"text": "Summary 2", "summary_id": 2, "session_id": 1, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.85}
         ])
-        client.rerank.return_value = [
-            {"text": "Summary 1", "summary_id": 1, "session_id": 1, "first_timestamp": 1000, "last_timestamp": 2000, "score": 0.95},
-            {"text": "Summary 2", "summary_id": 2, "session_id": 1, "first_timestamp": 1100, "last_timestamp": 2100, "score": 0.85}
-        ]
         return client
     
     def test_retrieval_excludes_recent_summaries(self, mock_db, mock_embedding_client, mock_reranker_client):
@@ -214,7 +216,7 @@ class TestMemoryManagerRetrievalFlow:
                             mock_ctx_class.return_value = mock_ctx
                             
                             mock_retriever = Mock()
-                            mock_retriever.retrieve_related_memories.return_value = ([], [])
+                            mock_retriever.retrieve_related_memories_async = AsyncMock(return_value=([], []))
                             mock_retriever_class.return_value = mock_retriever
                             
                             mm = MemoryManager(
@@ -226,7 +228,8 @@ class TestMemoryManagerRetrievalFlow:
                             # Verify the manager was created
                             assert mm is not None
     
-    def test_retrieval_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_retrieval_with_bot_message_dual_query(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test dual-query retrieval when last bot message exists"""
         from memory.vector_retriever import VectorRetriever
         
@@ -253,7 +256,7 @@ class TestMemoryManagerRetrievalFlow:
         ]
         
         # Test with last bot message - should trigger dual query
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             query="user message",
             last_bot_message="bot response"
         )
@@ -263,7 +266,8 @@ class TestMemoryManagerRetrievalFlow:
         assert len(summaries) == 1
         assert len(conversations) == 1
     
-    def test_retrieval_reranking_applied(self, mock_db, mock_embedding_client, mock_reranker_client):
+    @pytest.mark.asyncio
+    async def test_retrieval_reranking_applied(self, mock_db, mock_embedding_client, mock_reranker_client):
         """Test that reranking is applied to retrieved memories"""
         from memory.vector_retriever import VectorRetriever
         
@@ -298,7 +302,7 @@ class TestMemoryManagerRetrievalFlow:
         mock_reranker_client.rerank_async.side_effect = mock_rerank_side_effect
         
         # Call retrieve
-        summaries, conversations = retriever.retrieve_related_memories(
+        summaries, conversations = await retriever.retrieve_related_memories_async(
             query="test query"
         )
         
@@ -311,4 +315,3 @@ class TestMemoryManagerRetrievalFlow:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -228,16 +228,6 @@ class TestMCPClient:
 
         assert tools == [{"type": "function", "function": {"name": "cached", "description": "cached tool", "parameters": {}}}]
 
-    def test_get_tools_sync_with_cache(self, mcp_client):
-        """Deprecated sync wrapper should still return cached tools."""
-        cached_tools = [{"type": "function", "function": {"name": "cached"}}]
-        mcp_client._tools_cache = cached_tools
-
-        with pytest.deprecated_call(match=r"get_tools_sync\(\) is deprecated"):
-            tools = mcp_client.get_tools_sync()
-
-        assert tools == cached_tools
-
     def test_extract_text_from_content_block_omits_base64_image_payload(
         self, mcp_client
     ):
@@ -376,23 +366,6 @@ class TestMCPClient:
             result = await mcp_client.call_tool("test_tool", {})
 
             assert "failed" in result
-
-    def test_call_tool_sync_deprecated_wrapper(self, mcp_client):
-        """Deprecated sync wrapper should still work for compatibility."""
-        mock_client = AsyncMock()
-
-        mock_result = Mock()
-        mock_content = Mock()
-        mock_content.text = "Tool result text"
-        mock_result.content = [mock_content]
-
-        mock_client.call_tool = AsyncMock(return_value=mock_result)
-        mcp_client.client = mock_client
-
-        with pytest.deprecated_call(match=r"call_tool_sync\(\) is deprecated"):
-            result = mcp_client.call_tool_sync("test_tool", {"arg": "value"})
-
-        assert result == "Tool result text"
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self, mcp_client):

@@ -81,21 +81,16 @@ class TestToolRuntimeWarmup:
         approval_delegate.notify_approved_action_finished = AsyncMock()
         approval_delegate.notify_approved_action_failed = AsyncMock()
 
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=approval_delegate,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
         )
 
-        runtime = core_bot.get_tool_runtime()
-        await runtime.warmup()
+        await core_bot.warmup_tool_runtime()
 
-        assert core_bot.tool_runtime_state.mcp_client is None
-        assert core_bot.tool_runtime_state.mcp_connected is False
+        assert core_bot.mcp_client is None
+        assert core_bot.mcp_connected is False
 
     @pytest.mark.asyncio
     async def test_warmup_falls_back_to_local_tools_when_mcp_connection_fails(self):
@@ -129,24 +124,19 @@ class TestToolRuntimeWarmup:
         approval_delegate.notify_approved_action_finished = AsyncMock()
         approval_delegate.notify_approved_action_failed = AsyncMock()
 
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=approval_delegate,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
         )
 
-        runtime = core_bot.get_tool_runtime()
-        core_bot.tool_runtime_state.mcp_client.__aenter__ = AsyncMock(
+        core_bot.mcp_client.__aenter__ = AsyncMock(
             side_effect=RuntimeError("boom")
         )
 
-        await runtime.warmup()
+        await core_bot.warmup_tool_runtime()
 
-        assert core_bot.tool_runtime_state.mcp_connected is False
+        assert core_bot.mcp_connected is False
         assert llm_client.set_tools.call_count >= 2
 
 
@@ -945,18 +935,14 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-                send_status_message=owner.telegram_bot.send_message,
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
+            send_status_message=owner.telegram_bot.send_message,
         )
-        core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
-        core_bot.tool_runtime_state.registry_service.register_named(
+        core_bot.safety_policy = ToolSafetyPolicy(config)
+        core_bot.registry_service.register_named(
             "execute_shell_command", shell_tool
         )
 
@@ -1227,17 +1213,13 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
         )
-        core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
-        core_bot.get_tool_executor_service().request_approval = AsyncMock(
+        core_bot.safety_policy = ToolSafetyPolicy(config)
+        core_bot._get_tool_executor().request_approval = AsyncMock(
             return_value=ApprovalDecision(
                 approved=False,
                 abort_reason="User declined this action.",
@@ -1321,17 +1303,13 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
         )
-        core_bot.tool_runtime_state.safety_policy = ToolSafetyPolicy(config)
-        core_bot.get_tool_executor_service().request_approval = AsyncMock(
+        core_bot.safety_policy = ToolSafetyPolicy(config)
+        core_bot._get_tool_executor().request_approval = AsyncMock(
             side_effect=ApprovalTimeoutError(
                 "Error: Approval timed out. The action was not approved."
             )
@@ -1387,14 +1365,10 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
         )
 
         slow_tool = Mock()
@@ -1405,7 +1379,7 @@ class TestMessageProcessing:
             return "done"
 
         slow_tool.execute = AsyncMock(side_effect=_slow_execute)
-        core_bot.tool_runtime_state.registry_service.register_named("slow_tool", slow_tool)
+        core_bot.registry_service.register_named("slow_tool", slow_tool)
 
         with pytest.raises(
             TimeoutError,
@@ -1453,17 +1427,13 @@ class TestMessageProcessing:
             preview_text=owner._preview_text,
             format_exception_for_user=str,
         )
-        from core.adapter_contracts import AdapterRuntimeCapabilities
-
         core_bot.initialize_adapter_runtime(
             approval_delegate=commands,
-            capabilities=AdapterRuntimeCapabilities(
-                preview_text=owner._preview_text,
-                send_file_to_user=AsyncMock(return_value={"status": "sent"}),
-            ),
+            preview_text=owner._preview_text,
+            send_file_to_user=AsyncMock(return_value={"status": "sent"}),
         )
 
-        shell_tool = core_bot.tool_runtime_state.registry_service.get(
+        shell_tool = core_bot.registry_service.get(
             "execute_shell_command"
         )
         assert shell_tool is not None

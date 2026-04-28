@@ -29,8 +29,6 @@ class TestMemoryManagerAutomaticSummarization:
         db.create_session.return_value = 2
         
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
-        embedding_client.get_embedding_async.return_value = [0.1] * 1536
         embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         
         reranker_client = Mock()
@@ -64,7 +62,6 @@ class TestMemoryManagerLongTermMemory:
         db.create_session.return_value = 2
         
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
         embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         
         reranker_client = Mock()
@@ -104,7 +101,8 @@ class TestMemoryManagerLongTermMemory:
                     # Verify memory manager was created successfully
                     assert mm is not None
     
-    def test_memory_update_applies_to_seele_json(self, mock_dependencies):
+    @pytest.mark.asyncio
+    async def test_memory_update_applies_to_seele_json(self, mock_dependencies):
         """Test that memory update is applied to seele.json"""
         from memory.manager import MemoryManager
 
@@ -121,8 +119,8 @@ class TestMemoryManagerLongTermMemory:
                 reranker_client=mock_dependencies['reranker_client']
             )
 
-        with patch('prompts.update_seele_json', return_value=True) as mock_update:
-            success = mm.update_long_term_memory(
+        with patch('prompts.runtime.update_seele_json', return_value=True) as mock_update:
+            success = await mm.update_long_term_memory_async(
                 summary_id=100,
                 json_patch='[{"op":"replace","path":"/user/name","value":"Test User"}]'
             )
@@ -157,7 +155,8 @@ class TestMemoryManagerLongTermMemory:
 class TestMemoryManagerCompleteFlows:
     """Test complete memory management flows"""
     
-    def test_full_conversation_to_summary_flow(self):
+    @pytest.mark.asyncio
+    async def test_full_conversation_to_summary_flow(self):
         """Test complete flow from conversation to summary to retrieval"""
         from memory.manager import MemoryManager
 
@@ -168,7 +167,7 @@ class TestMemoryManagerCompleteFlows:
         db.insert_conversation.return_value = 200
 
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
 
         reranker_client = Mock()
 
@@ -176,18 +175,27 @@ class TestMemoryManagerCompleteFlows:
             with patch('core.config.Config.CONTEXT_WINDOW_KEEP_MIN', 12):
                 mm = MemoryManager(db, embedding_client, reranker_client)
 
-        with patch.object(mm, "_check_and_create_summary", return_value=(123, [Message("user", "hello")])):
-            with patch.object(mm, "_update_long_term_memory", return_value=True) as mock_update_memory:
-                conversation_id, summary_id = mm.add_assistant_message("This is a response")
-                summary_id, summarized_messages = mm._check_and_create_summary()
+        with patch.object(
+            mm,
+            "_check_and_create_summary_async",
+            new=AsyncMock(return_value=(123, [Message("user", "hello")])),
+        ):
+            with patch.object(
+                mm,
+                "_update_long_term_memory_async",
+                new=AsyncMock(return_value=True),
+            ) as mock_update_memory:
+                conversation_id, summary_id = await mm.add_assistant_message_async("This is a response")
+                summary_id, summarized_messages = await mm._check_and_create_summary_async()
                 if summary_id is not None and summarized_messages is not None:
-                    mm._update_long_term_memory(summary_id, summarized_messages)
+                    await mm._update_long_term_memory_async(summary_id, summarized_messages)
 
         assert conversation_id == 200
         assert summary_id == 123
-        mock_update_memory.assert_called_once_with(123, [Message("user", "hello")])
+        mock_update_memory.assert_awaited_once_with(123, [Message("user", "hello")])
     
-    def test_session_new_creates_summary(self):
+    @pytest.mark.asyncio
+    async def test_session_new_creates_summary(self):
         """Test that /new command creates summary of old session"""
         from memory.manager import MemoryManager
 
@@ -202,8 +210,7 @@ class TestMemoryManagerCompleteFlows:
         db.create_session.return_value = 2
 
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
-        embedding_client.get_embedding_async.return_value = [0.1] * 1536
+        embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
 
         reranker_client = Mock()
 
@@ -214,17 +221,24 @@ class TestMemoryManagerCompleteFlows:
         remaining_messages = [Message("user", "msg1"), Message("assistant", "msg2")]
         mm.context_window.context_window = remaining_messages
 
-        with patch.object(mm, "_generate_summary", return_value="Generated summary text"):
-            with patch.object(mm, "_update_long_term_memory", return_value=True) as mock_update_memory:
-                new_session_id = mm.new_session()
+        with patch.object(
+            mm,
+            "_generate_summary_async",
+            new=AsyncMock(return_value="Generated summary text"),
+        ):
+            with patch.object(
+                mm,
+                "_update_long_term_memory_async",
+                new=AsyncMock(return_value=True),
+            ) as mock_update_memory:
+                new_session_id = await mm.new_session_async()
 
         assert new_session_id == 2
         db.insert_summary.assert_called_once()
         db.close_session.assert_called_once()
-        mock_update_memory.assert_called_once_with(321, remaining_messages)
+        mock_update_memory.assert_awaited_once_with(321, remaining_messages)
 
 
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -175,7 +175,8 @@ class TestLLMClient:
         return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
     )
     @patch("llm.chat_client.get_summary_prompt", return_value="summary prompt")
-    def test_generate_summary(
+    @pytest.mark.asyncio
+    async def test_generate_summary(
         self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
     ):
         """Test generating summary."""
@@ -196,7 +197,7 @@ class TestLLMClient:
             {"role": "assistant", "text": "Response 1"},
         ]
 
-        summary = llm_client.generate_summary(None, new_conversations)
+        summary = await llm_client.generate_summary_async(None, new_conversations)
         assert summary == "Summary result"
         mock_get_prompt.assert_called_once_with(
             None, "Alice: Message 1\nSeele: Response 1"
@@ -208,7 +209,8 @@ class TestLLMClient:
         return_value={"bot": {"name": "Seele"}, "user": {"name": "Alice"}},
     )
     @patch("llm.chat_client.get_memory_update_prompt", return_value="memory prompt")
-    def test_generate_memory_update(
+    @pytest.mark.asyncio
+    async def test_generate_memory_update(
         self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
     ):
         """Test generating memory update."""
@@ -229,7 +231,10 @@ class TestLLMClient:
             {"role": "assistant", "text": "Response 1"},
         ]
 
-        update = llm_client.generate_memory_update(messages, '{"bot": {}, "user": {}}')
+        update = await llm_client.generate_memory_update_async(
+            messages,
+            '{"bot": {}, "user": {}}',
+        )
         assert update == '{"patch": "value"}'
         mock_get_prompt.assert_called_once_with(
             "Alice: Message 1\nSeele: Response 1",
@@ -247,7 +252,8 @@ class TestLLMClient:
         "llm.chat_client.get_complete_memory_json_prompt",
         return_value="complete memory prompt",
     )
-    def test_generate_complete_memory_json(
+    @pytest.mark.asyncio
+    async def test_generate_complete_memory_json(
         self, mock_get_prompt, mock_load_seele_json, mock_openai, llm_client
     ):
         """Test generating complete memory json with display names."""
@@ -266,7 +272,7 @@ class TestLLMClient:
             {"role": "assistant", "text": "Response 1"},
         ]
 
-        result = llm_client.generate_complete_memory_json(
+        result = await llm_client.generate_complete_memory_json_async(
             messages,
             '{"bot": {}, "user": {}}',
             "patch failed",
@@ -282,12 +288,13 @@ class TestLLMClient:
             None,
         )
 
+    @pytest.mark.asyncio
     @patch("llm.chat_client.AsyncOpenAI")
     @patch(
         "llm.chat_client.get_seele_compaction_prompt",
         return_value="compaction prompt",
     )
-    def test_generate_seele_compaction(
+    async def test_generate_seele_compaction(
         self, mock_get_prompt, mock_openai, llm_client
     ):
         """Test generating seele compaction request."""
@@ -301,7 +308,7 @@ class TestLLMClient:
         )
         mock_openai.return_value = mock_async_client
 
-        result = llm_client.generate_seele_compaction(
+        result = await llm_client.generate_seele_compaction_async(
             '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
             20,
             20,
@@ -314,8 +321,9 @@ class TestLLMClient:
             20,
         )
 
+    @pytest.mark.asyncio
     @patch("llm.chat_client.AsyncOpenAI")
-    def test_close(self, mock_openai, llm_client):
+    async def test_close(self, mock_openai, llm_client):
         """Test closing client."""
         mock_async_client = AsyncMock()
         mock_openai.return_value = mock_async_client
@@ -324,7 +332,7 @@ class TestLLMClient:
         llm_client._ensure_chat_client_initialized()
         llm_client._ensure_tool_client_initialized()
 
-        llm_client.close()
+        await llm_client.close_async()
 
         # Verify clients were closed
         assert mock_async_client.close.called

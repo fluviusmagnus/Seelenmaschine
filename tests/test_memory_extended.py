@@ -23,7 +23,6 @@ class TestMemoryManagerLongTermMemory:
         db.create_session.return_value = 2
         
         embedding_client = Mock()
-        embedding_client.get_embedding.return_value = [0.1] * 1536
         embedding_client.get_embedding_async = AsyncMock(return_value=[0.1] * 1536)
         
         reranker_client = Mock()
@@ -113,4 +112,3 @@ class TestMemoryManagerSessionOperations:
 # Run tests if executed directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
