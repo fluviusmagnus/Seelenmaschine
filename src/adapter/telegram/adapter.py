@@ -13,6 +13,7 @@ from telegram.ext import (
 
 from adapter.telegram.commands import TelegramCommands
 from core.config import Config
+from texts import EventTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -44,7 +45,7 @@ class TelegramAdapter:
     async def _send_scheduled_message(
         self,
         message: str,
-        task_name: str = "Scheduled Task",
+        task_name: str = EventTexts.DEFAULT_SCHEDULED_TASK_NAME,
         task_id: str | None = None,
     ) -> None:
         """Send a scheduled message through the Telegram controller."""

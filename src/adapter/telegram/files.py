@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from adapter.telegram.delivery import typing_indicator
 from telegram import Update
 
+from texts import EventTexts, TelegramTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -47,14 +48,14 @@ class TelegramFiles:
 
         user_id = update.effective_user.id
         if user_id != self.config.TELEGRAM_USER_ID:
-            await update.message.reply_text("Unauthorized access.")
+            await update.message.reply_text(TelegramTexts.UNAUTHORIZED_ACCESS)
             logger.warning(f"Unauthorized file from user {user_id}")
             return
 
         file_info = self.extract_file_info_from_update(update)
         if not file_info:
             logger.warning("Received file handler update without supported attachment")
-            await update.message.reply_text("Unsupported file type.")
+            await update.message.reply_text(TelegramTexts.UNSUPPORTED_FILE_TYPE)
             return
 
         logger.info(
@@ -113,9 +114,9 @@ class TelegramFiles:
                     error=error,
                 )
             else:
-                error_text = (
-                    "Sorry, an error occurred while processing your file.\n\n"
-                    f"Details: {format_exception_for_user(error)}"
+                error_text = TelegramTexts.user_error_text(
+                    scenario="file",
+                    details=format_exception_for_user(error),
                 )
             await update.message.reply_text(error_text)
 
@@ -223,22 +224,14 @@ class TelegramFiles:
     ) -> str:
         """Describe an uploaded file as a synthetic system event for the LLM."""
         original_name = file_info.get("original_name") or saved_path.name
-        message_lines = [
-            "[File Event]\nThe user has sent a file.\n",
-            f"File type: {file_info['file_type']}",
-            f"Original filename: {original_name}",
-            f"Saved to: {self.format_saved_media_path(saved_path)}",
-        ]
-        mime_type = file_info.get("mime_type")
-        if mime_type:
-            message_lines.append(f"MIME type: {mime_type}")
-        file_size = file_info.get("file_size")
-        if file_size is not None:
-            message_lines.append(f"File size: {file_size} bytes")
-        caption = file_info.get("caption")
-        if caption:
-            message_lines.append(f"Caption: {caption}")
-        return "\n".join(message_lines)
+        return EventTexts.received_file_event(
+            file_type=file_info["file_type"],
+            original_name=original_name,
+            saved_path=self.format_saved_media_path(saved_path),
+            mime_type=file_info.get("mime_type"),
+            file_size=file_info.get("file_size"),
+            caption=file_info.get("caption"),
+        )
 
     def format_saved_media_path(self, saved_path: Path) -> str:
         """Format saved path for user-facing/system-facing messages."""

@@ -14,6 +14,7 @@ from adapter.telegram.formatter import TelegramResponseFormatter
 from core.bot import CoreBot
 from core.file_service import FileDeliveryService
 from core.hitl import ApprovalService, ToolLoopAbortedError
+from texts import EventTexts, TelegramTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -220,32 +221,18 @@ class TelegramController:
         subject: str | None = None,
     ) -> str:
         """Build a consistent user-facing Telegram error message."""
-        scenario_titles = {
-            "message": "Sorry, an error occurred while processing your message.",
-            "file": "Sorry, an error occurred while processing your file.",
-            "scheduled_task": (
-                "Sorry, an error occurred while processing a scheduled task."
-            ),
-        }
-        title = scenario_titles.get(
-            scenario,
-            "Sorry, an error occurred while processing your request.",
+        return TelegramTexts.user_error_text(
+            scenario=scenario,
+            details=self._format_exception_for_user(error),
+            subject_label=subject_label,
+            subject=subject,
         )
-
-        details = self._format_exception_for_user(error)
-        lines = [title, ""]
-        normalized_subject = subject.strip() if isinstance(subject, str) else ""
-        normalized_label = subject_label.strip() if isinstance(subject_label, str) else ""
-        if normalized_subject and normalized_label:
-            lines.append(f"{normalized_label}: {normalized_subject}")
-        lines.append(f"Details: {details}")
-        return "\n".join(lines)
 
     async def send_scheduled_message(
         self,
         application: Any,
         message: str,
-        task_name: str = "Scheduled Task",
+        task_name: str = EventTexts.DEFAULT_SCHEDULED_TASK_NAME,
         task_id: str | None = None,
     ) -> None:
         """Process a scheduled task and send the result through the bot."""
@@ -275,7 +262,10 @@ class TelegramController:
                             exc_info=True,
                         )
                         task_label = task_name.strip() if isinstance(task_name, str) else ""
-                        if not task_label or task_label == "Scheduled Task":
+                        if (
+                            not task_label
+                            or task_label == EventTexts.DEFAULT_SCHEDULED_TASK_NAME
+                        ):
                             task_label = message.strip() if isinstance(message, str) else ""
                         response = self._format_user_error_text(
                             scenario="scheduled_task",
@@ -327,7 +317,7 @@ class TelegramController:
     async def process_scheduled_task(
         self,
         task_message: str,
-        task_name: str = "Scheduled Task",
+        task_name: str = EventTexts.DEFAULT_SCHEDULED_TASK_NAME,
         task_id: str | None = None,
     ) -> str:
         """Process a scheduled task through the core conversation pipeline."""
@@ -388,7 +378,7 @@ class TelegramController:
             logger.info(f"Tool loop aborted by user request: {error}")
             await self._safe_reply_text(
                 update.message.reply_text,
-                "🛑 Current tool loop stopped.",
+                TelegramTexts.CURRENT_TOOL_LOOP_STOPPED,
             )
         except Exception as error:
             logger.error(f"Error handling message: {error}", exc_info=True)

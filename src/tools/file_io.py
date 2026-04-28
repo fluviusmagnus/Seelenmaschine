@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from core.config import Config
+from texts import ToolTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -34,10 +35,7 @@ class ReadFileTool:
 
     @property
     def description(self) -> str:
-        return """Read a file. Relative paths resolve from WORKSPACE_DIR.
-
-Use start_line/end_line to read a specific line range (output includes line numbers). Omit both to read the full file.
-"""
+        return ToolTexts.FileIO.READ_DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -46,15 +44,15 @@ Use start_line/end_line to read a specific line range (output includes line numb
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["file_path"],
                 },
                 "start_line": {
                     "type": "integer",
-                    "description": "First line to read (1-based, inclusive).",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["start_line"],
                 },
                 "end_line": {
                     "type": "integer",
-                    "description": "Last line to read (1-based, inclusive).",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["end_line"],
                 },
             },
             "required": ["file_path"],
@@ -81,14 +79,14 @@ Use start_line/end_line to read a specific line range (output includes line numb
         resolved_path = _resolve_file_path(file_path)
 
         if not os.path.exists(resolved_path):
-            return f"Error: The file {resolved_path} does not exist."
+            return ToolTexts.FileIO.path_does_not_exist(resolved_path)
 
         if not os.path.isfile(resolved_path):
-            return f"Error: The path {resolved_path} is not a file."
+            return ToolTexts.FileIO.path_is_not_file(resolved_path)
 
         try:
             if os.path.getsize(resolved_path) > _MAX_FILE_SIZE:
-                return f"Error: File is too large. Max size is {_MAX_FILE_SIZE} bytes."
+                return ToolTexts.FileIO.file_too_large(_MAX_FILE_SIZE)
 
             with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
@@ -144,7 +142,7 @@ class WriteFileTool:
 
     @property
     def description(self) -> str:
-        return "Create or overwrite a file. Relative paths resolve from WORKSPACE_DIR."
+        return ToolTexts.FileIO.WRITE_DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -153,11 +151,11 @@ class WriteFileTool:
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["file_path"],
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to write to the file.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["content"],
                 },
             },
             "required": ["file_path", "content"],
@@ -189,7 +187,7 @@ class ReplaceFileContentTool:
 
     @property
     def description(self) -> str:
-        return "Replace a specific contiguous block of text in a file with new content. Use this for editing existing files. Requires exact match of the target text (including indentation and spaces). DO NOT include line numbers in target_text or replacement_text."
+        return ToolTexts.FileIO.REPLACE_DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -198,19 +196,19 @@ class ReplaceFileContentTool:
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["file_path"],
                 },
                 "target_text": {
                     "type": "string",
-                    "description": "The exact string to be replaced. Must be an exact character-sequence match including whitespace/indentation.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["target_text"],
                 },
                 "replacement_text": {
                     "type": "string",
-                    "description": "The new content to insert in place of the target text.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["replacement_text"],
                 },
                 "allow_multiple": {
                     "type": "boolean",
-                    "description": "If true, replace all occurrences. If false, fails if target_text appears more than once. Default is false.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["allow_multiple"],
                     "default": False,
                 },
             },
@@ -233,14 +231,14 @@ class ReplaceFileContentTool:
         resolved_path = _resolve_file_path(file_path)
 
         if not os.path.exists(resolved_path):
-            return f"Error: The file {resolved_path} does not exist."
+            return ToolTexts.FileIO.path_does_not_exist(resolved_path)
 
         if not os.path.isfile(resolved_path):
-            return f"Error: The path {resolved_path} is not a file."
+            return ToolTexts.FileIO.path_is_not_file(resolved_path)
 
         try:
             if os.path.getsize(resolved_path) > _MAX_FILE_SIZE:
-                return f"Error: File is too large. Max size is {_MAX_FILE_SIZE} bytes."
+                return ToolTexts.FileIO.file_too_large(_MAX_FILE_SIZE)
 
             with open(resolved_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
@@ -286,7 +284,7 @@ class AppendFileTool:
 
     @property
     def description(self) -> str:
-        return "Append content to the end of a file. Relative paths resolve from WORKSPACE_DIR. Safely handles newlines and cross-platform writing."
+        return ToolTexts.FileIO.APPEND_DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -295,11 +293,11 @@ class AppendFileTool:
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["file_path"],
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to append to the end of the file.",
+                    "description": ToolTexts.FileIO.PARAMETER_DESCRIPTIONS["content"],
                 },
             },
             "required": ["file_path", "content"],
@@ -320,4 +318,3 @@ class AppendFileTool:
             return f"Appended {len(content)} characters to {resolved_path}."
         except Exception as e:
             return f"Error: Append file failed due to \n{e}"
-

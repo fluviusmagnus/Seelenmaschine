@@ -1,4 +1,3 @@
-import html
 from typing import Any
 
 from telegram import BotCommand
@@ -7,6 +6,7 @@ from telegram.ext import ContextTypes
 
 from adapter.telegram.delivery import TelegramAccessGuard, typing_indicator
 from core.hitl import ApprovalService
+from texts import ApprovalTexts, TelegramTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -14,33 +14,6 @@ logger = get_logger()
 
 class TelegramCommands:
     """Handle Telegram command flows and approval messaging."""
-
-    _START_TEXT = (
-        "Welcome to Seelenmaschine! 🤖\n\n"
-        "I'm your AI companion with long-term memory.\n\n"
-        "Commands:\n"
-        "/help - Show this help message\n"
-        "/new - Start a new session (archives current)\n"
-        "/reset - Reset current session\n"
-        "/approve - Approve a pending dangerous action\n"
-        "/stop - Stop the current tool loop\n\n"
-        "Just send me a message to start chatting!"
-    )
-    _HELP_TEXT = (
-        "Available commands:\n\n"
-        "/start - Welcome message\n"
-        "/help - Show this help\n"
-        "/new - Archive current session and start new\n"
-        "/reset - Delete current session and start fresh\n"
-        "/approve - Approve a pending dangerous action\n"
-        "/stop - Stop the current tool loop\n\n"
-        "Features:\n"
-        "• Long-term memory across sessions\n"
-        "• Vector-based memory retrieval\n"
-        "• Scheduled tasks and reminders\n"
-        "• Tool integration (MCP, Skills)\n\n"
-        "Just chat naturally - I'll remember our conversations!"
-    )
 
     def __init__(
         self,
@@ -62,14 +35,7 @@ class TelegramCommands:
     @classmethod
     def build_menu_commands(cls) -> list[BotCommand]:
         """Return the Telegram command menu definition."""
-        return [
-            BotCommand("new", "Archive current session and start new"),
-            BotCommand("reset", "Delete current session and start fresh"),
-            BotCommand("approve", "Approve a pending dangerous action"),
-            BotCommand("stop", "Stop the current tool loop"),
-            BotCommand("help", "Show help and available commands"),
-            BotCommand("start", "Welcome message"),
-        ]
+        return [BotCommand(name, description) for name, description in TelegramTexts.MENU_COMMANDS]
 
     async def handle_start(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -84,7 +50,7 @@ class TelegramCommands:
         ):
             return
 
-        await update.message.reply_text(self._START_TEXT)
+        await update.message.reply_text(TelegramTexts.START)
 
     async def handle_help(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -93,7 +59,7 @@ class TelegramCommands:
         del context
         if not update.message:
             return
-        await update.message.reply_text(self._HELP_TEXT)
+        await update.message.reply_text(TelegramTexts.HELP)
 
     async def handle_new_session(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -115,15 +81,14 @@ class TelegramCommands:
                 "Typing indicator failed during /new",
             ):
                 await self.core_bot.create_new_session()
-                await update.message.reply_text(
-                    "✓ New session created! Previous conversations have been summarized and archived.\n\n"
-                    "I still remember our history and can recall it when relevant."
-                )
+                await update.message.reply_text(TelegramTexts.NEW_SESSION_SUCCESS)
         except Exception as error:
             logger.error(f"Error creating new session: {error}", exc_info=True)
             await update.message.reply_text(
-                "Error creating new session.\n\n"
-                f"Details: {self.format_exception_for_user(error)}"
+                TelegramTexts.operation_error(
+                    "Error creating new session",
+                    self.format_exception_for_user(error),
+                )
             )
 
     async def handle_reset_session(
@@ -141,15 +106,14 @@ class TelegramCommands:
 
         try:
             self.core_bot.reset_session()
-            await update.message.reply_text(
-                "✓ Session reset! Current conversation has been deleted.\n\n"
-                "Starting fresh, but I still have memories from previous sessions."
-            )
+            await update.message.reply_text(TelegramTexts.RESET_SESSION_SUCCESS)
         except Exception as error:
             logger.error(f"Error resetting session: {error}", exc_info=True)
             await update.message.reply_text(
-                "Error resetting session.\n\n"
-                f"Details: {self.format_exception_for_user(error)}"
+                TelegramTexts.operation_error(
+                    "Error resetting session",
+                    self.format_exception_for_user(error),
+                )
             )
 
     async def request_approval(
@@ -182,17 +146,12 @@ class TelegramCommands:
         self, tool_name: str, result: str
     ) -> None:
         """Inform the Telegram user that an approved action finished."""
-        result_preview = html.escape(self.preview_text(result, max_length=300))
-        if result.startswith("Error:") or result.startswith("Command failed"):
-            prefix = "⚠️ <b>Approved action finished with an error-like result</b>"
-        else:
-            prefix = "✅ <b>Approved action finished</b>"
-
         await self._send_status_message(
-            (
-                f"{prefix}\n\n"
-                f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
-                f"<b>Result preview:</b> <pre>{result_preview}</pre>"
+            ApprovalTexts.approved_action_finished(
+                tool_name=tool_name,
+                result_preview=self.preview_text(result, max_length=300),
+                error_like=result.startswith("Error:")
+                or result.startswith("Command failed"),
             ),
             parse_mode="HTML",
         )
@@ -201,12 +160,10 @@ class TelegramCommands:
         self, tool_name: str, error: Exception
     ) -> None:
         """Inform the Telegram user that an approved action failed."""
-        error_preview = html.escape(self.format_exception_for_user(error))
         await self._send_status_message(
-            (
-                "❌ <b>Approved action failed unexpectedly</b>\n\n"
-                f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
-                f"<b>Error:</b> <pre>{error_preview}</pre>"
+            ApprovalTexts.approved_action_failed(
+                tool_name=tool_name,
+                error_preview=self.format_exception_for_user(error),
             ),
             parse_mode="HTML",
         )
@@ -226,7 +183,7 @@ class TelegramCommands:
 
         pending_request = self.approval_service.approve_pending()
         if pending_request is None:
-            await update.message.reply_text("No pending action to approve.")
+            await update.message.reply_text(TelegramTexts.NO_PENDING_ACTION)
 
     async def handle_stop(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -241,20 +198,15 @@ class TelegramCommands:
         ):
             return
 
-        stop_reason = (
-            "Error: The user rejected this action and requested that all further "
-            "steps stop."
-        )
+        stop_reason = ApprovalTexts.STOP_ALL_FURTHER_REASON
         pending_request = self.approval_service.abort_pending(stop_reason)
         stop_requested = self.core_bot.request_stop_current_run(stop_reason)
 
         if pending_request is not None or stop_requested:
-            await update.message.reply_text(
-                "🛑 Stop signal sent. The current tool loop will stop at the next safe checkpoint."
-            )
+            await update.message.reply_text(TelegramTexts.STOP_SIGNAL_SENT)
             return
 
-        await update.message.reply_text("No running tool loop to stop.")
+        await update.message.reply_text(TelegramTexts.NO_RUNNING_TOOL_LOOP)
 
     async def _send_status_message(
         self, text: str, parse_mode: str | None = None

@@ -3,6 +3,7 @@
 import asyncio
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from texts import EventTexts
 from utils.logger import get_logger
 from utils.time import get_current_timestamp, timestamp_to_str
 
@@ -73,13 +74,11 @@ class ConversationService:
         """Build the synthetic system message used for scheduled tasks."""
         trigger_time = get_current_timestamp()
         trigger_time_str = timestamp_to_str(trigger_time)
-        return (
-            f"[Scheduled Task]\n"
-            f"This is a trigger message. Now execute the task described below and then continue the current conversation.\n\n"
-            f"task_id: {task_id or 'unknown'}\n"
-            f"name: {task_name}\n"
-            f"trigger_time: {trigger_time_str}\n"
-            f"message: {task_message}"
+        return EventTexts.scheduled_task_event(
+            task_message=task_message,
+            task_name=task_name,
+            task_id=task_id,
+            trigger_time=trigger_time_str,
         )
 
     async def _persist_scheduled_task_trigger_message(
@@ -382,7 +381,7 @@ class ConversationService:
     async def process_scheduled_task(
         self,
         task_message: str,
-        task_name: str = "Scheduled Task",
+        task_name: str = EventTexts.DEFAULT_SCHEDULED_TASK_NAME,
         task_id: Optional[str] = None,
         *,
         intermediate_callback: Optional[Callable[[str], Awaitable[None]]] = None,
@@ -436,4 +435,3 @@ class ConversationService:
             raise
         finally:
             self.end_run()
-

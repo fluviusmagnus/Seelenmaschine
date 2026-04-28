@@ -5,6 +5,7 @@ from core.database import DatabaseManager
 from utils.time import timestamp_to_str
 from core.config import Config
 from prompts.runtime import load_seele_json
+from texts import ToolTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -31,49 +32,7 @@ class MemorySearchTool:
 
     @property
     def description(self) -> str:
-        return """Search your long-term memory (conversation history and summaries) using keywords and filters.
-
-WHEN TO USE:
-- User asks about past conversations, previous topics, or things mentioned before
-- You need to recall specific facts, preferences, or events from history
-- The conversation references something from earlier sessions
-- User asks "do you remember...", "what did we talk about...", "when did I say..."
-- You need context from past interactions to provide accurate response
-
-QUERY SYNTAX (FTS5):
-- Single keyword: coffee
-- Multiple bare keywords separated by spaces usually behave like AND in FTS5; prefer explicit AND/OR for clarity
-- AND (both required): coffee AND morning
-- OR (either acceptable): tea OR coffee
-- Exact phrase: "morning routine"
-- Exclude: coffee NOT decaf
-- Grouping: (tea OR coffee) AND morning
-
-MIXED-LANGUAGE QUERY NOTES:
-- Queries containing CJK text may use a mixed-language n-gram fallback instead of raw FTS tokenization
-- In that fallback path, boolean operators like AND/OR/NOT and parentheses are still supported
-- Longer CJK phrases and explicit operators are usually more predictable than very short ambiguous terms
-
-VECTOR-ASSISTED RECALL:
-- For longer natural-language queries, this tool may supplement keyword matches with vector-retrieved summaries when keyword results are sparse
-- Vector recall is used as a fallback supplement, not as a replacement for exact keyword / boolean filtering
-
-BEST PRACTICES:
-1. Use specific keywords relevant to the topic
-2. Use the same language as the user's conversation (e.g., if user speaks Chinese, search with Chinese keywords)
-3. Combine keywords with AND for precise results
-4. Use time filters when timeframe is known
-5. Use role filter to find specific speaker's messages
-6. Start with broader keywords, then narrow down if needed
-7. query is optional: you may search using only filters such as session_id, role, or time range
-8. If you want to see what a specific session was about, prefer session_id + search_target="summaries" for a concise overview
-9. Use session_id + search_target="conversations" only when you need verbatim messages from that session
-10. By default, this tool excludes the current conversation session. Only set include_current_session=true when you explicitly need to search the current session as well.
-
-COMMON PATTERNS:
-- Browse one session overview: search_memories(session_id=60, search_target="summaries")
-- Search inside one session: search_memories(query="预算", session_id=60, search_target="conversations")
-- Filter-only search: search_memories(role="user", time_period="last_week")"""
+        return ToolTexts.MemorySearch.DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -82,57 +41,44 @@ COMMON PATTERNS:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": """Search keywords using FTS5 syntax.
-
-Examples:
-- "coffee" - find conversations about coffee
-- "coffee morning" - bare multiple keywords usually behave like AND in FTS5; prefer "coffee AND morning" for clarity
-- "coffee AND morning" - both keywords must appear
-- "tea OR coffee" - either keyword is acceptable
-- '"morning routine"' - exact phrase match
-- "coffee NOT decaf" - include coffee but exclude decaf
-- "(tea OR coffee) AND morning" - grouping with OR and AND
-
-Leave empty to search using only filters (session_id, role, time range).
-If you only want to inspect one session, leaving query empty is valid; prefer search_target='summaries' for a concise overview.
-Queries containing CJK text may automatically use a mixed-language n-gram fallback that still supports AND/OR/NOT and parentheses.""",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["query"],
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of results to return (default: 10). Increase for broader searches, decrease for specific queries.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["limit"],
                     "default": 10,
                 },
                 "role": {
                     "type": "string",
                     "enum": ["user", "assistant"],
-                    "description": "Filter by speaker role. Use 'user' to search only user's messages, 'assistant' to search only your own responses.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["role"],
                 },
                 "time_period": {
                     "type": "string",
                     "enum": ["last_day", "last_week", "last_month", "last_year"],
-                    "description": "Quick time filter for recent conversations. Use this when user mentions vague timeframes like 'recently', 'lately', 'the other day'.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["time_period"],
                 },
                 "start_date": {
                     "type": "string",
-                    "description": "Filter conversations from this date onwards. Format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS. Use when user specifies a date like 'since January', 'after last month'.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["start_date"],
                 },
                 "end_date": {
                     "type": "string",
-                    "description": "Filter conversations until this date. Format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS. Use when user specifies a date range or 'before March'.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["end_date"],
                 },
                 "include_current_session": {
                     "type": "boolean",
-                    "description": "Whether to include the current conversation session in results. Defaults to false. Set to true only when you need to search the current ongoing session as well.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["include_current_session"],
                     "default": False,
                 },
                 "session_id": {
                     "type": "integer",
-                    "description": "Search only within a specific session_id. When provided, this takes precedence over include_current_session behavior. This can be used without query; if you only want to inspect a session, prefer search_target='summaries' first.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["session_id"],
                 },
                 "search_target": {
                     "type": "string",
                     "enum": ["all", "summaries", "conversations"],
-                    "description": "Choose which memory type to search. Defaults to 'all'. If using only session_id without query, prefer 'summaries' to review the session overview before using 'conversations' for verbatim details.",
+                    "description": ToolTexts.MemorySearch.PARAMETER_DESCRIPTIONS["search_target"],
                     "default": "all",
                 },
             },
@@ -151,20 +97,12 @@ Queries containing CJK text may automatically use a mixed-language n-gram fallba
     @staticmethod
     def _fts_syntax_error_message(details: str) -> str:
         """Build a consistent user-facing FTS syntax error message."""
-        return (
-            f"FTS5 query syntax error: {details}\n\n"
-            'Valid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n'
-            "- (电影 OR 音乐) AND Anna"
-        )
+        return ToolTexts.MemorySearch.fts_syntax_error(details)
 
     @staticmethod
     def _invalid_query_message(error_msg: str) -> str:
         """Build a consistent validation error message for bad queries."""
-        return (
-            f"Invalid query syntax: {error_msg}\n\n"
-            'Valid examples:\n- Anna AND 电影\n- 电影 OR 音乐\n- "exact phrase"\n'
-            "- (电影 OR 音乐) AND Anna"
-        )
+        return ToolTexts.MemorySearch.invalid_query(error_msg)
 
     def _validate_fts_query(self, query: str) -> tuple[bool, str]:
         """Validate FTS5 query syntax and provide helpful error messages.

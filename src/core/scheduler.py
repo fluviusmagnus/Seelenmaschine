@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, Callable
 from dataclasses import dataclass
 
 from core.database import DatabaseManager
+from texts import EventTexts
 from utils.time import get_current_timestamp
 from utils.logger import get_logger
 
@@ -145,7 +146,7 @@ class TaskScheduler:
         if self._message_callback:
             # Support both sync and async callbacks
             # Pass message, task_name, and task_id to help construct richer context.
-            task_name = task_data.get("name", "Scheduled Task")
+            task_name = task_data.get("name", EventTexts.DEFAULT_SCHEDULED_TASK_NAME)
             if asyncio.iscoroutinefunction(self._message_callback):
                 await self._message_callback(message, task_name, task_id)
             else:

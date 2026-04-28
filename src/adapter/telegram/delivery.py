@@ -9,6 +9,7 @@ from telegram import Update
 
 from core.config import Config
 from adapter.telegram.formatter import TelegramResponseFormatter
+from texts import TelegramTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -41,7 +42,7 @@ class TelegramAccessGuard:
 
         message = getattr(update, "message", None)
         if message is not None:
-            await message.reply_text("Unauthorized access.")
+            await message.reply_text(TelegramTexts.UNAUTHORIZED_ACCESS)
 
         user = getattr(update, "effective_user", None)
         logger.warning(f"{log_message}: user_id={getattr(user, 'id', None)}")

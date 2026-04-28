@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
+from texts import EventTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -71,19 +72,7 @@ class FileArtifactService:
         return self._artifacts_dir() / unique_name
 
     def build_saved_artifact_message(self, artifact: Dict[str, Any]) -> str:
-        lines = ["[Tool Returned File]"]
-        for key in (
-            "path",
-            "filename",
-            "mime_type",
-            "size_bytes",
-            "source",
-            "content_kind",
-        ):
-            value = artifact.get(key)
-            if value not in (None, ""):
-                lines.append(f"{key}: {value}")
-        return "\n".join(lines)
+        return EventTexts.saved_artifact_message(artifact)
 
     def save_bytes_artifact(
         self,
@@ -211,21 +200,15 @@ class FileDeliveryService:
         platform_label: str = "adapter",
     ) -> str:
         """Build assistant-role system-tone event text for sent files."""
-        message_lines = [
-            f"[System Event] Assistant has sent a file via {platform_label}.",
-            f"Delivery method: {delivery_method}",
-            f"Filename: {sent_path.name}",
-            f"Path: {self._format_saved_path(sent_path)}",
-        ]
-
         mime_type, _ = mimetypes.guess_type(str(sent_path))
-        if mime_type:
-            message_lines.append(f"MIME type: {mime_type}")
-
-        if caption:
-            message_lines.append(f"Caption: {caption}")
-
-        return "\n".join(message_lines)
+        return EventTexts.sent_file_event(
+            sent_path=sent_path,
+            delivery_method=delivery_method,
+            saved_path=self._format_saved_path(sent_path),
+            platform_label=platform_label,
+            mime_type=mime_type,
+            caption=caption,
+        )
 
     def prepare_file_delivery(
         self,

@@ -20,6 +20,7 @@ from llm.chat_client import LLMClient
 from llm.embedding import EmbeddingClient
 from llm.reranker import RerankerClient
 from memory.manager import MemoryManager
+from texts import EventTexts
 from tools.file_io import (
     AppendFileTool,
     ReadFileTool,
@@ -335,7 +336,7 @@ class CoreBot:
     async def process_scheduled_task(
         self,
         task_message: str,
-        task_name: str = "Scheduled Task",
+        task_name: str = EventTexts.DEFAULT_SCHEDULED_TASK_NAME,
         task_id: Optional[str] = None,
         *,
         intermediate_callback: Optional[Callable[[str], Any]] = None,

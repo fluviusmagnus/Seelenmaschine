@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Union, Tuple, List
 
 from core.config import Config
+from texts import ToolTexts
 from utils.logger import get_logger
 from tools.file_io import _resolve_file_path
 
@@ -205,7 +206,7 @@ class GrepSearchTool:
 
     @property
     def description(self) -> str:
-        return "Search file contents by pattern, recursively. Relative paths resolve from WORKSPACE_DIR."
+        return ToolTexts.FileSearch.GREP_DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -214,27 +215,27 @@ class GrepSearchTool:
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Search string (or regex when is_regex is True).",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["pattern"],
                 },
                 "path": {
                     "type": "string",
-                    "description": "File or directory to search in. Defaults to WORKSPACE_DIR.",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["path"],
                 },
                 "is_regex": {
                     "type": "boolean",
-                    "description": "Treat pattern as a regular expression. Defaults to False.",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["is_regex"],
                 },
                 "case_sensitive": {
                     "type": "boolean",
-                    "description": "Case-sensitive matching. Defaults to True.",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["case_sensitive"],
                 },
                 "context_lines": {
                     "type": "integer",
-                    "description": "Context lines before and after each match. Defaults to 0.",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["context_lines"],
                 },
                 "include_pattern": {
                     "type": "string",
-                    "description": "Only search files whose name matches this glob (e.g. \"*.py\").",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["include_pattern"],
                 },
             },
             "required": ["pattern"],
@@ -320,7 +321,7 @@ class GlobSearchTool:
 
     @property
     def description(self) -> str:
-        return "Find files matching a glob pattern (e.g. \"*.py\", \"**/*.json\"). Relative paths resolve from WORKSPACE_DIR."
+        return ToolTexts.FileSearch.GLOB_DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -329,11 +330,11 @@ class GlobSearchTool:
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Glob pattern to match.",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["glob_pattern"],
                 },
                 "path": {
                     "type": "string",
-                    "description": "Root directory to search from. Defaults to WORKSPACE_DIR.",
+                    "description": ToolTexts.FileSearch.PARAMETER_DESCRIPTIONS["glob_path"],
                 },
             },
             "required": ["pattern"],
@@ -377,4 +378,3 @@ class GlobSearchTool:
         if truncated:
             result += f"\n\n(Results truncated to match limit {_MAX_MATCHES}.)"
         return result
-

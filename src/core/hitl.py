@@ -1,11 +1,10 @@
 """Human-in-the-loop approval and stop control services."""
 
 import asyncio
-import html
-import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from texts import ApprovalTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -91,16 +90,7 @@ class ApprovalService:
             )
             self._update_pending_request(pending_request)
 
-            args_str = html.escape(json.dumps(arguments, ensure_ascii=False)[:800])
-            msg = (
-                f"⚠️ <b>DANGEROUS ACTION DETECTED</b> ⚠️\n\n"
-                f"<b>Tool:</b> <code>{html.escape(tool_name)}</code>\n"
-                f"<b>Reason:</b> <code>{html.escape(reason)}</code>\n"
-                f"<b>Arguments:</b>\n<pre>{args_str}</pre>\n\n"
-                f"Reply <b>/approve</b> to execute.\n"
-                f"Any other message will <b>ABORT</b> this action, and your message "
-                f"will be returned to the model as feedback for the current tool loop."
-            )
+            msg = ApprovalTexts.request_approval(tool_name, arguments, reason)
 
             if send_message is not None:
                 try:
@@ -110,7 +100,7 @@ class ApprovalService:
                     self._update_pending_request(None)
                     return ApprovalDecision(
                         approved=False,
-                        abort_reason="Approval request delivery failed.",
+                        abort_reason=ApprovalTexts.DELIVERY_FAILED_ABORT_REASON,
                     )
 
             logger.info(
@@ -128,12 +118,10 @@ class ApprovalService:
                 )
                 if send_message is not None:
                     try:
-                        await send_message("⏰ Approval timed out. Action aborted.", None)
+                        await send_message(ApprovalTexts.TIMEOUT_NOTICE, None)
                     except Exception:
                         pass
-                raise ApprovalTimeoutError(
-                    "Error: Approval timed out. The action was not approved."
-                )
+                raise ApprovalTimeoutError(ApprovalTexts.TIMEOUT_ABORT_ERROR)
             finally:
                 if self._pending_request is pending_request:
                     self._update_pending_request(None)
@@ -154,7 +142,7 @@ class ApprovalService:
 
     def abort_pending(
         self,
-        reason: str = "User declined this action.",
+        reason: str = ApprovalTexts.USER_DECLINED_REASON,
         user_message: Optional[str] = None,
     ) -> Optional[PendingApprovalRequest]:
         """Abort the current pending action if one exists."""
@@ -185,9 +173,7 @@ class ToolLoopAbortedError(Exception):
 class StopController:
     """Track and signal stop requests for the single active conversation loop."""
 
-    STOP_ALL_FURTHER_REASON = (
-        "Error: The user rejected this action and requested that all further steps stop."
-    )
+    STOP_ALL_FURTHER_REASON = ApprovalTexts.STOP_ALL_FURTHER_REASON
 
     def __init__(self) -> None:
         self._running = False

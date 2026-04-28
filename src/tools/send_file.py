@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any, Awaitable, Callable, Dict
 
+from texts import ToolTexts
 from utils.logger import get_logger
 
 logger = get_logger()
@@ -22,17 +23,7 @@ class SendFileTool:
 
     @property
     def description(self) -> str:
-        return """Send a local file to the current user.
-
-WHEN TO USE:
-- User asks you to send/export/deliver a generated file
-- You created or found a file in the workspace and should proactively send it
-- The result is best delivered as an attachment instead of pasted text
-
-IMPORTANT:
-- file_path must point to an existing local file in the workspace/media area
-- Prefer file_type='auto' unless you are certain about the media type
-- Use caption for a short delivery note shown with the file"""
+        return ToolTexts.SendFile.DESCRIPTION
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -41,16 +32,16 @@ IMPORTANT:
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Local path to the file to send. Relative paths are resolved from the workspace directory.",
+                    "description": ToolTexts.SendFile.PARAMETER_DESCRIPTIONS["file_path"],
                 },
                 "caption": {
                     "type": "string",
-                    "description": "Optional caption to attach to the file.",
+                    "description": ToolTexts.SendFile.PARAMETER_DESCRIPTIONS["caption"],
                 },
                 "file_type": {
                     "type": "string",
                     "enum": ["auto", "document", "photo", "video", "audio", "voice"],
-                    "description": "How the file should be sent. Use 'auto' to detect from MIME type and extension.",
+                    "description": ToolTexts.SendFile.PARAMETER_DESCRIPTIONS["file_type"],
                 },
             },
             "required": ["file_path"],
@@ -63,13 +54,10 @@ IMPORTANT:
         file_type = kwargs.get("file_type", "auto")
 
         if not file_path:
-            return "Error: file_path is required"
+            return ToolTexts.error("file_path is required")
 
         if file_type not in {"auto", "document", "photo", "video", "audio", "voice"}:
-            return (
-                "Error: file_type must be one of auto, document, photo, video, "
-                "audio, or voice"
-            )
+            return ToolTexts.SendFile.FILE_TYPE_ERROR
 
         try:
             result = self._send_callback(
@@ -81,20 +69,12 @@ IMPORTANT:
                 result = await result
 
             if isinstance(result, dict):
-                lines = ["✓ File sent to user"]
-                delivery_method = result.get("delivery_method")
-                resolved_path = result.get("resolved_path")
-                sent_caption = result.get("caption")
-
-                if delivery_method:
-                    lines.append(f"Delivery method: {delivery_method}")
-                if resolved_path:
-                    lines.append(f"Path: {resolved_path}")
-                if sent_caption:
-                    lines.append(f"Caption: {sent_caption}")
-
                 return {
-                    "result": "\n".join(lines),
+                    "result": ToolTexts.SendFile.sent_result(
+                        delivery_method=result.get("delivery_method"),
+                        resolved_path=result.get("resolved_path"),
+                        caption=result.get("caption"),
+                    ),
                     "event_message": result.get("event_message"),
                 }
 
