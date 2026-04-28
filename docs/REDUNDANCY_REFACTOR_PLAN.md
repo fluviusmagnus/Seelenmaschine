@@ -1,6 +1,6 @@
 # 冗余代码重构进度台账
 
-最后更新：2026-04-28
+最后更新：2026-04-29
 
 ## 目标
 
@@ -87,6 +87,7 @@
 2. `[x]` 已将 repair/compaction 业务实现统一到 async 方法，并删除启动期同步 wrapper。
 3. `[x]` 已删除 `LLMClient._get_event_loop`，不再让 LLM client 保存同步兼容事件循环状态。
 4. `[x]` 已完成启动期 `Seele` schema validation/repair async 化：`CoreBot.__init__` 不再执行 schema bootstrap，Telegram main 通过 `CoreBot.create_async()` 显式初始化。
+5. `[x]` 已将项目文档索引同步到当前 docs 文件集合，并标注 `ARCHITECTURE_REFACTOR_PLAN.md` 为历史计划。
 
 ## 未来可选任务
 

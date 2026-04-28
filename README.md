@@ -101,10 +101,19 @@ DEBUG_SHOW_FULL_PROMPT=false
 DEBUG_LOG_DATABASE_OPS=false
 TIMEZONE=Asia/Shanghai
 
+# Workspace 路径配置
+# 留空时使用 data/<profile>/workspace 及其 media 子目录
+WORKSPACE_DIR=
+MEDIA_DIR=
+
 # Context Window 配置
 CONTEXT_WINDOW_KEEP_MIN=12
 CONTEXT_WINDOW_TRIGGER_SUMMARY=24
 RECENT_SUMMARIES_MAX=3
+
+# 工具执行配置
+TOOL_EXECUTION_TIMEOUT_SECONDS=90.0
+TOOL_LOOP_MAX_ITERATIONS=30
 
 # 记忆检索配置
 RECALL_SUMMARY_PER_QUERY=3
@@ -119,7 +128,6 @@ CHAT_MODEL=gpt-4o
 TOOL_MODEL=gpt-4o
 CHAT_REASONING_EFFORT=low
 TOOL_REASONING_EFFORT=medium
-TOOL_EXECUTION_TIMEOUT_SECONDS=180
 
 # Embedding 配置
 EMBEDDING_API_KEY=your_api_key
@@ -146,7 +154,8 @@ MCP_CONFIG_PATH=mcp_servers.json
 补充说明：
 
 - `TOOL_EXECUTION_TIMEOUT_SECONDS` 用于限制单次工具调用的默认执行时长
-- `WORKSPACE_DIR` / `MEDIA_DIR` 仍然是**可选高级配置**，即使当前 `.env.example` 未展示，依然支持手动写入 `<profile>.env`
+- `TOOL_LOOP_MAX_ITERATIONS` 用于限制单轮工具循环的最大迭代次数
+- `WORKSPACE_DIR` / `MEDIA_DIR` 是**可选高级配置**；在 `.env.example` 中可留空以使用默认路径
 - `WORKSPACE_DIR` 默认是 `data/<profile>/workspace`
 - `MEDIA_DIR` 默认是 `WORKSPACE_DIR/media`
 
@@ -328,72 +337,70 @@ Seelenmaschine/
 │   │       ├── controller.py     # Telegram 控制器与服务装配
 │   │       ├── delivery.py       # Telegram 分段发送
 │   │       ├── files.py          # Telegram 文件收发
-│   │       ├── formatter.py      # Telegram 回复格式化
-│   │       ├── messages.py       # 普通消息与文件消息流程
+│   │       └── formatter.py      # Telegram 回复格式化
 │   ├── core/                     # 核心模块
-│   │   ├── approval.py           # 危险操作审批流程
+│   │   ├── adapter_contracts.py  # Adapter 回调契约
 │   │   ├── bot.py                # CoreBot 运行时根对象
 │   │   ├── config.py             # 配置管理
 │   │   ├── conversation.py       # 对话编排
 │   │   ├── database.py           # 数据库管理（sqlite-vec）
-│   │   ├── file_artifact_service.py # 工具/MCP 文件产物持久化
-│   │   ├── file_delivery_service.py # 文件发送策略与校验
-│   │   ├── runtime.py            # 运行时生命周期辅助
+│   │   ├── file_service.py       # 文件产物与发送策略
+│   │   ├── hitl.py               # 人工审批流程
 │   │   ├── scheduler.py          # 定时任务调度器
-│   │   ├── session_service.py    # 会话生命周期服务
-│   │   ├── stop.py               # 工具循环停止控制
 │   │   └── tools.py              # 工具运行时/注册/执行编排
 │   ├── llm/                      # LLM 模块
 │   │   ├── chat_client.py        # 聊天客户端
 │   │   ├── embedding.py          # Embedding 客户端
 │   │   ├── memory_client.py      # 记忆相关模型调用
+│   │   ├── message_builder.py    # Chat message 构造
 │   │   ├── request_executor.py   # 请求执行器
 │   │   ├── reranker.py           # Rerank 客户端
 │   │   └── tool_loop.py          # 工具调用循环
 │   ├── memory/                   # 记忆子系统
 │   │   ├── context.py            # Context Window 管理
 │   │   ├── manager.py            # 记忆总管理器
-│   │   ├── recall.py             # 记忆召回
 │   │   ├── seele.py              # 长期人格/档案更新
 │   │   ├── sessions.py           # 会话管理
-│   │   ├── summaries.py          # 摘要生成
 │   │   └── vector_retriever.py   # 向量检索
+│   ├── prompts/                  # 提示词
+│   │   ├── chat_prompt.py        # Chat messages 组装
+│   │   ├── memory_prompts.py     # 记忆相关提示词
+│   │   ├── runtime.py            # prompt 运行时装配
+│   │   └── system_prompt.py      # 系统提示词构造
+│   ├── texts/                    # 文本目录化
+│   │   └── catalog.py            # Text catalog
 │   ├── tools/                    # 工具系统
+│   │   ├── file_io.py            # 文件操作工具
+│   │   ├── file_search.py        # 文件搜索工具
 │   │   ├── mcp_client.py         # MCP 客户端
 │   │   ├── memory_search.py      # 自我查询工具
 │   │   ├── scheduled_tasks.py    # 定时任务工具
 │   │   ├── send_file.py          # 文件发送工具
-│   │   ├── file_io.py            # 文件操作工具
-│   │   ├── file_search.py        # 文件搜索工具
 │   │   ├── shell.py              # Shell 命令执行工具
 │   │   └── tool_trace.py         # 工具调用追踪
-│   ├── prompts/                  # 提示词
-│   │   ├── chat_prompt.py        # Chat messages 组装
-│   │   ├── memory_prompts.py     # 记忆相关提示词
-│   │   └── system_prompt.py      # 系统提示词构造
 │   └── utils/                    # 工具函数
+│       ├── async_utils.py        # async/sync 辅助
+│       ├── logger.py             # 日志工具
 │       ├── text.py               # 文本处理
 │       ├── time.py               # 时间处理
-│       └── logger.py             # 日志工具
+│       └── tool_safety.py        # 工具安全策略
 
+├── docs/                         # 文档目录
+│   ├── README.md                 # 文档索引
+│   ├── SCHEDULED_TASKS.md        # 定时任务文档
+│   ├── SEARCH_EXAMPLES.md        # 搜索功能示例
+│   └── REDUNDANCY_REFACTOR_PLAN.md # 当前重构进度台账
 ├── template/                     # 模板目录
 │   └── seele.json                # 长期记忆模板
 ├── tests/                        # 单元测试
-│   ├── conftest.py               # pytest 配置
-│   ├── test_database.py
-│   ├── test_memory.py
-│   ├── test_retriever.py
-│   └── test_llm.py
 ├── migration/                    # 数据迁移工具
 │   ├── migrate.py                # 统一迁移工具
 │   └── README.md                 # 迁移工具文档
 ├── data/                         # 数据存储目录
 │   └── <profile>/                # Profile 数据目录
+├── static/                       # 静态资源
 ├── requirements.txt              # Python 依赖
 ├── requirements-dev.txt          # 开发依赖
-├── docs/                         # 文档目录
-│   ├── SCHEDULED_TASKS.md        # 定时任务文档
-│   └── SEARCH_EXAMPLES.md        # 搜索功能示例
 ├── <profile>.env                 # 环境配置
 ├── .env.example                  # 配置示例
 ├── start-telegram.sh             # 启动脚本（Linux/macOS）

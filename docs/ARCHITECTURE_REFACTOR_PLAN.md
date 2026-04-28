@@ -1,5 +1,10 @@
 # Architecture Refactor Plan
 
+> Status: historical plan. Most of this direction has been executed and tracked in
+> [REDUNDANCY_REFACTOR_PLAN.md](REDUNDANCY_REFACTOR_PLAN.md), which is the current
+> authoritative progress ledger for completed refactor phases, retained components,
+> and verification status.
+
 ## Goal
 
 This refactor removes unnecessary indirection and restores the intended ownership model:
@@ -302,4 +307,3 @@ Preferred test style:
 - memory/session logic is async-first with only justified sync wrappers
 - `ToolExecutor` uses explicit contracts instead of hidden implementation coupling
 - dead wrappers and transitional seams are deleted
-

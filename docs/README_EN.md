@@ -19,6 +19,32 @@ This directory contains detailed feature documentation and usage guides for the 
   - Time and role filtering
   - Complex query examples
 
+- **[MESSAGE_TYPES_AND_RETRIEVAL.md](MESSAGE_TYPES_AND_RETRIEVAL.md)** - Message Types and Retrieval Behavior
+  - Message type catalog
+  - Retrieval entry points and result shapes
+  - Text catalog conventions
+
+### Architecture / Refactor Documentation
+
+- **[REDUNDANCY_REFACTOR_PLAN.md](REDUNDANCY_REFACTOR_PLAN.md)** - Current authoritative redundancy refactor progress ledger
+  - Completed phases and retained components
+  - Latest verification status
+  - Rules for follow-up work
+
+- **[ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)** - Historical architecture refactor plan
+  - Ownership goals for core / adapter / memory
+  - Early phase breakdown
+  - Current status is tracked in `REDUNDANCY_REFACTOR_PLAN.md`
+
+- **[MEMORY_SEARCH_PLAN.md](MEMORY_SEARCH_PLAN.md)** - Historical memory search upgrade plan
+  - Retrieval goals and migration plan
+  - Test plan
+  - Complements `SEARCH_EXAMPLES.md`
+
+- **[TEXT_CATALOG_PLAN.md](TEXT_CATALOG_PLAN.md)** - Text Catalog refactor plan
+  - Text identity and catalog direction
+  - Complements the message retrieval document
+
 ## 🔗 Other Important Documents
 
 These documents are located in the project root or adjacent directories:
@@ -50,6 +76,7 @@ These documents are located in the project root or adjacent directories:
 ### Feature Usage
 
 - **Memory Search**: [SEARCH_EXAMPLES.md](SEARCH_EXAMPLES.md)
+- **Message Types and Retrieval**: [MESSAGE_TYPES_AND_RETRIEVAL.md](MESSAGE_TYPES_AND_RETRIEVAL.md)
 - **Scheduled Tasks**: [SCHEDULED_TASKS_EN.md](SCHEDULED_TASKS_EN.md)
 - **Session Management**: See "Usage Instructions" section in [README_EN.md](../README_EN.md)
 
@@ -58,6 +85,8 @@ These documents are located in the project root or adjacent directories:
 - **AI Development**: [AGENTS.md](../AGENTS.md)
 - **Data Migration**: [migration/README_EN.md](../migration/README_EN.md)
 - **Core runtime reference**: see the project structure section in [README_EN.md](../README_EN.md)
+- **Refactor progress ledger**: [REDUNDANCY_REFACTOR_PLAN.md](REDUNDANCY_REFACTOR_PLAN.md)
+- **Historical architecture plan**: [ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)
 
 ## 🔄 Documentation Updates
 

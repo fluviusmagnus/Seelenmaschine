@@ -101,10 +101,19 @@ DEBUG_SHOW_FULL_PROMPT=false
 DEBUG_LOG_DATABASE_OPS=false
 TIMEZONE=Asia/Shanghai
 
+# Workspace Path Configuration
+# Leave empty to use data/<profile>/workspace and its media subdirectory.
+WORKSPACE_DIR=
+MEDIA_DIR=
+
 # Context Window Configuration
 CONTEXT_WINDOW_KEEP_MIN=12
 CONTEXT_WINDOW_TRIGGER_SUMMARY=24
 RECENT_SUMMARIES_MAX=3
+
+# Tool Execution Configuration
+TOOL_EXECUTION_TIMEOUT_SECONDS=90.0
+TOOL_LOOP_MAX_ITERATIONS=30
 
 # Memory Retrieval Configuration
 RECALL_SUMMARY_PER_QUERY=3
@@ -119,7 +128,6 @@ CHAT_MODEL=gpt-4o
 TOOL_MODEL=gpt-4o
 CHAT_REASONING_EFFORT=low
 TOOL_REASONING_EFFORT=medium
-TOOL_EXECUTION_TIMEOUT_SECONDS=180
 
 # Embedding Configuration
 EMBEDDING_API_KEY=your_api_key
@@ -146,7 +154,8 @@ Note: the current config format **does not use inline `#` comments**. If you nee
 Additional notes:
 
 - `TOOL_EXECUTION_TIMEOUT_SECONDS` controls the default timeout for a single tool call
-- `WORKSPACE_DIR` / `MEDIA_DIR` are still supported as **optional advanced settings**, even though they are no longer shown in the current `.env.example`
+- `TOOL_LOOP_MAX_ITERATIONS` limits the maximum number of iterations in one tool loop
+- `WORKSPACE_DIR` / `MEDIA_DIR` are **optional advanced settings**; leave them empty in `.env.example`-style configs to use the default paths
 - `WORKSPACE_DIR` defaults to `data/<profile>/workspace`
 - `MEDIA_DIR` defaults to `WORKSPACE_DIR/media`
 
@@ -328,72 +337,70 @@ Seelenmaschine/
 │   │       ├── controller.py     # Telegram controller and service wiring
 │   │       ├── delivery.py       # Segmented Telegram delivery
 │   │       ├── files.py          # Telegram file ingress/egress
-│   │       ├── formatter.py      # Telegram response formatting
-│   │       ├── messages.py       # Text/file message flows
+│   │       └── formatter.py      # Telegram response formatting
 │   ├── core/                     # Core modules
-│   │   ├── approval.py           # Dangerous action approval flow
+│   │   ├── adapter_contracts.py  # Adapter callback contracts
 │   │   ├── bot.py                # CoreBot runtime root
 │   │   ├── config.py             # Configuration management
 │   │   ├── conversation.py       # Conversation orchestration
 │   │   ├── database.py           # Database management (sqlite-vec)
-│   │   ├── file_artifact_service.py # Tool/MCP file artifact persistence
-│   │   ├── file_delivery_service.py # File delivery policy and validation
-│   │   ├── runtime.py            # Runtime lifecycle helpers
+│   │   ├── file_service.py       # File artifact and delivery policy
+│   │   ├── hitl.py               # Human-in-the-loop approval flow
 │   │   ├── scheduler.py          # Task scheduler
-│   │   ├── session_service.py    # Session lifecycle service
-│   │   ├── stop.py               # Tool-loop stop control
 │   │   └── tools.py              # Tool runtime/registry/execution orchestration
 │   ├── llm/                      # LLM modules
 │   │   ├── chat_client.py        # Chat client
 │   │   ├── embedding.py          # Embedding client
 │   │   ├── memory_client.py      # Memory-oriented model calls
+│   │   ├── message_builder.py    # Chat message builder
 │   │   ├── request_executor.py   # Request executor
 │   │   ├── reranker.py           # Rerank client
 │   │   └── tool_loop.py          # Tool-calling loop
 │   ├── memory/                   # Memory subsystem
 │   │   ├── context.py            # Context Window management
 │   │   ├── manager.py            # Memory manager
-│   │   ├── recall.py             # Memory recall
 │   │   ├── seele.py              # Long-term profile updates
 │   │   ├── sessions.py           # Session handling
-│   │   ├── summaries.py          # Summary generation
 │   │   └── vector_retriever.py   # Vector retrieval
+│   ├── prompts/                  # Prompts
+│   │   ├── chat_prompt.py        # Chat message assembly
+│   │   ├── memory_prompts.py     # Memory prompts
+│   │   ├── runtime.py            # Prompt runtime assembly
+│   │   └── system_prompt.py      # System prompt builder
+│   ├── texts/                    # Text catalog
+│   │   └── catalog.py            # Text catalog helpers
 │   ├── tools/                    # Tool system
+│   │   ├── file_io.py            # File operation tools
+│   │   ├── file_search.py        # File search tools
 │   │   ├── mcp_client.py         # MCP client
 │   │   ├── memory_search.py      # Self-query tool
 │   │   ├── scheduled_tasks.py    # Scheduled task tool
 │   │   ├── send_file.py          # File sending tool
-│   │   ├── file_io.py            # File operation tools
-│   │   ├── file_search.py        # File search tools
 │   │   ├── shell.py              # Shell command execution tool
 │   │   └── tool_trace.py         # Tool invocation tracing
-│   ├── prompts/                  # Prompts
-│   │   ├── chat_prompt.py        # Chat message assembly
-│   │   ├── memory_prompts.py     # Memory prompts
-│   │   └── system_prompt.py      # System prompt builder
 │   └── utils/                    # Utility functions
+│       ├── async_utils.py        # async/sync helpers
+│       ├── logger.py             # Logging utilities
 │       ├── text.py               # Text processing
 │       ├── time.py               # Time processing
-│       └── logger.py             # Logging utilities
+│       └── tool_safety.py        # Tool safety policy
 
+├── docs/                         # Documentation directory
+│   ├── README.md                 # Documentation index
+│   ├── SCHEDULED_TASKS.md        # Scheduled tasks documentation
+│   ├── SEARCH_EXAMPLES.md        # Search feature examples
+│   └── REDUNDANCY_REFACTOR_PLAN.md # Current refactor progress ledger
 ├── template/                     # Template directory
 │   └── seele.json                # Long-term memory template
 ├── tests/                        # Unit tests
-│   ├── conftest.py               # pytest configuration
-│   ├── test_database.py
-│   ├── test_memory.py
-│   ├── test_retriever.py
-│   └── test_llm.py
 ├── migration/                    # Data migration tools
 │   ├── migrate.py                # Unified migration tool
 │   └── README.md                 # Migration tool documentation
 ├── data/                         # Data storage directory
 │   └── <profile>/                # Profile data directory
+├── static/                       # Static assets
 ├── requirements.txt              # Python dependencies
 ├── requirements-dev.txt          # Development dependencies
-├── docs/                         # Documentation directory
-│   ├── SCHEDULED_TASKS.md        # Scheduled tasks documentation
-│   └── SEARCH_EXAMPLES.md        # Search feature examples
 ├── <profile>.env                 # Environment configuration
 ├── .env.example                  # Configuration example
 ├── start-telegram.sh             # Startup script (Linux/macOS)

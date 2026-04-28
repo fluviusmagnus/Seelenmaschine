@@ -247,16 +247,21 @@ message = f"Processing {item_type} with ID {item_id}"
 
 ### File Structure
 - `src/` - All Python source code
-- `src/core/` - Application coordination (`approval.py`, `config.py`, `conversation.py`, `database.py`, `scheduler.py`, `tools.py`)
-- `src/memory/` - Memory subsystem (`manager.py`, `context.py`, `vector_retriever.py`, `recall.py`, `sessions.py`, `summaries.py`, `seele.py`)
-- `src/llm/` - LLM clients and orchestration helpers (`chat_client.py`, `memory_client.py`, `request_executor.py`, `tool_loop.py`, `embedding.py`, `reranker.py`)
-- `src/prompts/` - Prompt builders and prompt-related helpers (`system_prompt.py`, `chat_prompt.py`, `memory_prompts.py`)
-- `src/adapter/telegram/` - Telegram adapter implementation
+- `src/main_telegram.py` - Telegram bot entry point
+- `src/core/` - Application coordination (`bot.py`, `adapter_contracts.py`, `config.py`, `conversation.py`, `database.py`, `file_service.py`, `hitl.py`, `scheduler.py`, `tools.py`)
+- `src/memory/` - Memory subsystem (`manager.py`, `context.py`, `vector_retriever.py`, `sessions.py`, `seele.py`)
+- `src/llm/` - LLM clients and orchestration helpers (`chat_client.py`, `memory_client.py`, `message_builder.py`, `request_executor.py`, `tool_loop.py`, `embedding.py`, `reranker.py`)
+- `src/prompts/` - Prompt builders and prompt-related helpers (`system_prompt.py`, `chat_prompt.py`, `memory_prompts.py`, `runtime.py`)
+- `src/texts/` - Text catalog helpers (`catalog.py`)
+- `src/adapter/telegram/` - Telegram adapter implementation (`adapter.py`, `commands.py`, `controller.py`, `delivery.py`, `files.py`, `formatter.py`)
 - `src/tools/` - Tool implementations (`memory_search.py`, `mcp_client.py`, `scheduled_tasks.py`, `file_io.py`, `file_search.py`, `shell.py`, `send_file.py`, `tool_trace.py`)
-- `src/utils/` - Utilities (`async_utils.py`, `logger.py`, `time.py`, `text.py`)
+- `src/utils/` - Utilities (`async_utils.py`, `logger.py`, `time.py`, `text.py`, `tool_safety.py`)
 - `data/<profile>/` - Profile-specific data directory
+- `docs/` - Project documentation and refactor plans
 - `tests/` - Test files
 - `migration/` - Database migration scripts
+- `static/` - Static assets
+- `template/` - Template files
 - `<profile>.env` - Profile config file in the repository root
 
 ### Async-First Refactor Notes

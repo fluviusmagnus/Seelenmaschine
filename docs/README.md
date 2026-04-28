@@ -19,6 +19,32 @@
   - 时间和角色过滤
   - 复杂查询示例
 
+- **[MESSAGE_TYPES_AND_RETRIEVAL.md](MESSAGE_TYPES_AND_RETRIEVAL.md)** - 消息类型与检索行为
+  - 消息类型目录
+  - 检索入口和结果形态
+  - 文本目录相关约定
+
+### 架构 / 重构文档
+
+- **[REDUNDANCY_REFACTOR_PLAN.md](REDUNDANCY_REFACTOR_PLAN.md)** - 当前权威的冗余代码重构进度台账
+  - 已完成阶段和保留项
+  - 最近验证状态
+  - 后续任务执行规则
+
+- **[ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)** - 架构重构历史计划
+  - core / adapter / memory 所有权目标
+  - 早期阶段拆解
+  - 当前状态以 `REDUNDANCY_REFACTOR_PLAN.md` 为准
+
+- **[MEMORY_SEARCH_PLAN.md](MEMORY_SEARCH_PLAN.md)** - 记忆搜索升级历史计划
+  - 检索目标和迁移计划
+  - 测试计划
+  - 与 `SEARCH_EXAMPLES.md` 互补
+
+- **[TEXT_CATALOG_PLAN.md](TEXT_CATALOG_PLAN.md)** - Text Catalog 重构计划
+  - 文本标识和目录化方向
+  - 与消息检索文档互补
+
 ## 🔗 其他重要文档
 
 这些文档位于项目根目录或相邻目录：
@@ -50,6 +76,7 @@
 ### 功能使用
 
 - **记忆搜索**: [SEARCH_EXAMPLES.md](SEARCH_EXAMPLES.md)
+- **消息类型与检索**: [MESSAGE_TYPES_AND_RETRIEVAL.md](MESSAGE_TYPES_AND_RETRIEVAL.md)
 - **定时任务**: [SCHEDULED_TASKS.md](SCHEDULED_TASKS.md)
 - **会话管理**: 见 [README.md](../README.md) 的"使用说明"部分
 
@@ -58,6 +85,8 @@
 - **AI 开发**: [AGENTS.md](../AGENTS.md)
 - **数据迁移**: [migration/README.md](../migration/README.md)
 - **核心运行时参考**: 见 [../README.md](../README.md) 中的项目结构部分
+- **重构进度台账**: [REDUNDANCY_REFACTOR_PLAN.md](REDUNDANCY_REFACTOR_PLAN.md)
+- **历史架构计划**: [ARCHITECTURE_REFACTOR_PLAN.md](ARCHITECTURE_REFACTOR_PLAN.md)
 
 ## 🔄 文档更新
 
