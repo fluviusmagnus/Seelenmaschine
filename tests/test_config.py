@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from core.config import Config, init_config
+from core.config import CONFIGURABLE_DEFAULTS, PROJECT_CONSTANTS, Config, init_config
 
 
 @pytest.fixture
@@ -40,11 +40,8 @@ def temp_env_file(reset_config):
         f.write("RECALL_CONV_PER_SUMMARY=6\n")
         f.write("RERANK_TOP_SUMMARIES=5\n")
         f.write("RERANK_TOP_CONVS=10\n")
-        f.write("NEW_SESSION_COMMAND=/newtest\n")
-        f.write("RESET_SESSION_COMMAND=/resettest\n")
         f.write("TELEGRAM_BOT_TOKEN=test-token\n")
         f.write("TELEGRAM_USER_ID=999999\n")
-        f.write("TELEGRAM_USE_MARKDOWN=false\n")
         f.write("ENABLE_MCP=true\n")
     yield filename
     if temp_path.exists():
@@ -287,7 +284,6 @@ class TestConfig:
         os.environ["EMBEDDING_API_BASE"] = "https://embedding.api.com/v1"
         os.environ["EMBEDDING_MODEL"] = "custom-embedding"
         os.environ["EMBEDDING_DIMENSION"] = "512"
-        os.environ["EMBEDDING_CACHE_MAX_ENTRIES"] = "128"
 
         Config._load_all_settings()
 
@@ -295,7 +291,6 @@ class TestConfig:
         assert Config.EMBEDDING_API_BASE == "https://embedding.api.com/v1"
         assert Config.EMBEDDING_MODEL == "custom-embedding"
         assert Config.EMBEDDING_DIMENSION == 512
-        assert Config.EMBEDDING_CACHE_MAX_ENTRIES == 128
 
         for key in [
             "OPENAI_API_KEY",
@@ -304,21 +299,33 @@ class TestConfig:
             "EMBEDDING_API_BASE",
             "EMBEDDING_MODEL",
             "EMBEDDING_DIMENSION",
-            "EMBEDDING_CACHE_MAX_ENTRIES",
         ]:
             if key in os.environ:
                 del os.environ[key]
 
-    def test_load_all_settings_commands(self, reset_config):
-        """Test loading command settings."""
+    def test_embedding_cache_size_is_project_constant(self, reset_config):
+        """Test embedding cache size is not loaded from env."""
+        Config._profile = "test"
+        os.environ["EMBEDDING_CACHE_MAX_ENTRIES"] = "128"
+
+        Config._load_all_settings()
+
+        assert Config.EMBEDDING_CACHE_MAX_ENTRIES == PROJECT_CONSTANTS[
+            "EMBEDDING_CACHE_MAX_ENTRIES"
+        ]
+
+        del os.environ["EMBEDDING_CACHE_MAX_ENTRIES"]
+
+    def test_command_settings_are_project_constants(self, reset_config):
+        """Test command settings are not loaded from env."""
         Config._profile = "test"
         os.environ["NEW_SESSION_COMMAND"] = "/startnew"
         os.environ["RESET_SESSION_COMMAND"] = "/clear"
 
         Config._load_all_settings()
 
-        assert Config.NEW_SESSION_COMMAND == "/startnew"
-        assert Config.RESET_SESSION_COMMAND == "/clear"
+        assert Config.NEW_SESSION_COMMAND == PROJECT_CONSTANTS["NEW_SESSION_COMMAND"]
+        assert Config.RESET_SESSION_COMMAND == PROJECT_CONSTANTS["RESET_SESSION_COMMAND"]
 
         for key in ["NEW_SESSION_COMMAND", "RESET_SESSION_COMMAND"]:
             if key in os.environ:
@@ -329,15 +336,40 @@ class TestConfig:
         Config._profile = "test"
         os.environ["TELEGRAM_BOT_TOKEN"] = "telegram-token"
         os.environ["TELEGRAM_USER_ID"] = "777888"
-        os.environ["TELEGRAM_USE_MARKDOWN"] = "false"
 
         Config._load_all_settings()
 
         assert Config.TELEGRAM_BOT_TOKEN == "telegram-token"
         assert Config.TELEGRAM_USER_ID == 777888
-        assert Config.TELEGRAM_USE_MARKDOWN is False
 
-        for key in ["TELEGRAM_BOT_TOKEN", "TELEGRAM_USER_ID", "TELEGRAM_USE_MARKDOWN"]:
+        for key in ["TELEGRAM_BOT_TOKEN", "TELEGRAM_USER_ID"]:
+            if key in os.environ:
+                del os.environ[key]
+
+    def test_telegram_adapter_settings_are_project_constants(self, reset_config):
+        """Test Telegram adapter internals are not loaded from env."""
+        Config._profile = "test"
+        os.environ["TELEGRAM_USE_MARKDOWN"] = "false"
+        os.environ["TELEGRAM_CONNECT_TIMEOUT"] = "99.0"
+        os.environ["TELEGRAM_BOOTSTRAP_RETRIES"] = "99"
+
+        Config._load_all_settings()
+
+        assert Config.TELEGRAM_USE_MARKDOWN is PROJECT_CONSTANTS[
+            "TELEGRAM_USE_MARKDOWN"
+        ]
+        assert Config.TELEGRAM_CONNECT_TIMEOUT == PROJECT_CONSTANTS[
+            "TELEGRAM_CONNECT_TIMEOUT"
+        ]
+        assert Config.TELEGRAM_BOOTSTRAP_RETRIES == PROJECT_CONSTANTS[
+            "TELEGRAM_BOOTSTRAP_RETRIES"
+        ]
+
+        for key in [
+            "TELEGRAM_USE_MARKDOWN",
+            "TELEGRAM_CONNECT_TIMEOUT",
+            "TELEGRAM_BOOTSTRAP_RETRIES",
+        ]:
             if key in os.environ:
                 del os.environ[key]
 
@@ -395,6 +427,42 @@ class TestConfig:
         for key in ["ENABLE_MCP"]:
             if key in os.environ:
                 del os.environ[key]
+
+    def test_configurable_setting_can_be_overridden(self, reset_config):
+        """Test profile-configurable settings can be overridden by env."""
+        Config._profile = "test"
+        os.environ["TOOL_LOOP_MAX_ITERATIONS"] = "17"
+
+        Config._load_all_settings()
+
+        assert Config.TOOL_LOOP_MAX_ITERATIONS == 17
+
+        del os.environ["TOOL_LOOP_MAX_ITERATIONS"]
+
+    def test_project_constant_ignores_env_override(self, reset_config):
+        """Test project constants are not loaded from profile env."""
+        Config._profile = "test"
+        os.environ["SHELL_OUTPUT_MAX_CHARS"] = "999"
+
+        Config._load_all_settings()
+
+        assert Config.SHELL_OUTPUT_MAX_CHARS == PROJECT_CONSTANTS[
+            "SHELL_OUTPUT_MAX_CHARS"
+        ]
+
+        del os.environ["SHELL_OUTPUT_MAX_CHARS"]
+
+    def test_env_example_lists_configurable_defaults_only(self):
+        """Test .env.example documents configurable keys, not constants."""
+        env_example = Path(".env.example").read_text(encoding="utf-8")
+        documented_keys = {
+            line.split("=", 1)[0]
+            for line in env_example.splitlines()
+            if line and not line.startswith("#") and "=" in line
+        }
+
+        assert set(CONFIGURABLE_DEFAULTS) <= documented_keys
+        assert set(PROJECT_CONSTANTS).isdisjoint(documented_keys)
 
     def test_ensure_dirs_exist(self, reset_config, tmp_path):
         """Test _ensure_dirs_exist creates directory."""
