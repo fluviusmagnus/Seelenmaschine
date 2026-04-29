@@ -1,5 +1,4 @@
 import asyncio
-import json
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from core.config import Config
@@ -96,16 +95,6 @@ class ToolLoop:
                     content=assistant_text,
                     message_type="conversation",
                 )
-                if Config.DEBUG_SHOW_FULL_PROMPT:
-                    logger.debug(
-                        "LLM emitted intermediate assistant text before tool execution (full):\n"
-                        f"{assistant_text}"
-                    )
-                else:
-                    logger.debug(
-                        "LLM emitted intermediate assistant text before tool execution: "
-                        f"{self.llm_client._preview_text(assistant_text)}"
-                    )
                 if intermediate_callback:
                     await intermediate_callback(assistant_text)
 
@@ -117,13 +106,7 @@ class ToolLoop:
             for call in result["tool_calls"]:
                 if abort_check is not None:
                     abort_check()
-                if Config.DEBUG_SHOW_FULL_PROMPT:
-                    logger.debug(
-                        "Executing tool call (full):\n"
-                        f"{json.dumps(call, ensure_ascii=False, indent=2)}"
-                    )
-                else:
-                    logger.debug(f"Executing tool: {call['name']}")
+                logger.debug(f"Executing tool: {call['name']}")
                 try:
                     response = self.llm_client._tool_executor(
                         call["name"], call["arguments"]
@@ -226,16 +209,11 @@ class ToolLoop:
                 "LLM tool loop finished: "
                 f"assistant_messages={len(assistant_messages)}"
             )
-            logger.debug(f"LLM tool loop final_text (full):\n{final_text}")
-            logger.debug(
-                "LLM tool loop conversation_events (full):\n"
-                f"{json.dumps(conversation_events, ensure_ascii=False, indent=2)}"
-            )
         else:
             logger.debug(
                 "LLM tool loop finished: "
                 f"assistant_messages={len(assistant_messages)}, "
-                f"final_text={self.llm_client._preview_text(final_text)}"
+                f"final_text_chars={len(final_text)}"
             )
 
         return {

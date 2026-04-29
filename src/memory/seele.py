@@ -938,9 +938,12 @@ class Seele:
     @staticmethod
     def _log_generated_json_preview(complete_json_str: str) -> None:
         """Log compact diagnostics for a generated complete JSON response."""
-        logger.debug(f"Generated JSON length: {len(complete_json_str)} chars")
-        logger.debug(f"First 200 chars: {complete_json_str[:200]}")
-        logger.debug(f"Last 200 chars: {complete_json_str[-200:]}")
+        logger.debug(
+            "Generated JSON diagnostics: "
+            f"length={len(complete_json_str)} chars, "
+            f"head={complete_json_str[:200]!r}, "
+            f"tail={complete_json_str[-200:]!r}"
+        )
 
     def _parse_complete_json_response(
         self, complete_json_str: str

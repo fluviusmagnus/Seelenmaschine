@@ -114,12 +114,6 @@ class ChatRequestExecutor:
                     f"{self.llm_client._preview_text(result['content'])}"
                 )
 
-        if Config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(
-                "LLM normalized response (full):\n"
-                f"{json.dumps(result, ensure_ascii=False, indent=2)}"
-            )
-
     async def async_chat(
         self,
         messages: List[Dict[str, str]],
@@ -161,4 +155,3 @@ class ChatRequestExecutor:
             )
             logger.error(f"LLM chat failed: {error_message}", exc_info=True)
             raise RuntimeError(error_message) from error
-

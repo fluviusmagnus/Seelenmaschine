@@ -494,7 +494,10 @@ class ToolExecutor:
                 ),
             }
 
-        logger.info(f"Executing tool: {tool_name} with args: {arguments}")
+        logger.info(
+            f"Executing tool: {tool_name} "
+            f"args_preview={self._build_arguments_preview(arguments)}"
+        )
 
         dangerous, reason = self.is_dangerous_action(tool_name, arguments)
         approval_granted = False

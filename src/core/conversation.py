@@ -240,14 +240,8 @@ class ConversationService:
             logger.debug(
                 f"LLM detailed result for {result_log_label}: "
                 f"assistant_messages={len(assistant_messages)}, "
-                f"final_text={self.preview_text(response_text)}"
+                f"final_text_chars={len(response_text)}"
             )
-            for idx, assistant_message in enumerate(assistant_messages, start=1):
-                logger.debug(
-                    f"{result_log_label} assistant message "
-                    f"{idx}/{len(assistant_messages)} to persist: "
-                    f"{self.preview_text(assistant_message)}"
-                )
 
         logger.debug(f"Persisting LLM result ({context_label})")
         if conversation_events:
@@ -265,11 +259,9 @@ class ConversationService:
                 context_label=context_label,
             )
 
-        if not self.config.DEBUG_SHOW_FULL_PROMPT:
-            logger.debug(
-                f"{result_log_label} complete, returning combined response: "
-                f"{self.preview_text(response_text)}"
-            )
+        logger.debug(
+            f"{result_log_label} complete: final_text_chars={len(response_text)}"
+        )
         return response_text
 
     async def _execute_llm_turn(

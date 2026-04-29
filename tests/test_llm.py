@@ -693,7 +693,7 @@ class TestLLMClient:
 
 
 class TestDebugLogReduction:
-    """Test log reduction when full prompt debug is enabled."""
+    """Test log reduction and ownership when full prompt debug is enabled."""
 
     def test_request_executor_skips_content_preview_when_full_prompt_enabled(self):
         llm_client = Mock()
@@ -719,7 +719,7 @@ class TestDebugLogReduction:
                     for message in debug_messages
                 )
 
-    def test_request_executor_logs_full_response_when_full_prompt_enabled(self):
+    def test_request_executor_logs_full_response_once_when_full_prompt_enabled(self):
         llm_client = Mock()
         executor = ChatRequestExecutor(llm_client)
 
@@ -746,7 +746,7 @@ class TestDebugLogReduction:
                     message.startswith("LLM response content (full):")
                     for message in debug_messages
                 )
-                assert any(
+                assert not any(
                     message.startswith("LLM normalized response (full):")
                     for message in debug_messages
                 )
@@ -782,15 +782,7 @@ class TestDebugLogReduction:
 
                 debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
                 assert not any(
-                    message.startswith(
-                        "LLM emitted intermediate assistant text before tool execution:"
-                    )
-                    for message in debug_messages
-                )
-                assert any(
-                    message.startswith(
-                        "LLM emitted intermediate assistant text before tool execution (full):"
-                    )
+                    "intermediate assistant text" in message
                     for message in debug_messages
                 )
 
@@ -828,6 +820,10 @@ class TestDebugLogReduction:
 
                 debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
                 assert any(
+                    message == "Executing tool: demo_tool"
+                    for message in debug_messages
+                )
+                assert not any(
                     message.startswith("Executing tool call (full):")
                     for message in debug_messages
                 )
@@ -841,6 +837,33 @@ class TestDebugLogReduction:
                 )
                 assert any(
                     message.startswith("Tool 'demo_tool' context message (full):")
+                    for message in debug_messages
+                )
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_does_not_repeat_final_text_when_full_prompt_enabled(self):
+        llm_client = Mock()
+        llm_client._async_chat = AsyncMock(
+            return_value={"tool_calls": None, "content": "final full text"}
+        )
+        llm_client._extract_assistant_text_from_result.return_value = "final full text"
+
+        tool_loop = ToolLoop(llm_client)
+
+        with patch("llm.tool_loop.Config") as mock_config:
+            with patch("llm.tool_loop.logger") as mock_logger:
+                mock_config.DEBUG_SHOW_FULL_PROMPT = True
+                mock_config.TOOL_LOOP_MAX_ITERATIONS = 8
+                await tool_loop.run_chat_with_tool_loop([{"role": "user", "content": "hi"}])
+
+                debug_messages = [call.args[0] for call in mock_logger.debug.call_args_list]
+                assert any(
+                    message == "LLM tool loop finished: assistant_messages=1"
+                    for message in debug_messages
+                )
+                assert not any("final full text" in message for message in debug_messages)
+                assert not any(
+                    message.startswith("LLM tool loop conversation_events (full):")
                     for message in debug_messages
                 )
 
