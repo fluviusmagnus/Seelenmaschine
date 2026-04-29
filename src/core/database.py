@@ -1275,7 +1275,8 @@ class DatabaseManager:
                 f"""
                 SELECT conversation_id, session_id, timestamp, role, text
                 FROM conversations
-                WHERE {range_filters}
+                WHERE message_type = 'conversation'
+                  AND ({range_filters})
                 ORDER BY timestamp DESC, conversation_id DESC
                 """,
                 tuple(params),

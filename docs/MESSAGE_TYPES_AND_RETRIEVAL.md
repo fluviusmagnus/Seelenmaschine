@@ -142,6 +142,7 @@ c.message_type = 'conversation'
 
 - conversation 会进入当前 conversations 检索主路径
 - `tool_call` / `scheduled_task` 等非 conversation 类型，默认不会进入这条路径
+- `<similar_historical_conversations>` 使用 summary 时间范围回捞原始对话时，也只回捞 `message_type = 'conversation'` 的记录，避免工具调用上下文混入相似历史
 
 ---
 

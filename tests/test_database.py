@@ -235,6 +235,34 @@ class TestDatabaseManager:
         ]
         assert first_id not in {conversation[0] for conversation in conversations}
 
+    def test_get_conversations_by_time_ranges_excludes_tool_calls(self, db_manager):
+        """Similar-history time-range retrieval should exclude tool call records."""
+        session_id = db_manager.create_session(1234567890)
+        conversation_id = db_manager.insert_conversation(
+            session_id, 100, "user", "ordinary conversation"
+        )
+        tool_call_id = db_manager.insert_conversation(
+            session_id=session_id,
+            timestamp=110,
+            role="system",
+            text='[Tool Call]\ntool_name: "search_memories"',
+            message_type="tool_call",
+            include_in_turn_count=False,
+            include_in_summary=False,
+        )
+        assistant_id = db_manager.insert_conversation(
+            session_id, 120, "assistant", "ordinary response"
+        )
+
+        conversations = db_manager.get_conversations_by_time_ranges(
+            ranges=[(90, 130)],
+            limit_per_range=10,
+        )
+
+        conversation_ids = {conversation[0] for conversation in conversations}
+        assert conversation_ids == {conversation_id, assistant_id}
+        assert tool_call_id not in conversation_ids
+
     def test_get_conversations_by_session(self, db_manager):
         """Test retrieving conversations by session."""
         session_id = db_manager.create_session(1234567890)
