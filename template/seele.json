@@ -21,11 +21,11 @@
         },
         "emotions": {
             "long_term": "",
-            "short_term": ""
+            "short_term": []
         },
         "needs": {
             "long_term": "",
-            "short_term": ""
+            "short_term": []
         },
         "relationship_with_user": ""
     },
@@ -45,11 +45,11 @@
         },
         "emotions": {
             "long_term": "",
-            "short_term": ""
+            "short_term": []
         },
         "needs": {
             "long_term": "",
-            "short_term": ""
+            "short_term": []
         }
     },
     "memorable_events": {},

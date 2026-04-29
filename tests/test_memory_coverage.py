@@ -255,8 +255,17 @@ class TestMemoryManagerJsonUtils:
     def test_validate_seele_structure_valid(self, memory_manager):
         """Test _validate_seele_structure with valid data"""
         valid_data = {
-            "bot": {"name": "TestBot"},
-            "user": {"name": "TestUser", "location": ""},
+            "bot": {
+                "name": "TestBot",
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
+            },
+            "user": {
+                "name": "TestUser",
+                "location": "",
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
+            },
             "memorable_events": {},
             "commands_and_agreements": [],
         }
@@ -350,8 +359,8 @@ class TestSeeleRepairPaths:
                         "description": "",
                         "worldview_and_values": "",
                     },
-                    "emotions": {"long_term": "", "short_term": ""},
-                    "needs": {"long_term": "", "short_term": ""},
+                    "emotions": {"long_term": "", "short_term": []},
+                    "needs": {"long_term": "", "short_term": []},
                     "relationship_with_user": "",
                 },
                 "user": {
@@ -368,8 +377,8 @@ class TestSeeleRepairPaths:
                         "description": "",
                         "worldview_and_values": "",
                     },
-                    "emotions": {"long_term": "", "short_term": ""},
-                    "needs": {"long_term": "", "short_term": ""},
+                    "emotions": {"long_term": "", "short_term": []},
+                    "needs": {"long_term": "", "short_term": []},
                 },
                 "memorable_events": {},
                 "commands_and_agreements": [],
@@ -418,8 +427,8 @@ class TestSeeleSessionSnapshot:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions": {"long_term": "", "short_term": ""},
-                "needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
                 "relationship_with_user": "",
             },
             "user": {
@@ -436,8 +445,8 @@ class TestSeeleSessionSnapshot:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions": {"long_term": "", "short_term": ""},
-                "needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
             },
             "memorable_events": {},
             "commands_and_agreements": [],

@@ -238,8 +238,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions": {"long_term": "", "short_term": ""},
-                "needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
                 "relationship_with_user": "",
             },
             "user": {
@@ -255,8 +255,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions": {"long_term": "", "short_term": ""},
-                "needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
             },
             "memorable_events": {
                 "evt_20260329_project_commitment": {
@@ -487,8 +487,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions": {"long_term": "", "short_term": ""},
-                "needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
                 "relationship_with_user": "",
             },
             "user": {
@@ -504,8 +504,8 @@ class TestGetCacheableSystemPrompt:
                     "description": "",
                     "worldview_and_values": "",
                 },
-                "emotions": {"long_term": "", "short_term": ""},
-                "needs": {"long_term": "", "short_term": ""},
+                "emotions": {"long_term": "", "short_term": []},
+                "needs": {"long_term": "", "short_term": []},
             },
             "memorable_events": {},
             "commands_and_agreements": [],
@@ -732,8 +732,22 @@ class TestGetMemoryUpdatePrompt:
         assert "Keep at most 20 personal_facts" in prompt
         assert "Keep at most 20 memorable_events" in prompt
         assert "Re-evaluate each event's lasting significance" in prompt
+        assert "short_term emotion/need list exceeds 12 items" in prompt
+        assert "keep only the latest 4 short-term items" in prompt
         assert '"personal_facts": ["..."]' in prompt
         assert '"memorable_events": {' in prompt
+        assert '"short_term": ["..."]' in prompt
+
+    def test_memory_update_prompt_requires_short_term_append_only_arrays(self):
+        """Memory update prompt should constrain short-term emotion/need patches."""
+        prompt = get_memory_update_prompt("User: test", self._current_seele_json())
+
+        assert "short_term: array of strings" in prompt
+        assert 'Use only {"op": "add"' in prompt
+        assert '/short_term/-' in prompt
+        assert "Do NOT replace an entire short_term list" in prompt
+        assert "exceeds 12 items" in prompt
+        assert "latest 4 items" in prompt
 
     def test_get_memory_update_prompt_without_timestamps(self):
         """Test getting memory update prompt without timestamps."""
@@ -794,8 +808,8 @@ class TestPromptIntegration:
                             "description": "",
                             "worldview_and_values": "",
                         },
-                        "emotions": {"long_term": "", "short_term": ""},
-                        "needs": {"long_term": "", "short_term": ""},
+                        "emotions": {"long_term": "", "short_term": []},
+                        "needs": {"long_term": "", "short_term": []},
                         "relationship_with_user": "",
                     },
                     "user": {
@@ -811,8 +825,8 @@ class TestPromptIntegration:
                             "description": "",
                             "worldview_and_values": "",
                         },
-                        "emotions": {"long_term": "", "short_term": ""},
-                        "needs": {"long_term": "", "short_term": ""},
+                        "emotions": {"long_term": "", "short_term": []},
+                        "needs": {"long_term": "", "short_term": []},
                     },
                     "memorable_events": {},
                     "commands_and_agreements": ["Prefer concise replies"],

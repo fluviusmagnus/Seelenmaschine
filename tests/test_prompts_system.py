@@ -29,7 +29,9 @@ class TestLoadSeeleJson:
                     
                     result = _load_seele_json_from_disk()
                     
-                    assert result == mock_data
+                assert result["bot"] == mock_data["bot"]
+                assert result["user"] == mock_data["user"]
+                assert result["memorable_events"] == {}
     
     def test_load_seele_json_uses_cache(self):
         """Test that load_seele_json uses cache after first load"""
@@ -104,9 +106,16 @@ class TestBuildSystemPrompt:
                 "personality": {
                     "mbti": "INTJ",
                     "traits": ["analytical", "logical"]
-                }
+                },
+                "emotions": {"long_term": "", "short_term": ["focused", "curious"]},
+                "needs": {"long_term": "", "short_term": ["clear constraints"]},
             },
-            "user": {"name": "TestUser", "location": "Tokyo"},
+            "user": {
+                "name": "TestUser",
+                "location": "Tokyo",
+                "emotions": {"long_term": "", "short_term": ["tired"]},
+                "needs": {"long_term": "", "short_term": ["rest"]},
+            },
             "memorable_events": {
                 "evt_20260329_project_commitment": {
                     "date": "2026-03-29",
@@ -140,6 +149,11 @@ class TestBuildSystemPrompt:
                 assert "<system_instruction>" in result
                 assert "<self_awareness>" in result
                 assert "<recent_summaries_for_current_conversation>" in result
+                assert "- focused" in result
+                assert "- curious" in result
+                assert "- clear constraints" in result
+                assert "- tired" in result
+                assert "- rest" in result
 
 class TestJsonPatchConversion:
     """Test JSON Patch conversion utilities"""

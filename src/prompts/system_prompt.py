@@ -36,6 +36,8 @@ def get_current_time_str(timezone: Any, logger: Any) -> str:
 
 def _format_bullet_list(items: List[str], empty_fallback: str) -> str:
     """Format a string list as markdown bullets with a fallback value."""
+    if isinstance(items, str):
+        items = [items]
     normalized_items = [str(item).strip() for item in items if str(item).strip()]
     if not normalized_items:
         return f"- {empty_fallback}"
@@ -151,11 +153,13 @@ Core principles to follow in this conversation:
 
 **Emotions:**
 - Long-term: {bot.get("emotions", {}).get("long_term", "")}
-- Short-term: {bot.get("emotions", {}).get("short_term", "")}
+- Short-term:
+{_format_bullet_list(bot.get("emotions", {}).get("short_term", []), "None recorded")}
 
 **Needs:**
 - Long-term: {bot.get("needs", {}).get("long_term", "")}
-- Short-term: {bot.get("needs", {}).get("short_term", "")}
+- Short-term:
+{_format_bullet_list(bot.get("needs", {}).get("short_term", []), "None recorded")}
 
 **Relationship with User:**
 {bot.get("relationship_with_user", "Not yet established")}
@@ -186,11 +190,13 @@ Core principles to follow in this conversation:
 
 **Emotions:**
 - Long-term: {user.get("emotions", {}).get("long_term", "")}
-- Short-term: {user.get("emotions", {}).get("short_term", "")}
+- Short-term:
+{_format_bullet_list(user.get("emotions", {}).get("short_term", []), "None recorded")}
 
 **Needs:**
 - Long-term: {user.get("needs", {}).get("long_term", "")}
-- Short-term: {user.get("needs", {}).get("short_term", "")}
+- Short-term:
+{_format_bullet_list(user.get("needs", {}).get("short_term", []), "None recorded")}
 
 </user_profile>"""
     )

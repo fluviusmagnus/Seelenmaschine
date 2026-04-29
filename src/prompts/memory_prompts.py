@@ -3,6 +3,10 @@
 import json
 from typing import Any, Dict, Optional
 
+from memory.seele import (
+    SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION,
+    SHORT_TERM_MEMORY_LIMIT,
+)
 from utils.time import format_timestamp_range
 
 
@@ -140,6 +144,9 @@ Update seele.json using only meaningful, durable, and well-supported inferences 
 - Do not merely restate what happened; extract the underlying emotional state, motivational tendency, pressure, desire, or longer-term psychological/relational conclusion when supported by context.
 - /user/emotions and /user/needs should contain conclusions inferred from events and conversation context, not a plain recap of the events themselves.
 - If information is temporary, prefer short_term emotions or short_term needs when appropriate, or do not store it in seele.json at all unless it later proves enduring.
+- short_term emotion/need fields are append-only arrays of concise analytical conclusions.
+- Add new short-term emotion/need entries only with JSON Patch add operations to /bot/emotions/short_term/-, /bot/needs/short_term/-, /user/emotions/short_term/-, or /user/needs/short_term/-.
+- Do not remove, replace, rewrite, sort, or manually compact short_term lists in JSON Patch; the runtime compacts them when any list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merging older entries into long_term and keeping the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} items.
 - If information has lasting value, prefer storing it as stable knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
 - Prefer updating /user/personal_facts, /user/personality, /bot/personality, or /bot/relationship_with_user when the conversation reveals durable understanding rather than one specific commemorative moment.
 </field_interpretation_rules>
@@ -151,8 +158,8 @@ The seele.json structure:
   - /bot/likes, /bot/dislikes (arrays of strings)
   - /bot/language_style: {{description: string, examples: array}}
   - /bot/personality: {{mbti: string, description: string, worldview_and_values: string}}
-  - /bot/emotions: {{long_term: string, short_term: string}}
-  - /bot/needs: {{long_term: string, short_term: string}}
+  - /bot/emotions: {{long_term: string, short_term: array of strings}}
+  - /bot/needs: {{long_term: string, short_term: array of strings}}
   - /bot/relationship_with_user (string)
 - user: Your understanding of the user
   - /user/name, /user/gender, /user/birthday, /user/location (strings)
@@ -160,8 +167,8 @@ The seele.json structure:
   - /user/personal_facts should contain relatively stable facts about the user that are likely to remain true across time
   - Do NOT store temporary states, short-term plans, one-off arrangements, today's mood, near-term schedules, or transient situation updates in /user/personal_facts
   - /user/personality: {{mbti: string, description: string, worldview_and_values: string}}
-  - /user/emotions: {{long_term: string, short_term: string}}
-  - /user/needs: {{long_term: string, short_term: string}}
+  - /user/emotions: {{long_term: string, short_term: array of strings}}
+  - /user/needs: {{long_term: string, short_term: array of strings}}
 - /commands_and_agreements (array of strings)
 </schema>
 
@@ -244,6 +251,11 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
    - Do NOT add temporary conditions like "is busy this week", "is preparing a report tomorrow", "felt tired today", or other short-lived context
    - If an existing personal_facts entry is clearly temporary/outdated, prefer removing it
    - If a detail remains useful in the long run, prefer expressing it as a stable fact or understanding instead of creating a commemorative event for it
+9b. **For short_term emotion/need fields specifically:**
+   - short_term: array of strings
+   - Use only {{"op": "add", "path": "/.../short_term/-", "value": "concise analytical conclusion"}} for short-term emotion/need updates
+   - Do NOT replace an entire short_term list, remove individual short_term items, or add by numeric index
+   - If a short_term list exceeds {SHORT_TERM_MEMORY_LIMIT} items, the runtime will compact it automatically, merge older entries into long_term, and keep the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} items
 10. **LANGUAGE REQUIREMENT: All text values in the JSON patch MUST use the SAME LANGUAGE as the main language used in the conversations**
     - If conversations are primarily in Chinese, all "value" fields should be in Chinese
     - If conversations are primarily in English, all "value" fields should be in English
@@ -262,7 +274,7 @@ Example 1 - Adding new facts and events:
 
 Example 2 - Updating existing fields:
 [
-  {{"op": "replace", "path": "/bot/emotions/short_term", "value": "Feeling happy about helping the user"}},
+  {{"op": "add", "path": "/bot/emotions/short_term/-", "value": "Feeling happy about helping the user"}},
   {{"op": "replace", "path": "/user/likes", "value": "Loves hiking, reading sci-fi novels, and cooking Italian food"}}
 ]
 
@@ -294,6 +306,8 @@ Invalid examples (DO NOT output like these):
 ❌ Here is the JSON patch: [{{"op": "add", ...}}]
 ❌ {{"user": {{"name": "John"}}}} (this is not JSON Patch format)
 ❌ {{"op": "replace", "path": "/memorable_events/0/details", ...}} (never use numeric indexes for memorable_events)
+❌ {{"op": "replace", "path": "/user/emotions/short_term", "value": [...]}} (short_term emotion/need lists are append-only in JSON Patch)
+❌ {{"op": "add", "path": "/user/needs/short_term/0", "value": "..."}} (short_term entries must be appended with /-)
 ❌ Any text before or after the JSON array
 </invalid_examples>
 
@@ -366,6 +380,8 @@ Instead of generating a JSON Patch, please output a COMPLETE, VALID seele.json t
 - Emotions and needs are analytical conclusions inferred from the conversation and relevant events, not event summaries themselves.
 - Do not merely restate what happened; extract the underlying emotional state, motivational tendency, pressure, desire, or longer-term psychological/relational conclusion when supported by context.
 - If information is temporary, either place it in a more appropriate short-term field or omit it from seele.json.
+- short_term emotion/need fields are arrays of concise analytical conclusions. Keep them as arrays, not strings.
+- If any short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, compact older entries into the matching long_term field and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
 - If information has durable value, prefer storing it as knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
 </field_interpretation_rules>
 
@@ -391,11 +407,11 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
     }},
     "emotions": {{
       "long_term": "string",
-      "short_term": "string"
+      "short_term": ["string"]
     }},
     "needs": {{
       "long_term": "string",
-      "short_term": "string"
+      "short_term": ["string"]
     }},
     "relationship_with_user": "string"
   }},
@@ -415,11 +431,11 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
     }},
     "emotions": {{
       "long_term": "string",
-      "short_term": "string"
+      "short_term": ["string"]
     }},
     "needs": {{
       "long_term": "string",
-      "short_term": "string"
+      "short_term": ["string"]
     }}
   }},
   **IMPORTANT UPDATE GUIDELINES for user.personal_facts:**
@@ -489,6 +505,7 @@ CRITICAL OUTPUT REQUIREMENTS:
    - If conversations are primarily in English, all text fields should be in English
 7. Focus on ADJUSTING the content to conform to the schema rather than keeping invalid structures
 8. Preserve meaningful memorable events over time while still re-scoring or removing events that become outdated or less relevant.
+9. short_term emotion/need fields MUST be arrays of strings. If any list exceeds {SHORT_TERM_MEMORY_LIMIT}, merge older entries into long_term and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION}.
 </output_requirements>
 
 <final_instruction>
@@ -530,6 +547,8 @@ This is a semantic migration/repair task, not a mechanical field shuffle.
 <field_interpretation_rules>
 - `emotions` and `needs` must represent analyzed conclusions drawn from the source content, not simple summaries of events.
 - When legacy content uses merged emotional/need-like descriptions, infer the best semantic split into `emotions` and `needs` from context.
+- In the current schema, `short_term` under emotions/needs is always an array of strings. Convert legacy strings into one-item arrays, and convert empty strings into empty arrays.
+- If a short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merge older entries into the matching long_term field and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
 - Preserve meaning, but prefer repairing structure and clarifying semantics over mechanically copying legacy wording into the wrong field.
 </field_interpretation_rules>
 
@@ -538,7 +557,7 @@ This is a semantic migration/repair task, not a mechanical field shuffle.
 2. Preserve all valid, meaningful existing information whenever possible.
 3. Keep the original language of existing content whenever possible; do not translate unless necessary for consistency.
 4. If the source content is malformed JSON, partially broken, or uses an old schema, infer the intended meaning conservatively.
-5. The legacy field `emotions_and_needs` is deprecated. The current schema uses separate `emotions` and `needs` objects, each with `long_term` and `short_term`.
+5. The legacy field `emotions_and_needs` is deprecated. The current schema uses separate `emotions` and `needs` objects, each with string `long_term` and string-array `short_term`.
 6. If legacy content uses `emotions_and_needs`, semantically split it into the new `emotions` and `needs` fields based on context rather than copying mechanically.
 7. Do NOT invent facts that are not supported by the source content.
 8. If legacy or malformed content contains reminders, todo items, meeting schedules, shopping lists, or temporary errands, do NOT preserve them as memorable events or long-term personal facts.
@@ -546,6 +565,7 @@ This is a semantic migration/repair task, not a mechanical field shuffle.
 10. memorable_events MUST be an object keyed by stable ids, not an array.
 11. Every memorable event value MUST contain exactly: date (YYYY-MM-DD string), importance (1-5 int), details (string).
 12. commands_and_agreements MUST be an array of strings.
+13. short_term emotion/need fields MUST be arrays of strings, not strings.
 </requirements>
 
 <current_issues>
@@ -603,9 +623,11 @@ Re-evaluate importance and return a compacted result that preserves only the mos
 </goal>
 
 <compaction_rules>
-1. Return a JSON object with exactly two top-level fields:
+1. Return a JSON object with exactly four top-level fields:
    - "personal_facts": array of strings
    - "memorable_events": object keyed by stable event ids
+   - "bot": object containing emotions and needs compaction results
+   - "user": object containing emotions and needs compaction results
 2. Keep at most {personal_facts_limit} personal_facts.
 3. Keep at most {memorable_events_limit} memorable_events.
 4. For personal_facts:
@@ -620,7 +642,20 @@ Re-evaluate importance and return a compacted result that preserves only the mos
    - Do not keep reminders, todo items, errands, meeting schedules, shopping lists, or temporary tasks
 6. Preserve the original language of each item whenever possible.
 7. Do not invent new facts or new events unsupported by the current data.
+8. When any short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, summarize and merge older entries into the matching long_term field, then keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
+9. If a short_term emotion/need list does not exceed {SHORT_TERM_MEMORY_LIMIT} items, preserve its current long_term and short_term values unless a concise merge is clearly needed because another section triggered compaction.
+10. short_term emotion/need entries are analytical conclusions, not event logs; remove duplicates and low-signal entries during compaction.
 </compaction_rules>
+
+<short_term_schema>
+Each owner must include both emotions and needs:
+{{
+  "emotions": {{"long_term": "string", "short_term": ["string"]}},
+  "needs": {{"long_term": "string", "short_term": ["string"]}}
+}}
+
+If a short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merge older items into long_term and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
+</short_term_schema>
 
 <event_schema>
 Each memorable event value must remain:
@@ -652,6 +687,14 @@ When forced to choose, prefer:
   "personal_facts": ["..."],
   "memorable_events": {{
     "evt_example": {{"date": "YYYY-MM-DD", "importance": 3, "details": "..."}}
+  }},
+  "bot": {{
+    "emotions": {{"long_term": "...", "short_term": ["..."]}},
+    "needs": {{"long_term": "...", "short_term": ["..."]}}
+  }},
+  "user": {{
+    "emotions": {{"long_term": "...", "short_term": ["..."]}},
+    "needs": {{"long_term": "...", "short_term": ["..."]}}
   }}
 }}
 </output_requirements>

@@ -39,11 +39,11 @@ CURRENT_SEELE_TEMPLATE_FALLBACK = {
         },
         "emotions": {
             "long_term": "",
-            "short_term": "",
+            "short_term": [],
         },
         "needs": {
             "long_term": "",
-            "short_term": "",
+            "short_term": [],
         },
         "relationship_with_user": "",
     },
@@ -63,11 +63,11 @@ CURRENT_SEELE_TEMPLATE_FALLBACK = {
         },
         "emotions": {
             "long_term": "",
-            "short_term": "",
+            "short_term": [],
         },
         "needs": {
             "long_term": "",
-            "short_term": "",
+            "short_term": [],
         },
     },
     "memorable_events": {},
@@ -86,6 +86,10 @@ MEMORABLE_EVENT_RETENTION_DAYS = {
 }
 PERSONAL_FACTS_LIMIT = 20
 MEMORABLE_EVENTS_LIMIT = 20
+SHORT_TERM_MEMORY_LIMIT = 12
+SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION = 4
+SHORT_TERM_MEMORY_OWNERS = ("bot", "user")
+SHORT_TERM_MEMORY_SECTIONS = ("emotions", "needs")
 
 
 def _safe_event_slug(details: str) -> str:
@@ -267,6 +271,35 @@ def _deduplicate_personal_facts(personal_facts: Any) -> List[str]:
     return deduplicated
 
 
+def normalize_short_term_items(short_term: Any) -> tuple[List[str], bool]:
+    """Normalize a short-term emotion/need value to a clean string list."""
+    if short_term is None:
+        return [], True
+
+    if isinstance(short_term, str):
+        normalized = " ".join(short_term.split()).strip()
+        return ([normalized] if normalized else []), True
+
+    if not isinstance(short_term, list):
+        return [], True
+
+    normalized_items: List[str] = []
+    changed = False
+    for item in short_term:
+        if not isinstance(item, str):
+            changed = True
+            continue
+        normalized = " ".join(item.split()).strip()
+        if not normalized:
+            changed = True
+            continue
+        if normalized != item:
+            changed = True
+        normalized_items.append(normalized)
+
+    return normalized_items, changed
+
+
 def _event_sort_key(item: tuple[str, Dict[str, Any]]) -> tuple[int, str, str]:
     """Build deterministic sort key for memorable event fallback retention."""
     event_id, event = item
@@ -295,6 +328,73 @@ def fallback_compact_memorable_events(
     return {event_id: event for event_id, event in kept_items}
 
 
+def _iter_short_term_fields(data: Dict[str, Any]):
+    """Yield owner/section payloads that can contain short-term memory."""
+    for owner_name in SHORT_TERM_MEMORY_OWNERS:
+        owner = data.get(owner_name)
+        if not isinstance(owner, dict):
+            continue
+        for section_name in SHORT_TERM_MEMORY_SECTIONS:
+            section = owner.get(section_name)
+            if isinstance(section, dict):
+                yield owner_name, section_name, section
+
+
+def _normalize_short_term_memory(data: Dict[str, Any]) -> bool:
+    """Normalize all short-term emotion/need fields in-place."""
+    changed = False
+    for _, _, section in _iter_short_term_fields(data):
+        normalized_items, field_changed = normalize_short_term_items(
+            section.get("short_term", [])
+        )
+        if field_changed or section.get("short_term") != normalized_items:
+            section["short_term"] = normalized_items
+            changed = True
+        if not isinstance(section.get("long_term"), str):
+            section["long_term"] = ""
+            changed = True
+    return changed
+
+
+def _short_term_limits_exceeded(data: Dict[str, Any]) -> bool:
+    """Return whether any short-term emotion/need list exceeds the max size."""
+    for _, _, section in _iter_short_term_fields(data):
+        short_term = section.get("short_term", [])
+        if isinstance(short_term, list) and len(short_term) > SHORT_TERM_MEMORY_LIMIT:
+            return True
+    return False
+
+
+def _merge_short_term_overflow_into_long_term(
+    long_term: str,
+    overflow_items: List[str],
+) -> str:
+    """Build deterministic long-term text when fallback compacts short-term lists."""
+    overflow_text = "; ".join(overflow_items)
+    if not overflow_text:
+        return long_term
+    summary = f"Compacted short-term observations: {overflow_text}"
+    if long_term.strip():
+        return f"{long_term.strip()}\n{summary}"
+    return summary
+
+
+def fallback_compact_short_term_memory(data: Dict[str, Any]) -> None:
+    """Compact overflowing short-term lists in-place with deterministic retention."""
+    for _, _, section in _iter_short_term_fields(data):
+        short_term = section.get("short_term", [])
+        if not isinstance(short_term, list) or len(short_term) <= SHORT_TERM_MEMORY_LIMIT:
+            continue
+        keep_count = SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION
+        overflow_items = short_term[:-keep_count]
+        kept_items = short_term[-keep_count:]
+        section["long_term"] = _merge_short_term_overflow_into_long_term(
+            section.get("long_term", ""),
+            overflow_items,
+        )
+        section["short_term"] = kept_items
+
+
 def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
     """Normalize current seele data to the latest schema."""
     normalized_data = dict(data)
@@ -303,6 +403,9 @@ def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, A
     user = normalized_data.get("user")
     if isinstance(user, dict) and not isinstance(user.get("location"), str):
         user["location"] = ""
+        schema_changed = True
+
+    if _normalize_short_term_memory(normalized_data):
         schema_changed = True
 
     memorable_events, memorable_events_changed = normalize_memorable_events(
@@ -327,12 +430,16 @@ def load_seele_json_from_disk(
         logger.warning(f"seele.json not found at {seele_path}, using template")
         if template_path.exists():
             with open(template_path, "r", encoding="utf-8") as file_obj:
-                return json.load(file_obj)
+                data = json.load(file_obj)
+                normalized_data, _ = normalize_seele_data(data, logger)
+                return normalized_data
         return {}
 
     try:
         with open(seele_path, "r", encoding="utf-8") as file_obj:
-            return json.load(file_obj)
+            data = json.load(file_obj)
+            normalized_data, _ = normalize_seele_data(data, logger)
+            return normalized_data
     except Exception as error:
         logger.error(f"Failed to load seele.json: {error}")
         return {}
@@ -399,6 +506,38 @@ def dict_to_json_patch(
     return operations
 
 
+def _is_short_term_path(path: Any) -> bool:
+    """Return whether a JSON Pointer path targets short-term emotion/need memory."""
+    if not isinstance(path, str):
+        return False
+    parts = path.strip("/").split("/")
+    return (
+        len(parts) >= 4
+        and parts[0] in SHORT_TERM_MEMORY_OWNERS
+        and parts[1] in SHORT_TERM_MEMORY_SECTIONS
+        and parts[2] == "short_term"
+    )
+
+
+def _validate_short_term_patch_operations(operations: List[Dict[str, Any]]) -> bool:
+    """Enforce append-only patch semantics for short-term emotion/need lists."""
+    for operation in operations:
+        path = operation.get("path")
+        if not _is_short_term_path(path):
+            continue
+        if operation.get("op") != "add" or not isinstance(path, str) or not path.endswith("/-"):
+            logger.error(
+                "Invalid short_term JSON Patch operation: short-term emotion/need "
+                "fields may only be appended with add to /short_term/-"
+            )
+            return False
+        value = operation.get("value")
+        if not isinstance(value, str) or not value.strip():
+            logger.error("Invalid short_term JSON Patch value: expected non-empty string")
+            return False
+    return True
+
+
 def apply_seele_json_patch(
     cache: Dict[str, Any],
     patch_operations: Union[List[Dict[str, Any]], Dict[str, Any]],
@@ -420,6 +559,9 @@ def apply_seele_json_patch(
             operations = dict_to_json_patch(patch_operations)
         else:
             operations = patch_operations
+
+        if not _validate_short_term_patch_operations(operations):
+            return False, working_cache
 
         patch = jsonpatch.JsonPatch(operations)
         updated_cache = patch.apply(working_cache)
@@ -571,7 +713,7 @@ class Seele:
         ) or (
             isinstance(memorable_events, dict)
             and len(memorable_events) > MEMORABLE_EVENTS_LIMIT
-        )
+        ) or _short_term_limits_exceeded(data)
 
     @staticmethod
     def _apply_compaction_candidate(
@@ -582,6 +724,18 @@ class Seele:
         compacted_user = compacted.setdefault("user", {})
         compacted_user["personal_facts"] = candidate["personal_facts"]
         compacted["memorable_events"] = candidate["memorable_events"]
+        for owner_name in SHORT_TERM_MEMORY_OWNERS:
+            owner_candidate = candidate.get(owner_name, {})
+            if not isinstance(owner_candidate, dict):
+                continue
+            owner = compacted.setdefault(owner_name, {})
+            for section_name in SHORT_TERM_MEMORY_SECTIONS:
+                section_candidate = owner_candidate.get(section_name)
+                if not isinstance(section_candidate, dict):
+                    continue
+                section = owner.setdefault(section_name, {})
+                section["long_term"] = section_candidate["long_term"]
+                section["short_term"] = section_candidate["short_term"]
         return compacted
 
     @staticmethod
@@ -621,6 +775,24 @@ class Seele:
         if any(not isinstance(fact, str) or not fact.strip() for fact in personal_facts):
             return False
 
+        for owner_name in SHORT_TERM_MEMORY_OWNERS:
+            owner = candidate.get(owner_name)
+            if not isinstance(owner, dict):
+                return False
+            for section_name in SHORT_TERM_MEMORY_SECTIONS:
+                section = owner.get(section_name)
+                if not isinstance(section, dict):
+                    return False
+                if not isinstance(section.get("long_term"), str):
+                    return False
+                short_term = section.get("short_term")
+                if not isinstance(short_term, list):
+                    return False
+                if len(short_term) > SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
+                    return False
+                if any(not isinstance(item, str) or not item.strip() for item in short_term):
+                    return False
+
         return self.validate_seele_structure(
             self._apply_compaction_candidate(
                 load_seele_template(Path.cwd() / "template" / "seele.json", logger),
@@ -641,6 +813,7 @@ class Seele:
         compacted["memorable_events"] = fallback_compact_memorable_events(
             compacted.get("memorable_events", {})
         )
+        fallback_compact_short_term_memory(compacted)
         return compacted
 
     async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -954,6 +1127,29 @@ class Seele:
             logger.warning("memorable_events is not an object")
             return False
 
+        for owner_name in SHORT_TERM_MEMORY_OWNERS:
+            owner = data.get(owner_name)
+            if not isinstance(owner, dict):
+                logger.warning(f"{owner_name} is not an object")
+                return False
+            for section_name in SHORT_TERM_MEMORY_SECTIONS:
+                section = owner.get(section_name)
+                if not isinstance(section, dict):
+                    logger.warning(f"{owner_name}.{section_name} is not an object")
+                    return False
+                if not isinstance(section.get("long_term"), str):
+                    logger.warning(f"{owner_name}.{section_name}.long_term is not a string")
+                    return False
+                short_term = section.get("short_term")
+                if not isinstance(short_term, list):
+                    logger.warning(f"{owner_name}.{section_name}.short_term is not a list")
+                    return False
+                if any(not isinstance(item, str) or not item.strip() for item in short_term):
+                    logger.warning(
+                        f"{owner_name}.{section_name}.short_term contains invalid items"
+                    )
+                    return False
+
         for event_id, event in data["memorable_events"].items():
             if not isinstance(event_id, str) or not MEMORABLE_EVENT_ID_PATTERN.match(event_id):
                 logger.warning(f"Invalid memorable event id: {event_id}")
@@ -1115,23 +1311,29 @@ class Seele:
                 current_content=raw_content,
             )
 
-        issues = self._collect_schema_issues(current_data, template_data=template_data)
+        _, memorable_events_need_normalization = normalize_memorable_events(
+            current_data.get("memorable_events", {}),
+            logger=logger,
+        )
+        normalized_data, normalized_changed = normalize_seele_data(current_data, logger)
+        issues = self._collect_schema_issues(normalized_data, template_data=template_data)
+        if memorable_events_need_normalization:
+            issues.append("memorable_events uses a legacy or non-canonical structure")
         if issues:
             return await self._repair_persisted_seele_json_async(
                 repair_context=repair_context,
                 error_message="\n".join(f"- {issue}" for issue in issues),
-                current_content=json.dumps(current_data, ensure_ascii=False, indent=2),
+                current_content=json.dumps(normalized_data, ensure_ascii=False, indent=2),
             )
 
         pruned_events, changed = prune_expired_memorable_events(
-            current_data.get("memorable_events", {}),
+            normalized_data.get("memorable_events", {}),
             logger=logger,
         )
 
-        if not changed:
+        if not changed and not normalized_changed:
             return False
 
-        normalized_data = dict(current_data)
         normalized_data["memorable_events"] = pruned_events
 
         config.SEELE_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
