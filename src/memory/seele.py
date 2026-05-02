@@ -543,21 +543,65 @@ def _is_short_term_path(path: Any) -> bool:
     )
 
 
-def _validate_short_term_patch_operations(operations: List[Dict[str, Any]]) -> bool:
-    """Enforce append-only patch semantics for short-term emotion/need lists."""
+def _validate_short_term_patch_operations(
+    operations: List[Dict[str, Any]], working_cache: Dict[str, Any]
+) -> bool:
+    """Validate short-term emotion/need patch operations.
+
+    Allowed operations on /short_term paths:
+    - add to /- (append)
+    - replace on the last entry only (numeric index == len-1)
+    """
     for operation in operations:
         path = operation.get("path")
         if not _is_short_term_path(path):
             continue
-        if operation.get("op") != "add" or not isinstance(path, str) or not path.endswith("/-"):
+
+        op = operation.get("op", "")
+        value = operation.get("value")
+
+        if op == "add" and isinstance(path, str) and path.endswith("/-"):
+            if not isinstance(value, str) or not value.strip():
+                logger.error("Invalid short_term add value: expected non-empty string")
+                return False
+        elif op == "replace":
+            if not isinstance(path, str):
+                logger.error("Invalid short_term replace: path must be a string")
+                return False
+            parts = path.strip("/").split("/")
+            if len(parts) != 4 or not parts[3].isdigit():
+                logger.error(
+                    "Invalid short_term replace path: must target /<owner>/<section>/short_term/<index>"
+                )
+                return False
+            target_index = int(parts[3])
+            owner = parts[0]
+            section = parts[1]
+            current_array = (
+                working_cache.get(owner, {})
+                .get(section, {})
+                .get("short_term", [])
+            )
+            if not isinstance(current_array, list):
+                logger.error(
+                    f"Invalid short_term replace: {owner}.{section}.short_term is not an array"
+                )
+                return False
+            if target_index != len(current_array) - 1:
+                logger.error(
+                    f"Invalid short_term replace: index {target_index} is not the last entry "
+                    f"(expected {len(current_array) - 1})"
+                )
+                return False
+            if not isinstance(value, str) or not value.strip():
+                logger.error("Invalid short_term replace value: expected non-empty string")
+                return False
+        else:
             logger.error(
                 "Invalid short_term JSON Patch operation: short-term emotion/need "
-                "fields may only be appended with add to /short_term/-"
+                "fields may only be appended with add to /short_term/- or the last entry "
+                "may be replaced by numeric index"
             )
-            return False
-        value = operation.get("value")
-        if not isinstance(value, str) or not value.strip():
-            logger.error("Invalid short_term JSON Patch value: expected non-empty string")
             return False
     return True
 
@@ -584,7 +628,7 @@ def apply_seele_json_patch(
         else:
             operations = patch_operations
 
-        if not _validate_short_term_patch_operations(operations):
+        if not _validate_short_term_patch_operations(operations, working_cache):
             return False, working_cache
 
         patch = jsonpatch.JsonPatch(operations)

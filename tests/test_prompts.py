@@ -742,9 +742,10 @@ class TestGetMemoryUpdatePrompt:
         prompt = get_memory_update_prompt("User: test", self._current_seele_json())
 
         assert "short_term: array of strings" in prompt
-        assert 'Use only {"op": "add"' in prompt
+        assert "To APPEND a new entry" in prompt
+        assert "To REPLACE the LAST entry" in prompt
         assert '/short_term/-' in prompt
-        assert "Do NOT replace an entire short_term list" in prompt
+        assert "Do NOT replace entries other than the last one" in prompt
         assert "exceeds 12 items" in prompt
         assert "latest 4 items" in prompt
 

@@ -4,13 +4,37 @@ This file provides guidelines for AI agents working on the Seelenmaschine codeba
 
 ## Build, Lint, and Test Commands
 
+### Virtualenv: Platform-Specific Rules
+
+This project has **two separate virtualenvs**:
+- `.venv/` — Windows (native)
+- `.venv-linux/` — Linux / WSL
+
+**On Linux or WSL, ALWAYS use `.venv-linux`.** The Windows `.venv` will not
+work on WSL (wrong Python interpreter, wrong platform binaries). Never run
+`.venv/bin/python` or `.venv/bin/pytest` on WSL — those paths don't even exist.
+
+| Platform      | Virtualenv        | Interpreter                     |
+|---------------|-------------------|---------------------------------|
+| Windows       | `.venv`           | `.venv\Scripts\python.exe`      |
+| Linux / WSL   | `.venv-linux`     | `.venv-linux/bin/python`        |
+
 ### Codex Python Environment
 On Windows, Codex should prefer the project virtualenv interpreter when running
 Python modules:
 
 ```bash
+# Windows
 .venv\Scripts\python.exe -m pytest tests
 .venv\Scripts\python.exe -m ruff check src
+```
+
+On Linux / WSL, use `.venv-linux`:
+
+```bash
+# Linux / WSL
+.venv-linux/bin/python -m pytest tests
+.venv-linux/bin/python -m ruff check src
 ```
 
 The Windows virtualenv may depend on a base interpreter installed in a
@@ -49,9 +73,11 @@ python -m ruff check src/adapter/telegram/handlers.py
 If you explicitly need the virtualenv executable path:
 
 ```bash
-.venv/bin/ruff check src           # Unix/Linux/macOS
-.venv-linux/bin/ruff check src     # WSL/Linux fallback when present
-.venv\Scripts\ruff.exe check src   # Windows
+# Linux / WSL — use .venv-linux (NOT .venv)
+.venv-linux/bin/ruff check src
+
+# Windows
+.venv\Scripts\ruff.exe check src
 ```
 
 ### Testing
@@ -71,9 +97,11 @@ python -m pytest -v tests
 If you explicitly need the virtualenv executable path:
 
 ```bash
-.venv/bin/pytest tests             # Unix/Linux/macOS
-.venv-linux/bin/pytest tests       # WSL/Linux fallback when present
-.venv\Scripts\pytest.exe tests     # Windows
+# Linux / WSL — use .venv-linux (NOT .venv)
+.venv-linux/bin/pytest tests
+
+# Windows
+.venv\Scripts\pytest.exe tests
 ```
 
 ## Code Style Guidelines

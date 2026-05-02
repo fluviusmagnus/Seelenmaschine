@@ -144,9 +144,11 @@ Update seele.json using only meaningful, durable, and well-supported inferences 
 - Do not merely restate what happened; extract the underlying emotional state, motivational tendency, pressure, desire, or longer-term psychological/relational conclusion when supported by context.
 - /user/emotions and /user/needs should contain conclusions inferred from events and conversation context, not a plain recap of the events themselves.
 - If information is temporary, prefer short_term emotions or short_term needs when appropriate, or do not store it in seele.json at all unless it later proves enduring.
-- short_term emotion/need fields are append-only arrays of concise analytical conclusions.
-- Add new short-term emotion/need entries only with JSON Patch add operations to /bot/emotions/short_term/-, /bot/needs/short_term/-, /user/emotions/short_term/-, or /user/needs/short_term/-.
-- Do not remove, replace, rewrite, sort, or manually compact short_term lists in JSON Patch; the runtime compacts them when any list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merging older entries into long_term and keeping the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} items.
+- short_term emotion/need fields are arrays of concise analytical conclusions. You may add new entries or, in limited cases, replace the last entry.
+- To add a new short-term emotion/need entry, use JSON Patch add operations to /bot/emotions/short_term/-, /bot/needs/short_term/-, /user/emotions/short_term/-, or /user/needs/short_term/-.
+- To replace the LAST short-term entry: use a JSON Patch replace with path /.../short_term/{{last_index}}. Only do this when the new observation is closely related or similar to the existing last entry (e.g., same emotion intensifying, same need becoming more specific). When replacing, the new value must synthesize the old and new observation into a unified summary — do NOT discard the previous meaning entirely.
+- If the new observation is unrelated or dissimilar to the last entry, prefer add (append) a new entry instead.
+- Do not replace entries other than the last one. Do not remove, rewrite, sort, or manually compact short_term lists in JSON Patch; the runtime compacts them when any list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merging older entries into long_term and keeping the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} items.
 - If information has lasting value, prefer storing it as stable knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
 - Prefer updating /user/personal_facts, /user/personality, /bot/personality, or /bot/relationship_with_user when the conversation reveals durable understanding rather than one specific commemorative moment.
 </field_interpretation_rules>
@@ -241,7 +243,7 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
 7. Keep basic personality traits stable, only integrate new experiences
 8. Be concise - don't change too much at once
 9. **IMPORTANT: Consider using "remove" operations when:**
-   - Information becomes outdated (e.g., old short_term emotions or short_term needs)
+    - Information becomes outdated (e.g., old personal_facts, stale commands and agreements, or memorable events that are no longer relevant)
    - User explicitly corrects or retracts previous information
    - Preferences or facts are no longer relevant
    - Duplicate or contradictory entries exist in arrays
@@ -252,10 +254,12 @@ CRITICAL OUTPUT FORMAT REQUIREMENTS:
    - If an existing personal_facts entry is clearly temporary/outdated, prefer removing it
    - If a detail remains useful in the long run, prefer expressing it as a stable fact or understanding instead of creating a commemorative event for it
 9b. **For short_term emotion/need fields specifically:**
-   - short_term: array of strings
-   - Use only {{"op": "add", "path": "/.../short_term/-", "value": "concise analytical conclusion"}} for short-term emotion/need updates
-   - Do NOT replace an entire short_term list, remove individual short_term items, or add by numeric index
-   - If a short_term list exceeds {SHORT_TERM_MEMORY_LIMIT} items, the runtime will compact it automatically, merge older entries into long_term, and keep the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} items
+    - short_term: array of strings
+    - To APPEND a new entry: {{"op": "add", "path": "/.../short_term/-", "value": "concise analytical conclusion"}}
+    - To REPLACE the LAST entry: {{"op": "replace", "path": "/.../short_term/{{last_index}}", "value": "synthesized summary of old and new"}}. Only use this when the new observation is closely related or similar to the existing last entry. The new value must synthesize the old meaning together with the new observation — do NOT discard the old meaning entirely.
+    - If the new observation is NOT related or similar to the last entry, prefer add (append) a new entry instead.
+    - Do NOT replace entries other than the last one. Do NOT replace an entire short_term array, remove individual short_term items, or add by numeric index.
+    - If a short_term list exceeds {SHORT_TERM_MEMORY_LIMIT} items, the runtime will compact it automatically, merge older entries into long_term, and keep the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} items
 10. **LANGUAGE REQUIREMENT: All text values in the JSON patch MUST use the SAME LANGUAGE as the main language used in the conversations**
     - If conversations are primarily in Chinese, all "value" fields should be in Chinese
     - If conversations are primarily in English, all "value" fields should be in English
@@ -306,8 +310,9 @@ Invalid examples (DO NOT output like these):
 ❌ Here is the JSON patch: [{{"op": "add", ...}}]
 ❌ {{"user": {{"name": "John"}}}} (this is not JSON Patch format)
 ❌ {{"op": "replace", "path": "/memorable_events/0/details", ...}} (never use numeric indexes for memorable_events)
-❌ {{"op": "replace", "path": "/user/emotions/short_term", "value": [...]}} (short_term emotion/need lists are append-only in JSON Patch)
-❌ {{"op": "add", "path": "/user/needs/short_term/0", "value": "..."}} (short_term entries must be appended with /-)
+❌ {{"op": "replace", "path": "/user/emotions/short_term", "value": [...]}} (do not replace the entire short_term array; replace only the last entry when related/similar)
+❌ {{"op": "add", "path": "/user/needs/short_term/0", "value": "..."}} (short_term entries must be appended with /-; only the last entry may be replaced by numeric index)
+❌ {{"op": "replace", "path": "/bot/emotions/short_term/0", "value": "..."}} (do not replace entries other than the last one; if the new observation is unrelated, prefer add instead)
 ❌ Any text before or after the JSON array
 </invalid_examples>
 
@@ -381,6 +386,9 @@ Instead of generating a JSON Patch, please output a COMPLETE, VALID seele.json t
 - Do not merely restate what happened; extract the underlying emotional state, motivational tendency, pressure, desire, or longer-term psychological/relational conclusion when supported by context.
 - If information is temporary, either place it in a more appropriate short-term field or omit it from seele.json.
 - short_term emotion/need fields are arrays of concise analytical conclusions. Keep them as arrays, not strings.
+- When a new observation is closely related or similar to the last entry in a short_term list, replace that last entry with a synthesized summary that combines the old and new meaning. Do not discard the old entry's meaning entirely.
+- When the new observation is unrelated to the last entry, append it as a new entry instead.
+- Never replace entries other than the last one in a short_term list.
 - If any short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, compact older entries into the matching long_term field and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
 - If information has durable value, prefer storing it as knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
 </field_interpretation_rules>
