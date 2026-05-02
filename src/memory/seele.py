@@ -90,6 +90,9 @@ SHORT_TERM_MEMORY_LIMIT = 12
 SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION = 4
 SHORT_TERM_MEMORY_OWNERS = ("bot", "user")
 SHORT_TERM_MEMORY_SECTIONS = ("emotions", "needs")
+MAX_STRING_LENGTH_WARNING = 500
+MAX_STRING_LENGTH_HARD = 300
+STRING_COMPACTION_MAX_RETRIES = 3
 
 
 def _safe_event_slug(details: str) -> str:
@@ -393,6 +396,27 @@ def fallback_compact_short_term_memory(data: Dict[str, Any]) -> None:
             overflow_items,
         )
         section["short_term"] = kept_items
+
+
+def _collect_oversized_strings(
+    data: Dict[str, Any], threshold: int
+) -> List[tuple[str, str]]:
+    """Return (json_pointer, value) pairs for leaf strings exceeding threshold."""
+    oversized: List[tuple[str, str]] = []
+
+    def _walk(value: Any, path: str) -> None:
+        if isinstance(value, str):
+            if len(value) > threshold:
+                oversized.append((path, value))
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                _walk(child, f"{path}/{key}")
+        elif isinstance(value, list):
+            for idx, child in enumerate(value):
+                _walk(child, f"{path}/{idx}")
+
+    _walk(data, "")
+    return oversized
 
 
 def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
