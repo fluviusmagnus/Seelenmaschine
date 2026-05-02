@@ -623,11 +623,9 @@ Re-evaluate importance and return a compacted result that preserves only the mos
 </goal>
 
 <compaction_rules>
-1. Return a JSON object with exactly four top-level fields:
+1. Return a JSON object with exactly two top-level fields:
    - "personal_facts": array of strings
    - "memorable_events": object keyed by stable event ids
-   - "bot": object containing emotions and needs compaction results
-   - "user": object containing emotions and needs compaction results
 2. Keep at most {personal_facts_limit} personal_facts.
 3. Keep at most {memorable_events_limit} memorable_events.
 4. For personal_facts:
@@ -642,20 +640,7 @@ Re-evaluate importance and return a compacted result that preserves only the mos
    - Do not keep reminders, todo items, errands, meeting schedules, shopping lists, or temporary tasks
 6. Preserve the original language of each item whenever possible.
 7. Do not invent new facts or new events unsupported by the current data.
-8. When any short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, summarize and merge older entries into the matching long_term field, then keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
-9. If a short_term emotion/need list does not exceed {SHORT_TERM_MEMORY_LIMIT} items, preserve its current long_term and short_term values unless a concise merge is clearly needed because another section triggered compaction.
-10. short_term emotion/need entries are analytical conclusions, not event logs; remove duplicates and low-signal entries during compaction.
 </compaction_rules>
-
-<short_term_schema>
-Each owner must include both emotions and needs:
-{{
-  "emotions": {{"long_term": "string", "short_term": ["string"]}},
-  "needs": {{"long_term": "string", "short_term": ["string"]}}
-}}
-
-If a short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merge older items into long_term and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
-</short_term_schema>
 
 <event_schema>
 Each memorable event value must remain:
@@ -687,14 +672,6 @@ When forced to choose, prefer:
   "personal_facts": ["..."],
   "memorable_events": {{
     "evt_example": {{"date": "YYYY-MM-DD", "importance": 3, "details": "..."}}
-  }},
-  "bot": {{
-    "emotions": {{"long_term": "...", "short_term": ["..."]}},
-    "needs": {{"long_term": "...", "short_term": ["..."]}}
-  }},
-  "user": {{
-    "emotions": {{"long_term": "...", "short_term": ["..."]}},
-    "needs": {{"long_term": "...", "short_term": ["..."]}}
   }}
 }}
 </output_requirements>
