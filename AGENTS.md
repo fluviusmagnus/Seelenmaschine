@@ -305,3 +305,7 @@ message = f"Processing {item_type} with ID {item_id}"
 - Use `.env.example` as the template
 - Each profile uses its own `<profile>.env` file
 - Keep examples cross-platform and avoid hard-coding OS-specific paths unless both variants are documented
+
+## Working Language for Communication
+
+Use the language which the developer speaks in communication. If the developer asks in Chinese, respond in Chinese.
