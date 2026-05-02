@@ -847,6 +847,104 @@ class Seele:
 
         return result
 
+    def _collect_overflow_fields(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Collect all short-term fields that exceed the limit, with overflow items."""
+        fields = []
+        for owner_name in SHORT_TERM_MEMORY_OWNERS:
+            owner = data.get(owner_name)
+            if not isinstance(owner, dict):
+                continue
+            for section_name in SHORT_TERM_MEMORY_SECTIONS:
+                section = owner.get(section_name)
+                if not isinstance(section, dict):
+                    continue
+                short_term = section.get("short_term", [])
+                if not isinstance(short_term, list) or len(short_term) <= SHORT_TERM_MEMORY_LIMIT:
+                    continue
+                overflow_items = short_term[:-SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION]
+                fields.append({
+                    "path": f"/{owner_name}/{section_name}",
+                    "owner": owner_name,
+                    "section": section_name,
+                    "existing_long_term": section.get("long_term", ""),
+                    "overflow_items": overflow_items,
+                    "section_data": section,
+                })
+        return fields
+
+    async def _compact_short_term_overflow_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Compact short-term emotions/needs overflow using a dedicated LLM prompt."""
+        fields_to_compact = self._collect_overflow_fields(data)
+        if not fields_to_compact:
+            return data
+
+        bot_name = data.get("bot", {}).get("name", "AI Assistant")
+        user_name = data.get("user", {}).get("name", "User")
+
+        fields_json = json.dumps([
+            {
+                "path": f["path"],
+                "existing_long_term": f["existing_long_term"],
+                "overflow_items": f["overflow_items"],
+            }
+            for f in fields_to_compact
+        ], ensure_ascii=False, indent=2)
+
+        from llm.chat_client import LLMClient
+
+        client = LLMClient()
+        try:
+            response = await client.generate_short_term_compaction_async(
+                fields_json=fields_json,
+                bot_name=bot_name,
+                user_name=user_name,
+            )
+            new_long_terms = self._parse_short_term_compaction_response(response)
+
+            patch_ops = []
+            for field in fields_to_compact:
+                path = field["path"]
+                new_long_term = new_long_terms.get(f"{path}/long_term", "")
+                if new_long_term:
+                    field["section_data"]["long_term"] = new_long_term
+                    patch_ops.append({
+                        "op": "replace",
+                        "path": f"{path}/long_term",
+                        "value": new_long_term,
+                    })
+                kept_items = field["section_data"]["short_term"][
+                    -SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
+                ]
+                field["section_data"]["short_term"] = kept_items
+                patch_ops.append({
+                    "op": "replace",
+                    "path": f"{path}/short_term",
+                    "value": kept_items,
+                })
+
+            from prompts.runtime import update_seele_json
+
+            success = update_seele_json(patch_ops)
+            if not success:
+                await self._write_complete_seele_json_async(data)
+
+            logger.info("Compacted short-term emotions/needs with dedicated LLM prompt")
+        except Exception as error:
+            logger.warning(f"LLM short-term compaction failed, using fallback: {error}")
+            fallback_compact_short_term_memory(data)
+        finally:
+            await client.close_async()
+
+        return data
+
+    def _parse_short_term_compaction_response(self, response: str) -> Dict[str, str]:
+        """Parse the short-term compaction response into a path -> new long_term map."""
+        cleaned = self.clean_json_response(response)
+        parsed = json.loads(cleaned)
+        if not isinstance(parsed, dict):
+            raise ValueError("Short-term compaction response is not a JSON object")
+        return parsed
+
     def _build_memory_generation_context(
         self, messages: List[Message], summary_id: int
     ) -> tuple[List[Dict[str, str]], str, Optional[int], Optional[int]]:

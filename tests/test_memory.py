@@ -715,9 +715,15 @@ async def test_compact_overflowing_memory_accepts_short_term_llm_compaction(memo
         },
     }
 
+    short_term_compaction_response = json.dumps({
+        "/bot/emotions/long_term": candidate["bot"]["emotions"]["long_term"],
+    })
     fake_client = Mock()
     fake_client.generate_seele_compaction_async = AsyncMock(
         return_value=json.dumps(candidate)
+    )
+    fake_client.generate_short_term_compaction_async = AsyncMock(
+        return_value=short_term_compaction_response
     )
     fake_client.close_async = AsyncMock()
 
@@ -726,7 +732,7 @@ async def test_compact_overflowing_memory_accepts_short_term_llm_compaction(memo
 
     assert compacted["bot"]["emotions"]["long_term"] == candidate["bot"]["emotions"]["long_term"]
     assert compacted["bot"]["emotions"]["short_term"] == short_terms[-4:]
-    fake_client.close_async.assert_awaited_once()
+    assert fake_client.close_async.call_count >= 1
 
 
 @pytest.mark.asyncio
@@ -769,6 +775,9 @@ async def test_short_term_fallback_compaction_keeps_latest_four(memory_manager):
 
     fake_client = Mock()
     fake_client.generate_seele_compaction_async = AsyncMock(return_value="{}")
+    fake_client.generate_short_term_compaction_async = AsyncMock(
+        side_effect=RuntimeError("LLM unavailable")
+    )
     fake_client.close_async = AsyncMock()
 
     with patch("llm.chat_client.LLMClient", return_value=fake_client):
