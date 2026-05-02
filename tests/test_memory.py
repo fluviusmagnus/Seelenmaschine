@@ -848,3 +848,219 @@ async def test_write_complete_seele_json_async_compacts_with_async_fallback(
     assert prompts_runtime._seele_json_cache == saved
     fake_client.generate_seele_compaction_async.assert_awaited_once()
     fake_client.close_async.assert_awaited_once()
+
+
+def test_collect_oversized_strings_finds_leaf_strings_exceeding_threshold():
+    """Should return (path, value) for all leaf strings exceeding the threshold."""
+    from memory.seele import _collect_oversized_strings
+
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "personality": {"description": "A" * 501, "worldview_and_values": "short"},
+            "emotions": {"long_term": "B" * 600, "short_term": ["ok"]},
+            "needs": {"long_term": "brief", "short_term": ["X" * 501]},
+        },
+        "user": {
+            "name": "TestUser",
+            "emotions": {"long_term": "fine", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    oversized = _collect_oversized_strings(data, 500)
+
+    paths = {p for p, _ in oversized}
+    assert "/bot/personality/description" in paths
+    assert "/bot/emotions/long_term" in paths
+    assert "/bot/needs/short_term/0" in paths
+    assert all(len(v) > 500 for _, v in oversized)
+
+
+def test_collect_oversized_strings_returns_empty_when_none_exceed_threshold():
+    """Should return empty list when all strings are within limit."""
+    from memory.seele import _collect_oversized_strings
+
+    data = {"bot": {"name": "short"}, "user": {"name": "also_short"}}
+
+    oversized = _collect_oversized_strings(data, 500)
+    assert oversized == []
+
+
+@pytest.mark.asyncio
+async def test_collect_overflow_fields_detects_exceeding_short_term_lists(memory_manager):
+    """Should identify which short_term lists exceed the limit."""
+    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+
+    data = {
+        "bot": {
+            "emotions": {"long_term": "", "short_term": [f"e{i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 3)]},
+            "needs": {"long_term": "", "short_term": ["n1", "n2"]},
+        },
+        "user": {
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": [f"u{i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 1)]},
+        },
+    }
+
+    fields = memory_manager.seele._collect_overflow_fields(data)
+
+    assert len(fields) == 2
+    field_paths = {f["path"] for f in fields}
+    assert "/bot/emotions" in field_paths
+    assert "/user/needs" in field_paths
+
+
+@pytest.mark.asyncio
+async def test_compact_short_term_overflow_truncates_and_calls_llm(memory_manager):
+    """Short-term compaction should truncate lists and call dedicated LLM prompt."""
+    from memory.seele import SHORT_TERM_MEMORY_LIMIT, SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION
+
+    short_terms = [f"Emotion {i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 2)]
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "Previously calm.", "short_term": short_terms},
+            "needs": {"long_term": "", "short_term": []},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    new_long_term = "Synthesized calm with recent emotional depth."
+    fake_llm_response = json.dumps({"/bot/emotions/long_term": new_long_term})
+
+    fake_client = Mock()
+    fake_client.generate_short_term_compaction_async = AsyncMock(return_value=fake_llm_response)
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        with patch("prompts.runtime.update_seele_json", return_value=True):
+            result = await memory_manager.seele._compact_short_term_overflow_async(data)
+
+    assert result["bot"]["emotions"]["short_term"] == short_terms[-SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:]
+    fake_client.generate_short_term_compaction_async.assert_awaited_once()
+    fake_client.close_async.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_compact_short_term_overflow_falls_back_on_llm_failure(memory_manager):
+    """When LLM fails, short-term compaction should use deterministic fallback."""
+    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+
+    short_terms = [f"Need {i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 3)]
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "Existing need.", "short_term": short_terms},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    fake_client = Mock()
+    fake_client.generate_short_term_compaction_async = AsyncMock(side_effect=Exception("LLM down"))
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        result = await memory_manager.seele._compact_short_term_overflow_async(data)
+
+    assert "Existing need." in result["bot"]["needs"]["long_term"]
+    assert len(result["bot"]["needs"]["short_term"]) == 4
+    fake_client.close_async.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_compact_overflowing_memory_triggers_short_term_only_when_needed(memory_manager):
+    """Per-section: only short_term overflow should trigger only short_term compaction."""
+    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": [f"e{i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 1)]},
+            "needs": {"long_term": "", "short_term": []},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": ["Just one fact"],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    with patch.object(memory_manager.seele, "_compact_personal_facts_and_events_async") as mock_pf:
+        with patch.object(memory_manager.seele, "_compact_short_term_overflow_async") as mock_st:
+            with patch.object(memory_manager.seele, "_compact_long_strings_async") as mock_ls:
+                mock_pf.return_value = data
+                mock_st.return_value = data
+                mock_ls.return_value = data
+                await memory_manager.seele._compact_overflowing_memory_async(data)
+
+    mock_pf.assert_not_awaited()
+    mock_st.assert_awaited_once()
