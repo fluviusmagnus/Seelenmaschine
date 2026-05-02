@@ -14,6 +14,7 @@ from prompts.memory_prompts import (
     build_memory_update_prompt,
     build_seele_compaction_prompt,
     build_seele_repair_prompt,
+    build_short_term_compaction_prompt,
     build_summary_prompt,
 )
 from prompts.system_prompt import (
@@ -162,4 +163,17 @@ def get_seele_compaction_prompt(
         current_seele_json=current_seele_json,
         personal_facts_limit=personal_facts_limit,
         memorable_events_limit=memorable_events_limit,
+    )
+
+
+def get_short_term_compaction_prompt(
+    fields_json: str,
+    bot_name: str,
+    user_name: str,
+) -> str:
+    """Build the LLM prompt for compacting short-term emotion/need overflow."""
+    return build_short_term_compaction_prompt(
+        fields_json=fields_json,
+        bot_name=bot_name,
+        user_name=user_name,
     )

@@ -680,3 +680,45 @@ When forced to choose, prefer:
 Compacted memory JSON:
 </final_instruction>
 </seele_compaction_task>"""
+
+
+def build_short_term_compaction_prompt(fields_json: str, bot_name: str, user_name: str) -> str:
+    """Build prompt for LLM-driven short-term emotion/need compaction."""
+    return f"""<short_term_compaction_task>
+<role>
+You are a long-term memory curator for {bot_name}.
+</role>
+
+<goal>
+Short-term emotions and needs have overflowed and must be merged into long-term memory.
+For each field below, re-describe the overall long-term situation in 300 characters or fewer.
+</goal>
+
+<strict_rules>
+1. Only return the final result — no explanatory text, no recounting old results.
+2. Do NOT simply list or concatenate old items. You must re-describe the overall situation.
+3. Each long_term string must be 300 characters or fewer.
+4. Ignore transient facts that will not cause long-term impact. Only personality-shaping matters are worth recording.
+5. Merge new observations into the existing long-term context to form a coherent, concise re-description.
+6. Output pure JSON only, no markdown, no code fences, no explanation.
+7. {bot_name} is the AI assistant; {user_name} is the user.
+</strict_rules>
+
+<fields_needing_compaction>
+{fields_json}
+</fields_needing_compaction>
+
+<output_format>
+Return a JSON object mapping each field path to its new long_term string:
+{{
+  "/bot/emotions/long_term": "re-described long-term emotional state",
+  "/bot/needs/long_term": "re-described long-term needs",
+  "/user/emotions/long_term": "re-described long-term emotional state",
+  "/user/needs/long_term": "re-described long-term needs"
+}}
+</output_format>
+
+<final_instruction>
+Compacted long-term strings JSON:
+</final_instruction>
+</short_term_compaction_task>"""
