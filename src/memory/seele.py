@@ -605,6 +605,32 @@ def apply_seele_json_patch(
         return False, working_cache
 
 
+MAX_STRING_LENGTH_HARD = 1000
+MAX_STRING_LENGTH_WARNING = 300
+STRING_COMPACTION_MAX_RETRIES = 2
+
+
+def _collect_oversized_strings(
+    data: Dict[str, Any], limit: int = MAX_STRING_LENGTH_WARNING
+) -> List[tuple[str, str]]:
+    """Collect leaf string fields exceeding a length limit with their JSON Pointer paths."""
+    oversized: List[tuple[str, str]] = []
+
+    def _walk(obj: Any, json_ptr: str) -> None:
+        if isinstance(obj, str):
+            if len(obj) > limit:
+                oversized.append((json_ptr, obj))
+        elif isinstance(obj, dict):
+            for key, value in obj.items():
+                _walk(value, f"{json_ptr}/{key}")
+        elif isinstance(obj, list):
+            for idx, value in enumerate(obj):
+                _walk(value, f"{json_ptr}/{idx}")
+
+    _walk(data, "")
+    return oversized
+
+
 class Seele:
     """Generate and apply long-term memory updates for seele.json."""
 
@@ -997,6 +1023,7 @@ class Seele:
         if success:
             current_memory = self.get_long_term_memory()
             compacted_data = await self._compact_overflowing_memory_async(current_memory)
+            compacted_data = await self._compact_long_strings_async(compacted_data)
             if compacted_data != current_memory:
                 await self._write_complete_seele_json_async(compacted_data)
             self._log_patch_update_success(summary_id, patch_data)
@@ -1450,6 +1477,180 @@ class Seele:
         logger.info("Normalized seele.json schema and pruned expired memorable events")
         return True
 
+    async def _compact_long_strings_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and compact any leaf strings exceeding the length limit."""
+        oversized = _collect_oversized_strings(data, MAX_STRING_LENGTH_WARNING)
+        if not oversized:
+            return data
+
+        logger.info(
+            f"Found {len(oversized)} string(s) exceeding {MAX_STRING_LENGTH_WARNING} chars; "
+            "triggering LLM compaction"
+        )
+
+        from llm.chat_client import LLMClient
+
+        client = LLMClient()
+        try:
+            revised_data = await self._llm_compact_long_strings_full(data)
+            if revised_data:
+                from prompts.runtime import update_seele_json
+
+                patch_ops = dict_to_json_patch(revised_data)
+                success = update_seele_json(patch_ops)
+                if not success:
+                    await self._write_complete_seele_json_async(revised_data)
+
+                data = self.get_long_term_memory()
+        except Exception as error:
+            logger.warning(f"Tier 1 long-string compaction failed: {error}")
+        finally:
+            await client.close_async()
+
+        data = await self._compact_long_strings_tier2(data)
+
+        return data
+
+    async def _llm_compact_long_strings_full(
+        self, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Submit complete seele.json to LLM for holistic long-string compaction."""
+        from llm.chat_client import LLMClient
+
+        bot_name = data.get("bot", {}).get("name", "AI Assistant")
+        current_json = json.dumps(data, ensure_ascii=False, indent=2)
+        oversized = _collect_oversized_strings(data, MAX_STRING_LENGTH_WARNING)
+
+        prompt = f"""<long_string_compaction_task>
+<role>
+You are a long-term memory curator for {bot_name}.
+</role>
+
+<goal>
+Some string fields in seele.json exceed {MAX_STRING_LENGTH_HARD} characters.
+Re-examine whether any content reflects genuine personality-level changes worth preserving.
+</goal>
+
+<oversized_fields>
+{json.dumps([p for p, _ in oversized], ensure_ascii=False, indent=2)}
+</oversized_fields>
+
+<rules>
+1. Scan all oversized string fields. For each:
+   - If the content reflects a genuine personality-shaping change that deserves long-term recording: dialectically synthesize and distill the core insight, saving it to the MOST APPROPRIATE location in seele.json. This could be personality.description, worldview_and_values, long_term emotions/needs, relationship_with_user, memorable_events, or any other semantically fitting field.
+   - If the content does NOT reflect personality-level change: directly compress it to {MAX_STRING_LENGTH_HARD} characters or fewer, preserving essential meaning.
+2. ALL string fields in the output must be {MAX_STRING_LENGTH_HARD} characters or fewer.
+3. Do not add explanatory text, do not recount old results.
+4. Output the COMPLETE revised seele.json as pure JSON.
+5. No markdown, no code fences, no explanation.
+</rules>
+
+<current_seele_json>
+{current_json}
+</current_seele_json>
+
+<final_instruction>
+Revised complete seele.json:
+</final_instruction>
+</long_string_compaction_task>"""
+
+        client = LLMClient()
+        try:
+            response = await client._memory_client._run_tool_model_prompt(
+                prompt=prompt,
+                system_content="You compact oversized strings in seele.json and preserve personality-level insights.",
+                debug_prompt_label="Long-string compaction prompt sent to tool_model",
+                debug_result_label="Long-string compaction result from tool_model",
+            )
+            cleaned = self.clean_json_response(response)
+            revised = json.loads(cleaned)
+            if not self.validate_seele_structure(revised):
+                raise ValueError("Revised seele.json has invalid structure")
+            return revised
+        except Exception as error:
+            logger.warning(f"Tier 1 LLM long-string compaction failed: {error}")
+            return None
+        finally:
+            await client.close_async()
+
+    async def _compact_long_strings_tier2(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Tier 2: per-string LLM compaction for remaining oversized strings."""
+        for attempt in range(STRING_COMPACTION_MAX_RETRIES):
+            oversized = _collect_oversized_strings(data, MAX_STRING_LENGTH_HARD)
+            if not oversized:
+                break
+
+            from llm.chat_client import LLMClient
+
+            client = LLMClient()
+            try:
+                for path, value in oversized:
+                    compressed = await self._llm_compress_single_string(value, data, path)
+                    if len(compressed) <= MAX_STRING_LENGTH_HARD:
+                        from prompts.runtime import update_seele_json
+
+                        update_seele_json([{"op": "replace", "path": path, "value": compressed}])
+                    elif attempt == STRING_COMPACTION_MAX_RETRIES - 1:
+                        logger.warning(
+                            f"Could not compress string at {path} below {MAX_STRING_LENGTH_HARD} "
+                            f"chars after {STRING_COMPACTION_MAX_RETRIES} attempts "
+                            f"(current: {len(compressed)})"
+                        )
+                data = self.get_long_term_memory()
+            except Exception as error:
+                logger.warning(f"Tier 2 long-string compaction failed: {error}")
+            finally:
+                await client.close_async()
+
+        return data
+
+    async def _llm_compress_single_string(
+        self, value: str, seele_data: Dict[str, Any], path: str
+    ) -> str:
+        """LLM-compress a single oversized string with seele.json context."""
+        from llm.chat_client import LLMClient
+
+        bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
+        current_json = json.dumps(seele_data, ensure_ascii=False, indent=2)
+
+        prompt = f"""<single_string_compaction>
+<role>You are a long-term memory curator for {bot_name}.</role>
+
+<task>
+The string at path "{path}" exceeds {MAX_STRING_LENGTH_HARD} characters ({len(value)} chars).
+Compress it to {MAX_STRING_LENGTH_HARD} characters or fewer while preserving essential meaning.
+</task>
+
+<oversized_string>
+{value}
+</oversized_string>
+
+<current_seele_json_for_context>
+{current_json}
+</current_seele_json_for_context>
+
+<rules>
+1. Return ONLY the compressed string, no quotes, no JSON wrapper, no explanation.
+2. Must be {MAX_STRING_LENGTH_HARD} characters or fewer.
+3. Preserve essential meaning while removing redundancy.
+</rules>
+
+<final_instruction>
+Compressed string:
+</final_instruction>"""
+
+        client = LLMClient()
+        try:
+            response = await client._memory_client._run_tool_model_prompt(
+                prompt=prompt,
+                system_content="You compress oversized strings while preserving meaning.",
+                debug_prompt_label="Single-string compaction prompt",
+                debug_result_label="Single-string compaction result",
+            )
+            return response.strip()
+        finally:
+            await client.close_async()
+
     async def _write_complete_seele_json_async(self, complete_data: dict) -> None:
         """Write a full seele.json object from async memory update flows."""
         from core.config import Config
@@ -1458,6 +1659,7 @@ class Seele:
         config = Config()
         complete_data, _ = normalize_seele_data(complete_data, logger)
         complete_data = await self._compact_overflowing_memory_async(complete_data)
+        complete_data = await self._compact_long_strings_async(complete_data)
         seele_path = config.SEELE_JSON_PATH
         seele_path.parent.mkdir(parents=True, exist_ok=True)
         with open(seele_path, "w", encoding="utf-8") as f:
