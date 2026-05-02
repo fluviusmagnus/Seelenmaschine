@@ -15,6 +15,7 @@ from prompts.runtime import (
     get_memory_update_prompt,
     get_seele_compaction_prompt,
     get_seele_repair_prompt,
+    get_short_term_compaction_prompt,
     get_summary_prompt,
     load_seele_json,
 )
@@ -568,6 +569,20 @@ class LLMClient:
             personal_facts_limit=personal_facts_limit,
             memorable_events_limit=memorable_events_limit,
             prompt_builder=get_seele_compaction_prompt,
+        )
+
+    async def generate_short_term_compaction_async(
+        self,
+        fields_json: str,
+        bot_name: str,
+        user_name: str,
+    ) -> str:
+        """Asynchronously compact overflowing short-term emotion/need lists."""
+        return await self._memory_client.generate_short_term_compaction_async(
+            fields_json=fields_json,
+            bot_name=bot_name,
+            user_name=user_name,
+            prompt_builder=get_short_term_compaction_prompt,
         )
 
     async def _async_close(self) -> None:
