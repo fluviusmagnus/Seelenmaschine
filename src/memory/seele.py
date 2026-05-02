@@ -743,23 +743,11 @@ class Seele:
     def _apply_compaction_candidate(
         data: Dict[str, Any], candidate: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Apply compacted sections onto the existing seele data."""
+        """Apply compacted personal_facts and memorable_events onto existing seele data."""
         compacted = json.loads(json.dumps(data))
         compacted_user = compacted.setdefault("user", {})
         compacted_user["personal_facts"] = candidate["personal_facts"]
         compacted["memorable_events"] = candidate["memorable_events"]
-        for owner_name in SHORT_TERM_MEMORY_OWNERS:
-            owner_candidate = candidate.get(owner_name, {})
-            if not isinstance(owner_candidate, dict):
-                continue
-            owner = compacted.setdefault(owner_name, {})
-            for section_name in SHORT_TERM_MEMORY_SECTIONS:
-                section_candidate = owner_candidate.get(section_name)
-                if not isinstance(section_candidate, dict):
-                    continue
-                section = owner.setdefault(section_name, {})
-                section["long_term"] = section_candidate["long_term"]
-                section["short_term"] = section_candidate["short_term"]
         return compacted
 
     @staticmethod
@@ -779,7 +767,7 @@ class Seele:
         return json.loads(cleaned_response)
 
     def _validate_compaction_candidate(self, candidate: Dict[str, Any]) -> bool:
-        """Validate LLM compaction output shape and limits."""
+        """Validate LLM compaction output shape and limits (personal_facts + memorable_events only)."""
         if not isinstance(candidate, dict):
             return False
 
@@ -799,33 +787,7 @@ class Seele:
         if any(not isinstance(fact, str) or not fact.strip() for fact in personal_facts):
             return False
 
-        for owner_name in SHORT_TERM_MEMORY_OWNERS:
-            owner = candidate.get(owner_name)
-            if not isinstance(owner, dict):
-                return False
-            for section_name in SHORT_TERM_MEMORY_SECTIONS:
-                section = owner.get(section_name)
-                if not isinstance(section, dict):
-                    return False
-                if not isinstance(section.get("long_term"), str):
-                    return False
-                short_term = section.get("short_term")
-                if not isinstance(short_term, list):
-                    return False
-                if len(short_term) > SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
-                    return False
-                if any(not isinstance(item, str) or not item.strip() for item in short_term):
-                    return False
-
-        return self.validate_seele_structure(
-            self._apply_compaction_candidate(
-                load_seele_template(Path.cwd() / "template" / "seele.json", logger),
-                {
-                    "personal_facts": personal_facts,
-                    "memorable_events": memorable_events,
-                },
-            )
-        )
+        return True
 
     def _fallback_compact_seele_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply deterministic fallback compaction to overgrown seele data."""
@@ -840,11 +802,8 @@ class Seele:
         fallback_compact_short_term_memory(compacted)
         return compacted
 
-    async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Async version of overflowing long-term memory compaction."""
-        if not self._memory_limits_exceeded(data):
-            return data
-
+    async def _compact_personal_facts_and_events_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """LLM-compact personal_facts and memorable_events sections."""
         from llm.chat_client import LLMClient
 
         client = LLMClient()
@@ -858,13 +817,35 @@ class Seele:
             candidate = self._parse_compaction_response(response)
             if not self._validate_compaction_candidate(candidate):
                 raise ValueError("Invalid seele compaction response structure")
-            logger.info("Compacted overflowing seele memory with LLM")
+            logger.info("Compacted personal_facts and memorable_events with LLM")
             return self._apply_compaction_candidate(data, candidate)
         except Exception as error:
             logger.warning(f"LLM seele compaction failed, using fallback compaction: {error}")
             return self._fallback_compact_seele_data(data)
         finally:
             await client.close_async()
+
+    async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Async version of overflowing long-term memory compaction with per-section triggers."""
+        if not self._memory_limits_exceeded(data):
+            return data
+
+        result = json.loads(json.dumps(data))
+
+        user = result.get("user", {}) if isinstance(result.get("user"), dict) else {}
+        personal_facts = user.get("personal_facts", [])
+        memorable_events = result.get("memorable_events", {})
+
+        needs_pf_compaction = isinstance(personal_facts, list) and len(personal_facts) > PERSONAL_FACTS_LIMIT
+        needs_me_compaction = isinstance(memorable_events, dict) and len(memorable_events) > MEMORABLE_EVENTS_LIMIT
+
+        if needs_pf_compaction or needs_me_compaction:
+            result = await self._compact_personal_facts_and_events_async(result)
+
+        if _short_term_limits_exceeded(result):
+            result = await self._compact_short_term_overflow_async(result)
+
+        return result
 
     def _build_memory_generation_context(
         self, messages: List[Message], summary_id: int
