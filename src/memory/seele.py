@@ -605,32 +605,6 @@ def apply_seele_json_patch(
         return False, working_cache
 
 
-MAX_STRING_LENGTH_HARD = 1000
-MAX_STRING_LENGTH_WARNING = 300
-STRING_COMPACTION_MAX_RETRIES = 2
-
-
-def _collect_oversized_strings(
-    data: Dict[str, Any], limit: int = MAX_STRING_LENGTH_WARNING
-) -> List[tuple[str, str]]:
-    """Collect leaf string fields exceeding a length limit with their JSON Pointer paths."""
-    oversized: List[tuple[str, str]] = []
-
-    def _walk(obj: Any, json_ptr: str) -> None:
-        if isinstance(obj, str):
-            if len(obj) > limit:
-                oversized.append((json_ptr, obj))
-        elif isinstance(obj, dict):
-            for key, value in obj.items():
-                _walk(value, f"{json_ptr}/{key}")
-        elif isinstance(obj, list):
-            for idx, value in enumerate(obj):
-                _walk(value, f"{json_ptr}/{idx}")
-
-    _walk(data, "")
-    return oversized
-
-
 class Seele:
     """Generate and apply long-term memory updates for seele.json."""
 
