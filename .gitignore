@@ -55,6 +55,7 @@ Thumbs.db
 .coverage
 htmlcov/
 .ruff_cache/
+.worktrees/
 
 # Migration backups (in data directories)
 data/*/backup_*/
