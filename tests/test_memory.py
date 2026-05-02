@@ -563,7 +563,7 @@ async def test_apply_generated_patch_compacts_when_memory_exceeds_limit(memory_m
 @pytest.mark.asyncio
 async def test_short_term_overflow_triggers_compaction_after_patch(memory_manager):
     """Successful patches should compact when any short-term list exceeds 12 items."""
-    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+    from memory.seele import SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION, SHORT_TERM_MEMORY_LIMIT
 
     oversized_memory = {
         "bot": {
@@ -587,7 +587,7 @@ async def test_short_term_overflow_triggers_compaction_after_patch(memory_manage
             **oversized_memory["bot"],
             "emotions": {
                 "long_term": "Older short-term emotions were summarized.",
-                "short_term": oversized_memory["bot"]["emotions"]["short_term"][-4:],
+                "short_term": oversized_memory["bot"]["emotions"]["short_term"][-SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:],
             },
         },
     }
@@ -731,14 +731,14 @@ async def test_compact_overflowing_memory_accepts_short_term_llm_compaction(memo
         compacted = await memory_manager.seele._compact_overflowing_memory_async(oversized_memory)
 
     assert compacted["bot"]["emotions"]["long_term"] == candidate["bot"]["emotions"]["long_term"]
-    assert compacted["bot"]["emotions"]["short_term"] == short_terms[-4:]
+    assert compacted["bot"]["emotions"]["short_term"] == short_terms[-SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:]
     assert fake_client.close_async.call_count >= 1
 
 
 @pytest.mark.asyncio
 async def test_short_term_fallback_compaction_keeps_latest_four(memory_manager):
     """Fallback compaction should keep latest 4 short-term items after overflow."""
-    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+    from memory.seele import SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION, SHORT_TERM_MEMORY_LIMIT
 
     short_terms = [f"Need note {i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 2)]
     oversized_memory = {
@@ -783,7 +783,7 @@ async def test_short_term_fallback_compaction_keeps_latest_four(memory_manager):
     with patch("llm.chat_client.LLMClient", return_value=fake_client):
         compacted = await memory_manager.seele._compact_overflowing_memory_async(oversized_memory)
 
-    assert compacted["bot"]["needs"]["short_term"] == short_terms[-4:]
+    assert compacted["bot"]["needs"]["short_term"] == short_terms[-SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:]
     assert "Existing need." in compacted["bot"]["needs"]["long_term"]
     assert "Need note 0" in compacted["bot"]["needs"]["long_term"]
     assert "Need note 9" in compacted["bot"]["needs"]["long_term"]
@@ -970,7 +970,7 @@ async def test_compact_short_term_overflow_truncates_and_calls_llm(memory_manage
 @pytest.mark.asyncio
 async def test_compact_short_term_overflow_falls_back_on_llm_failure(memory_manager):
     """When LLM fails, short-term compaction should use deterministic fallback."""
-    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+    from memory.seele import SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION, SHORT_TERM_MEMORY_LIMIT
 
     short_terms = [f"Need {i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 3)]
     data = {
@@ -1013,7 +1013,7 @@ async def test_compact_short_term_overflow_falls_back_on_llm_failure(memory_mana
         result = await memory_manager.seele._compact_short_term_overflow_async(data)
 
     assert "Existing need." in result["bot"]["needs"]["long_term"]
-    assert len(result["bot"]["needs"]["short_term"]) == 4
+    assert len(result["bot"]["needs"]["short_term"]) == SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION
     fake_client.close_async.assert_awaited_once()
 
 
@@ -1064,3 +1064,109 @@ async def test_compact_overflowing_memory_triggers_short_term_only_when_needed(m
 
     mock_pf.assert_not_awaited()
     mock_st.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_compact_overflowing_memory_runs_personal_facts_compaction_only_for_pf_overflow(memory_manager):
+    """When only personal_facts exceeds limit, only that compaction runs."""
+    from memory.seele import PERSONAL_FACTS_LIMIT
+
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [f"Fact {i}" for i in range(PERSONAL_FACTS_LIMIT + 3)],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    with patch.object(memory_manager.seele, "_compact_personal_facts_and_events_async") as mock_pf:
+        with patch.object(memory_manager.seele, "_compact_short_term_overflow_async") as mock_st:
+            with patch.object(memory_manager.seele, "_compact_long_strings_async") as mock_ls:
+                mock_pf.return_value = data
+                mock_st.return_value = data
+                mock_ls.return_value = data
+                await memory_manager.seele._compact_overflowing_memory_async(data)
+
+    mock_pf.assert_awaited_once()
+    mock_st.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_compact_long_strings_tier1_triggers_on_oversized(memory_manager):
+    """Tier 1 should submit full seele.json and apply revisions when strings exceed 300 chars."""
+    from memory.seele import MAX_STRING_LENGTH_HARD
+
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "X" * 501, "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+    revised = json.loads(json.dumps(data))
+    revised["bot"]["language_style"]["description"] = "A" * (MAX_STRING_LENGTH_HARD - 10)
+
+    fake_response = json.dumps(revised)
+
+    mock_memory_client = Mock()
+    mock_memory_client._run_tool_model_prompt = AsyncMock(return_value=fake_response)
+
+    fake_client = Mock()
+    fake_client._memory_client = mock_memory_client
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        with patch("prompts.runtime.update_seele_json", return_value=True):
+            with patch.object(memory_manager.seele, "get_long_term_memory", return_value=data):
+                result = await memory_manager.seele._compact_long_strings_async(data)
+
+    assert result is not None
