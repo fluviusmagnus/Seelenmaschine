@@ -174,3 +174,20 @@ class MemoryClient:
             debug_prompt_label="Seele compaction (async) prompt sent to tool_model",
             debug_result_label="Seele compaction (async) result from tool_model",
         )
+
+    async def generate_short_term_compaction_async(
+        self,
+        fields_json: str,
+        bot_name: str,
+        user_name: str,
+        prompt_builder: Callable[[str, str, str], str],
+    ) -> str:
+        """Asynchronously compact overflowing short-term emotion/need lists."""
+        prompt = prompt_builder(fields_json, bot_name, user_name)
+
+        return await self._run_tool_model_prompt(
+            prompt=prompt,
+            system_content="You compact short-term emotions and needs into long-term memory summaries.",
+            debug_prompt_label="Short-term compaction (async) prompt sent to tool_model",
+            debug_result_label="Short-term compaction (async) result from tool_model",
+        )

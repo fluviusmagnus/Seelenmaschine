@@ -1,6 +1,8 @@
 import pytest
 import json
 
+from memory.seele import MEMORABLE_EVENTS_LIMIT, PERSONAL_FACTS_LIMIT
+
 from prompts.runtime import (
     get_current_time_str,
     get_cacheable_system_prompt,
@@ -724,19 +726,16 @@ class TestGetMemoryUpdatePrompt:
         """Compaction prompt should encode retention limits and curation rules."""
         prompt = get_seele_compaction_prompt(
             self._current_seele_json(),
-            20,
-            20,
+            PERSONAL_FACTS_LIMIT,
+            MEMORABLE_EVENTS_LIMIT,
         )
 
         assert "<seele_compaction_task>" in prompt
-        assert "Keep at most 20 personal_facts" in prompt
-        assert "Keep at most 20 memorable_events" in prompt
+        assert f"Keep at most {PERSONAL_FACTS_LIMIT} personal_facts" in prompt
+        assert f"Keep at most {MEMORABLE_EVENTS_LIMIT} memorable_events" in prompt
         assert "Re-evaluate each event's lasting significance" in prompt
-        assert "short_term emotion/need list exceeds 12 items" in prompt
-        assert "keep only the latest 4 short-term items" in prompt
         assert '"personal_facts": ["..."]' in prompt
         assert '"memorable_events": {' in prompt
-        assert '"short_term": ["..."]' in prompt
 
     def test_memory_update_prompt_requires_short_term_append_only_arrays(self):
         """Memory update prompt should constrain short-term emotion/need patches."""

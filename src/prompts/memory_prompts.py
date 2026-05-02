@@ -623,11 +623,9 @@ Re-evaluate importance and return a compacted result that preserves only the mos
 </goal>
 
 <compaction_rules>
-1. Return a JSON object with exactly four top-level fields:
+1. Return a JSON object with exactly two top-level fields:
    - "personal_facts": array of strings
    - "memorable_events": object keyed by stable event ids
-   - "bot": object containing emotions and needs compaction results
-   - "user": object containing emotions and needs compaction results
 2. Keep at most {personal_facts_limit} personal_facts.
 3. Keep at most {memorable_events_limit} memorable_events.
 4. For personal_facts:
@@ -642,20 +640,7 @@ Re-evaluate importance and return a compacted result that preserves only the mos
    - Do not keep reminders, todo items, errands, meeting schedules, shopping lists, or temporary tasks
 6. Preserve the original language of each item whenever possible.
 7. Do not invent new facts or new events unsupported by the current data.
-8. When any short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, summarize and merge older entries into the matching long_term field, then keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
-9. If a short_term emotion/need list does not exceed {SHORT_TERM_MEMORY_LIMIT} items, preserve its current long_term and short_term values unless a concise merge is clearly needed because another section triggered compaction.
-10. short_term emotion/need entries are analytical conclusions, not event logs; remove duplicates and low-signal entries during compaction.
 </compaction_rules>
-
-<short_term_schema>
-Each owner must include both emotions and needs:
-{{
-  "emotions": {{"long_term": "string", "short_term": ["string"]}},
-  "needs": {{"long_term": "string", "short_term": ["string"]}}
-}}
-
-If a short_term emotion/need list exceeds {SHORT_TERM_MEMORY_LIMIT} items, merge older items into long_term and keep only the latest {SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION} short-term items.
-</short_term_schema>
 
 <event_schema>
 Each memorable event value must remain:
@@ -687,14 +672,6 @@ When forced to choose, prefer:
   "personal_facts": ["..."],
   "memorable_events": {{
     "evt_example": {{"date": "YYYY-MM-DD", "importance": 3, "details": "..."}}
-  }},
-  "bot": {{
-    "emotions": {{"long_term": "...", "short_term": ["..."]}},
-    "needs": {{"long_term": "...", "short_term": ["..."]}}
-  }},
-  "user": {{
-    "emotions": {{"long_term": "...", "short_term": ["..."]}},
-    "needs": {{"long_term": "...", "short_term": ["..."]}}
   }}
 }}
 </output_requirements>
@@ -703,3 +680,45 @@ When forced to choose, prefer:
 Compacted memory JSON:
 </final_instruction>
 </seele_compaction_task>"""
+
+
+def build_short_term_compaction_prompt(fields_json: str, bot_name: str, user_name: str) -> str:
+    """Build prompt for LLM-driven short-term emotion/need compaction."""
+    return f"""<short_term_compaction_task>
+<role>
+You are a long-term memory curator for {bot_name}.
+</role>
+
+<goal>
+Short-term emotions and needs have overflowed and must be merged into long-term memory.
+For each field below, re-describe the overall long-term situation in 300 characters or fewer.
+</goal>
+
+<strict_rules>
+1. Only return the final result — no explanatory text, no recounting old results.
+2. Do NOT simply list or concatenate old items. You must re-describe the overall situation.
+3. Each long_term string must be 300 characters or fewer.
+4. Ignore transient facts that will not cause long-term impact. Only personality-shaping matters are worth recording.
+5. Merge new observations into the existing long-term context to form a coherent, concise re-description.
+6. Output pure JSON only, no markdown, no code fences, no explanation.
+7. {bot_name} is the AI assistant; {user_name} is the user.
+</strict_rules>
+
+<fields_needing_compaction>
+{fields_json}
+</fields_needing_compaction>
+
+<output_format>
+Return a JSON object mapping each field path to its new long_term string:
+{{
+  "/bot/emotions/long_term": "re-described long-term emotional state",
+  "/bot/needs/long_term": "re-described long-term needs",
+  "/user/emotions/long_term": "re-described long-term emotional state",
+  "/user/needs/long_term": "re-described long-term needs"
+}}
+</output_format>
+
+<final_instruction>
+Compacted long-term strings JSON:
+</final_instruction>
+</short_term_compaction_task>"""

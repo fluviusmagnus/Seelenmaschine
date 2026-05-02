@@ -90,6 +90,9 @@ SHORT_TERM_MEMORY_LIMIT = 12
 SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION = 4
 SHORT_TERM_MEMORY_OWNERS = ("bot", "user")
 SHORT_TERM_MEMORY_SECTIONS = ("emotions", "needs")
+MAX_STRING_LENGTH_WARNING = 500
+MAX_STRING_LENGTH_HARD = 300
+STRING_COMPACTION_MAX_RETRIES = 3
 
 
 def _safe_event_slug(details: str) -> str:
@@ -393,6 +396,27 @@ def fallback_compact_short_term_memory(data: Dict[str, Any]) -> None:
             overflow_items,
         )
         section["short_term"] = kept_items
+
+
+def _collect_oversized_strings(
+    data: Dict[str, Any], threshold: int
+) -> List[tuple[str, str]]:
+    """Return (json_pointer, value) pairs for leaf strings exceeding threshold."""
+    oversized: List[tuple[str, str]] = []
+
+    def _walk(value: Any, path: str) -> None:
+        if isinstance(value, str):
+            if len(value) > threshold:
+                oversized.append((path, value))
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                _walk(child, f"{path}/{key}")
+        elif isinstance(value, list):
+            for idx, child in enumerate(value):
+                _walk(child, f"{path}/{idx}")
+
+    _walk(data, "")
+    return oversized
 
 
 def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
@@ -745,23 +769,11 @@ class Seele:
     def _apply_compaction_candidate(
         data: Dict[str, Any], candidate: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Apply compacted sections onto the existing seele data."""
+        """Apply compacted personal_facts and memorable_events onto existing seele data."""
         compacted = json.loads(json.dumps(data))
         compacted_user = compacted.setdefault("user", {})
         compacted_user["personal_facts"] = candidate["personal_facts"]
         compacted["memorable_events"] = candidate["memorable_events"]
-        for owner_name in SHORT_TERM_MEMORY_OWNERS:
-            owner_candidate = candidate.get(owner_name, {})
-            if not isinstance(owner_candidate, dict):
-                continue
-            owner = compacted.setdefault(owner_name, {})
-            for section_name in SHORT_TERM_MEMORY_SECTIONS:
-                section_candidate = owner_candidate.get(section_name)
-                if not isinstance(section_candidate, dict):
-                    continue
-                section = owner.setdefault(section_name, {})
-                section["long_term"] = section_candidate["long_term"]
-                section["short_term"] = section_candidate["short_term"]
         return compacted
 
     @staticmethod
@@ -781,7 +793,7 @@ class Seele:
         return json.loads(cleaned_response)
 
     def _validate_compaction_candidate(self, candidate: Dict[str, Any]) -> bool:
-        """Validate LLM compaction output shape and limits."""
+        """Validate LLM compaction output shape and limits (personal_facts + memorable_events only)."""
         if not isinstance(candidate, dict):
             return False
 
@@ -801,33 +813,7 @@ class Seele:
         if any(not isinstance(fact, str) or not fact.strip() for fact in personal_facts):
             return False
 
-        for owner_name in SHORT_TERM_MEMORY_OWNERS:
-            owner = candidate.get(owner_name)
-            if not isinstance(owner, dict):
-                return False
-            for section_name in SHORT_TERM_MEMORY_SECTIONS:
-                section = owner.get(section_name)
-                if not isinstance(section, dict):
-                    return False
-                if not isinstance(section.get("long_term"), str):
-                    return False
-                short_term = section.get("short_term")
-                if not isinstance(short_term, list):
-                    return False
-                if len(short_term) > SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
-                    return False
-                if any(not isinstance(item, str) or not item.strip() for item in short_term):
-                    return False
-
-        return self.validate_seele_structure(
-            self._apply_compaction_candidate(
-                load_seele_template(Path.cwd() / "template" / "seele.json", logger),
-                {
-                    "personal_facts": personal_facts,
-                    "memorable_events": memorable_events,
-                },
-            )
-        )
+        return True
 
     def _fallback_compact_seele_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply deterministic fallback compaction to overgrown seele data."""
@@ -842,11 +828,8 @@ class Seele:
         fallback_compact_short_term_memory(compacted)
         return compacted
 
-    async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Async version of overflowing long-term memory compaction."""
-        if not self._memory_limits_exceeded(data):
-            return data
-
+    async def _compact_personal_facts_and_events_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """LLM-compact personal_facts and memorable_events sections."""
         from llm.chat_client import LLMClient
 
         client = LLMClient()
@@ -860,13 +843,133 @@ class Seele:
             candidate = self._parse_compaction_response(response)
             if not self._validate_compaction_candidate(candidate):
                 raise ValueError("Invalid seele compaction response structure")
-            logger.info("Compacted overflowing seele memory with LLM")
+            logger.info("Compacted personal_facts and memorable_events with LLM")
             return self._apply_compaction_candidate(data, candidate)
         except Exception as error:
             logger.warning(f"LLM seele compaction failed, using fallback compaction: {error}")
             return self._fallback_compact_seele_data(data)
         finally:
             await client.close_async()
+
+    async def _compact_overflowing_memory_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Async version of overflowing long-term memory compaction with per-section triggers."""
+        if not self._memory_limits_exceeded(data):
+            return data
+
+        result = json.loads(json.dumps(data))
+
+        user = result.get("user", {}) if isinstance(result.get("user"), dict) else {}
+        personal_facts = user.get("personal_facts", [])
+        memorable_events = result.get("memorable_events", {})
+
+        needs_pf_compaction = isinstance(personal_facts, list) and len(personal_facts) > PERSONAL_FACTS_LIMIT
+        needs_me_compaction = isinstance(memorable_events, dict) and len(memorable_events) > MEMORABLE_EVENTS_LIMIT
+
+        if needs_pf_compaction or needs_me_compaction:
+            result = await self._compact_personal_facts_and_events_async(result)
+
+        if _short_term_limits_exceeded(result):
+            result = await self._compact_short_term_overflow_async(result)
+
+        return result
+
+    def _collect_overflow_fields(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Collect all short-term fields that exceed the limit, with overflow items."""
+        fields = []
+        for owner_name in SHORT_TERM_MEMORY_OWNERS:
+            owner = data.get(owner_name)
+            if not isinstance(owner, dict):
+                continue
+            for section_name in SHORT_TERM_MEMORY_SECTIONS:
+                section = owner.get(section_name)
+                if not isinstance(section, dict):
+                    continue
+                short_term = section.get("short_term", [])
+                if not isinstance(short_term, list) or len(short_term) <= SHORT_TERM_MEMORY_LIMIT:
+                    continue
+                overflow_items = short_term[:-SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION]
+                fields.append({
+                    "path": f"/{owner_name}/{section_name}",
+                    "owner": owner_name,
+                    "section": section_name,
+                    "existing_long_term": section.get("long_term", ""),
+                    "overflow_items": overflow_items,
+                    "section_data": section,
+                })
+        return fields
+
+    async def _compact_short_term_overflow_async(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Compact short-term emotions/needs overflow using a dedicated LLM prompt."""
+        fields_to_compact = self._collect_overflow_fields(data)
+        if not fields_to_compact:
+            return data
+
+        bot_name = data.get("bot", {}).get("name", "AI Assistant")
+        user_name = data.get("user", {}).get("name", "User")
+
+        fields_json = json.dumps([
+            {
+                "path": f["path"],
+                "existing_long_term": f["existing_long_term"],
+                "overflow_items": f["overflow_items"],
+            }
+            for f in fields_to_compact
+        ], ensure_ascii=False, indent=2)
+
+        from llm.chat_client import LLMClient
+
+        client = LLMClient()
+        try:
+            response = await client.generate_short_term_compaction_async(
+                fields_json=fields_json,
+                bot_name=bot_name,
+                user_name=user_name,
+            )
+            new_long_terms = self._parse_short_term_compaction_response(response)
+
+            patch_ops = []
+            for field in fields_to_compact:
+                path = field["path"]
+                new_long_term = new_long_terms.get(f"{path}/long_term", "")
+                if new_long_term:
+                    field["section_data"]["long_term"] = new_long_term
+                    patch_ops.append({
+                        "op": "replace",
+                        "path": f"{path}/long_term",
+                        "value": new_long_term,
+                    })
+                kept_items = field["section_data"]["short_term"][
+                    -SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
+                ]
+                field["section_data"]["short_term"] = kept_items
+                patch_ops.append({
+                    "op": "replace",
+                    "path": f"{path}/short_term",
+                    "value": kept_items,
+                })
+
+            from prompts.runtime import update_seele_json
+
+            success = update_seele_json(patch_ops)
+            if not success:
+                await self._write_complete_seele_json_async(data)
+
+            logger.info("Compacted short-term emotions/needs with dedicated LLM prompt")
+        except Exception as error:
+            logger.warning(f"LLM short-term compaction failed, using fallback: {error}")
+            fallback_compact_short_term_memory(data)
+        finally:
+            await client.close_async()
+
+        return data
+
+    def _parse_short_term_compaction_response(self, response: str) -> Dict[str, str]:
+        """Parse the short-term compaction response into a path -> new long_term map."""
+        cleaned = self.clean_json_response(response)
+        parsed = json.loads(cleaned)
+        if not isinstance(parsed, dict):
+            raise ValueError("Short-term compaction response is not a JSON object")
+        return parsed
 
     def _build_memory_generation_context(
         self, messages: List[Message], summary_id: int
