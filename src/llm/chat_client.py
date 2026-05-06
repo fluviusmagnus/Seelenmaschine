@@ -509,6 +509,8 @@ class LLMClient:
         current_seele_json: str,
         first_timestamp: Optional[int] = None,
         last_timestamp: Optional[int] = None,
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Async version of generate_memory_update. Use this in async contexts."""
         return await self._memory_client.generate_memory_update_async(
@@ -517,6 +519,8 @@ class LLMClient:
             prompt_builder=get_memory_update_prompt,
             first_timestamp=first_timestamp,
             last_timestamp=last_timestamp,
+            previous_attempt=previous_attempt,
+            previous_error=previous_error,
         )
 
     async def generate_complete_memory_json_async(
@@ -562,6 +566,8 @@ class LLMClient:
         current_seele_json: str,
         personal_facts_limit: int,
         memorable_events_limit: int,
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Asynchronously compact overgrown seele memory sections."""
         return await self._memory_client.generate_seele_compaction_async(
@@ -569,6 +575,8 @@ class LLMClient:
             personal_facts_limit=personal_facts_limit,
             memorable_events_limit=memorable_events_limit,
             prompt_builder=get_seele_compaction_prompt,
+            previous_attempt=previous_attempt,
+            previous_error=previous_error,
         )
 
     async def generate_short_term_compaction_async(
@@ -576,6 +584,8 @@ class LLMClient:
         fields_json: str,
         bot_name: str,
         user_name: str,
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Asynchronously compact overflowing short-term emotion/need lists."""
         return await self._memory_client.generate_short_term_compaction_async(
@@ -583,6 +593,20 @@ class LLMClient:
             bot_name=bot_name,
             user_name=user_name,
             prompt_builder=get_short_term_compaction_prompt,
+            previous_attempt=previous_attempt,
+            previous_error=previous_error,
+        )
+
+    async def compact_long_strings_async(self, prompt: str, system_content: str) -> str:
+        """Asynchronously compact oversized strings via holistic LLM review."""
+        return await self._memory_client.compact_long_strings_async(
+            prompt=prompt, system_content=system_content
+        )
+
+    async def compress_single_string_async(self, prompt: str, system_content: str) -> str:
+        """Asynchronously compress a single oversized string via LLM."""
+        return await self._memory_client.compress_single_string_async(
+            prompt=prompt, system_content=system_content
         )
 
     async def _async_close(self) -> None:

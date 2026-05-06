@@ -639,6 +639,21 @@ class TestGetMemoryUpdatePrompt:
         assert "<output_requirements>" in prompt
         assert '"location": "string"' in prompt
 
+    def test_complete_memory_json_prompt_schema_block_has_no_markdown_guidelines_inside_json(self):
+        """Schema shape block should not embed Markdown guidance inside the JSON object."""
+        prompt = get_complete_memory_json_prompt(
+            "User: test",
+            self._current_seele_json(),
+            "patch failed",
+        )
+
+        schema_block = prompt.split("<schema_json_shape>", 1)[1].split(
+            "</schema_json_shape>", 1
+        )[0]
+        assert "**IMPORTANT UPDATE GUIDELINES" not in schema_block
+        assert '"memorable_events": {' in schema_block
+        assert "<schema_guidelines>" in prompt
+
     def test_get_complete_memory_json_prompt_includes_previous_attempt(self):
         """Retry prompt should include the raw previous failed output when provided."""
         prompt = get_complete_memory_json_prompt(
@@ -748,6 +763,29 @@ class TestGetMemoryUpdatePrompt:
         assert "Do NOT replace entries other than the last one" in prompt
         assert "exceeds 12 items" in prompt
         assert "latest 4 items" in prompt
+
+    def test_memory_update_prompt_does_not_replace_array_field_with_string_example(self):
+        """Prompt examples should not teach the model to replace arrays with strings."""
+        prompt = get_memory_update_prompt("User: likes hiking", self._current_seele_json())
+
+        assert '{"op": "replace", "path": "/user/likes", "value": "Loves hiking' not in prompt
+        assert '"/user/likes/-"' in prompt
+
+    def test_memory_update_retry_prompt_includes_previous_patch_and_rejection_reason(self):
+        """Patch retry prompts should include the rejected patch and validator reason."""
+        previous_patch = '[{"op": "replace", "path": "/user/likes", "value": "bad"}]'
+        previous_error = "/user/likes expects array of non-empty strings"
+
+        prompt = get_memory_update_prompt(
+            "User: likes hiking",
+            self._current_seele_json(),
+            previous_attempt=previous_patch,
+            previous_error=previous_error,
+        )
+
+        assert previous_patch in prompt
+        assert previous_error in prompt
+        assert "previous JSON Patch was rejected" in prompt
 
     def test_get_memory_update_prompt_without_timestamps(self):
         """Test getting memory update prompt without timestamps."""

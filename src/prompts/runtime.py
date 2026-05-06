@@ -1,20 +1,23 @@
 """Runtime prompt helpers and seele.json cache ownership."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from core.config import Config
 from memory.seele import (
+    MAX_STRING_LENGTH_HARD,
+    PatchApplyResult,
     apply_seele_json_patch,
-    dict_to_json_patch as _seele_dict_to_json_patch,
     load_seele_json_from_disk as _seele_load_seele_json_from_disk,
 )
 from prompts.memory_prompts import (
     build_complete_memory_json_prompt,
+    build_long_string_compaction_prompt,
     build_memory_update_prompt,
     build_seele_compaction_prompt,
     build_seele_repair_prompt,
     build_short_term_compaction_prompt,
+    build_single_string_compaction_prompt,
     build_summary_prompt,
 )
 from prompts.system_prompt import (
@@ -47,29 +50,30 @@ def load_seele_json() -> Dict[str, Any]:
     return _seele_json_cache
 
 
-def update_seele_json(
-    patch_operations: Union[List[Dict[str, Any]], Dict[str, Any]],
-) -> bool:
-    """Update seele.json with a JSON Patch."""
+def update_seele_json_result(
+    patch_operations: List[Dict[str, Any]],
+) -> PatchApplyResult:
+    """Update seele.json with a JSON Patch and return detailed status."""
     global _seele_json_cache
     config = Config()
-    success, updated_cache = apply_seele_json_patch(
+    result = apply_seele_json_patch(
         cache=_seele_json_cache,
         patch_operations=patch_operations,
         seele_path=config.SEELE_JSON_PATH,
         load_from_disk=_load_seele_json_from_disk,
         logger=logger,
     )
-    if success:
-        _seele_json_cache = updated_cache
-    return success
+    if result.success:
+        _seele_json_cache = result.data
+    return result
 
 
-def _dict_to_json_patch(
-    data: Dict[str, Any], base_path: str = ""
-) -> List[Dict[str, Any]]:
-    """Convert a nested dict to JSON Patch operations."""
-    return _seele_dict_to_json_patch(data, base_path=base_path)
+def update_seele_json(
+    patch_operations: List[Dict[str, Any]],
+) -> bool:
+    """Update seele.json with a JSON Patch."""
+    result = update_seele_json_result(patch_operations)
+    return result.success
 
 
 def get_current_time_str() -> str:
@@ -103,6 +107,8 @@ def get_memory_update_prompt(
     current_seele_json: str,
     first_timestamp: int | None = None,
     last_timestamp: int | None = None,
+    previous_attempt: str | None = None,
+    previous_error: str | None = None,
 ) -> str:
     """Build the memory update prompt."""
     config = Config()
@@ -112,6 +118,8 @@ def get_memory_update_prompt(
         timezone=config.TIMEZONE,
         first_timestamp=first_timestamp,
         last_timestamp=last_timestamp,
+        previous_attempt=previous_attempt,
+        previous_error=previous_error,
     )
 
 
@@ -157,12 +165,16 @@ def get_seele_compaction_prompt(
     current_seele_json: str,
     personal_facts_limit: int,
     memorable_events_limit: int,
+    previous_attempt: str | None = None,
+    previous_error: str | None = None,
 ) -> str:
     """Build the LLM prompt for compacting overgrown seele memory sections."""
     return build_seele_compaction_prompt(
         current_seele_json=current_seele_json,
         personal_facts_limit=personal_facts_limit,
         memorable_events_limit=memorable_events_limit,
+        previous_attempt=previous_attempt,
+        previous_error=previous_error,
     )
 
 
@@ -170,10 +182,55 @@ def get_short_term_compaction_prompt(
     fields_json: str,
     bot_name: str,
     user_name: str,
+    previous_attempt: str | None = None,
+    previous_error: str | None = None,
 ) -> str:
     """Build the LLM prompt for compacting short-term emotion/need overflow."""
     return build_short_term_compaction_prompt(
         fields_json=fields_json,
         bot_name=bot_name,
         user_name=user_name,
+        previous_attempt=previous_attempt,
+        previous_error=previous_error,
+        max_string_length=MAX_STRING_LENGTH_HARD,
+    )
+
+
+def get_long_string_compaction_prompt(
+    current_seele_json: str,
+    oversized_fields_json: str,
+    bot_name: str,
+    max_string_length: int,
+    previous_attempt: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    """Build the LLM prompt for holistic long-string compaction."""
+    return build_long_string_compaction_prompt(
+        current_seele_json=current_seele_json,
+        oversized_fields_json=oversized_fields_json,
+        bot_name=bot_name,
+        max_string_length=max_string_length,
+        previous_attempt=previous_attempt,
+        previous_error=previous_error,
+    )
+
+
+def get_single_string_compaction_prompt(
+    value: str,
+    current_seele_json: str,
+    path: str,
+    bot_name: str,
+    max_string_length: int,
+    previous_attempt: str | None = None,
+    previous_error: str | None = None,
+) -> str:
+    """Build the LLM prompt for compacting one oversized string."""
+    return build_single_string_compaction_prompt(
+        value=value,
+        current_seele_json=current_seele_json,
+        path=path,
+        bot_name=bot_name,
+        max_string_length=max_string_length,
+        previous_attempt=previous_attempt,
+        previous_error=previous_error,
     )

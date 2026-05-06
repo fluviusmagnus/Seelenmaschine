@@ -10,6 +10,15 @@
 
 ---
 
+### 2026-05-06 Follow-Up: Long-String Compaction Audit
+
+- [x] Removed duplicate long-string constants in `src/memory/seele.py` that overrode the approved `MAX_STRING_LENGTH_WARNING = 500`, `MAX_STRING_LENGTH_HARD = 300`, and `STRING_COMPACTION_MAX_RETRIES = 3` values with `300`, `1000`, and `2`.
+- [x] Moved long-string and single-string compaction prompts into `src/prompts/memory_prompts.py` with runtime getters in `src/prompts/runtime.py`.
+- [x] Updated tool-model memory calls to use streaming responses for keepalive during Seele update-related LLM work.
+- [x] Preserved JSON Patch priority by comparing post-compaction data against the freshly loaded current seele state before falling back to `_write_complete_seele_json_async`.
+
+---
+
 ### Task 1: Modify existing compaction prompt to remove emotions/needs rules
 
 **Files:**

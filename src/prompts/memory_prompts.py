@@ -114,6 +114,8 @@ def build_memory_update_prompt(
     timezone: Any,
     first_timestamp: Optional[int] = None,
     last_timestamp: Optional[int] = None,
+    previous_attempt: Optional[str] = None,
+    previous_error: Optional[str] = None,
 ) -> str:
     """Build memory update prompt that generates a JSON Patch."""
     seele_data = json.loads(current_seele_json)
@@ -129,12 +131,28 @@ def build_memory_update_prompt(
             "short_term emotions, short_term needs, or memorable_events."
         ),
     )
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous JSON Patch was rejected. Review it and the rejection "
+            "reason, then output a corrected JSON Patch array without repeating "
+            "the invalid operation:"
+        ),
+    )
+    previous_error_section = ""
+    if previous_error:
+        previous_error_section = f"""
+<previous_patch_error>
+{previous_error}
+</previous_patch_error>
+"""
 
     return f"""<memory_update_task>
 <role>
 You are {bot_name}, an AI assistant. Based on the conversation history between {bot_name} and {user_name}, generate a JSON Patch (RFC 6902) to update seele.json.
 </role>
 
+{previous_attempt_section}{previous_error_section}
 <task>
 Update seele.json using only meaningful, durable, and well-supported inferences from the conversation.
 </task>
@@ -229,6 +247,7 @@ JSON Patch Operations (RFC 6902):
 - {{"op": "add", "path": "/path/to/field", "value": ...}} - Add new field or append to array (use "/-" for array append)
 - {{"op": "replace", "path": "/path/to/field", "value": ...}} - Replace existing field
 - {{"op": "remove", "path": "/path/to/field"}} - Remove a field (use this when information becomes outdated or irrelevant)
+- Array fields must stay arrays. To append one string, use "/-"; to replace an entire array field, the value must be an array of strings.
 </json_patch_rules>
 
 <output_requirements>
@@ -279,7 +298,7 @@ Example 1 - Adding new facts and events:
 Example 2 - Updating existing fields:
 [
   {{"op": "add", "path": "/bot/emotions/short_term/-", "value": "Feeling happy about helping the user"}},
-  {{"op": "replace", "path": "/user/likes", "value": "Loves hiking, reading sci-fi novels, and cooking Italian food"}}
+  {{"op": "add", "path": "/user/likes/-", "value": "hiking"}}
 ]
 
 Example 3 - Mixed operations with remove:
@@ -393,7 +412,7 @@ Instead of generating a JSON Patch, please output a COMPLETE, VALID seele.json t
 - If information has durable value, prefer storing it as knowledge/facts/personality/relationship understanding instead of turning it into a memorable event.
 </field_interpretation_rules>
 
-<schema>
+<schema_json_shape>
 SCHEMA STRUCTURE (you MUST follow this exactly):
 {{
   "bot": {{
@@ -446,10 +465,6 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
       "short_term": ["string"]
     }}
   }},
-  **IMPORTANT UPDATE GUIDELINES for user.personal_facts:**
-  - Store only relatively stable facts that are likely to remain true across time.
-  - Do NOT include temporary states, short-term plans, one-off arrangements, daily moods, near-term schedules, or transient context.
-  - Examples that do NOT belong in personal_facts: "User is busy this week", "User has a meeting tomorrow", "User felt sad today".
   "memorable_events": {{
     "evt_20260329_project_commitment": {{
       "date": "YYYY-MM-DD",
@@ -457,32 +472,40 @@ SCHEMA STRUCTURE (you MUST follow this exactly):
       "details": "string"
     }}
   }},
-  **IMPORTANT UPDATE GUIDELINES for memorable_events:**
-  - **Be selective**: Only keep events worth commemorating; ignore daily trivial matters.
-  - **Default to non-event storage**: if long-term value can be captured as a fact, preference, personality trait, worldview, ability, or relationship update, prefer that over adding an event.
-  - **Keep the set small**: memorable_events should stay sparse and high-signal rather than trying to represent all notable conversation history.
-  - **Use stable event ids as object keys**; do not use arrays or numeric indexes.
-  - **Importance scoring**: 1=1 day, 2=1 week, 3=1 month, 4=6 months, 5=permanent.
-  - **Memorable events are mainly about the user's life and the development or change of the relationship with {bot_name}, not ordinary tasks or reminders.**
-  - **Do not store todo items, reminders, meeting schedules, shopping lists, or temporary errands in seele.json unless they clearly mark an important life milestone.**
-  - **Importance may change over time** if later context shows the event is more or less significant than originally thought.
-  - **Importance examples**:
-    - 1: a very minor short-lived daily detail, if worth storing at all
-    - 2: a short-term notable situation that may matter for a few days
-    - 3: a meaningful life development likely to matter for weeks
-    - 4: an important life milestone or clear relationship shift
-    - 5: a lasting relationship-defining or identity-shaping event
-  - **Use importance 5 extremely sparingly**: only when the event is highly likely to remain permanently important to identity, life story, or the long-term relationship with {bot_name}.
-  - **When uncertain, score lower**: prefer 4 over 5, and prefer omitting the event entirely over adding a weak event with an inflated score.
-  - **Boundary examples**:
-    - "Remind me tomorrow to call someone" is not a memorable event and should not be written into seele.json
-    - "I trust you with things I tell no one else" is a memorable relationship event and likely deserves high importance
-    - "My pet died today" is a memorable life event and likely deserves high importance
-  - **Merge & Synthesize**: Keep one stable id for the same underlying event and update it over time.
-  - **Prefer simple, high-confidence updates** rather than complicated large-scale rewrites of many events.
   "commands_and_agreements": ["string"]
 }}
-</schema>
+</schema_json_shape>
+
+<schema_guidelines>
+**IMPORTANT UPDATE GUIDELINES for user.personal_facts:**
+- Store only relatively stable facts that are likely to remain true across time.
+- Do NOT include temporary states, short-term plans, one-off arrangements, daily moods, near-term schedules, or transient context.
+- Examples that do NOT belong in personal_facts: "User is busy this week", "User has a meeting tomorrow", "User felt sad today".
+
+**IMPORTANT UPDATE GUIDELINES for memorable_events:**
+- **Be selective**: Only keep events worth commemorating; ignore daily trivial matters.
+- **Default to non-event storage**: if long-term value can be captured as a fact, preference, personality trait, worldview, ability, or relationship update, prefer that over adding an event.
+- **Keep the set small**: memorable_events should stay sparse and high-signal rather than trying to represent all notable conversation history.
+- **Use stable event ids as object keys**; do not use arrays or numeric indexes.
+- **Importance scoring**: 1=1 day, 2=1 week, 3=1 month, 4=6 months, 5=permanent.
+- **Memorable events are mainly about the user's life and the development or change of the relationship with {bot_name}, not ordinary tasks or reminders.**
+- **Do not store todo items, reminders, meeting schedules, shopping lists, or temporary errands in seele.json unless they clearly mark an important life milestone.**
+- **Importance may change over time** if later context shows the event is more or less significant than originally thought.
+- **Importance examples**:
+  - 1: a very minor short-lived daily detail, if worth storing at all
+  - 2: a short-term notable situation that may matter for a few days
+  - 3: a meaningful life development likely to matter for weeks
+  - 4: an important life milestone or clear relationship shift
+  - 5: a lasting relationship-defining or identity-shaping event
+- **Use importance 5 extremely sparingly**: only when the event is highly likely to remain permanently important to identity, life story, or the long-term relationship with {bot_name}.
+- **When uncertain, score lower**: prefer 4 over 5, and prefer omitting the event entirely over adding a weak event with an inflated score.
+- **Boundary examples**:
+  - "Remind me tomorrow to call someone" is not a memorable event and should not be written into seele.json
+  - "I trust you with things I tell no one else" is a memorable relationship event and likely deserves high importance
+  - "My pet died today" is a memorable life event and likely deserves high importance
+- **Merge & Synthesize**: Keep one stable id for the same underlying event and update it over time.
+- **Prefer simple, high-confidence updates** rather than complicated large-scale rewrites of many events.
+</schema_guidelines>
 
 <current_seele_json>
 CURRENT seele.json:
@@ -614,17 +637,34 @@ def build_seele_compaction_prompt(
     current_seele_json: str,
     personal_facts_limit: int,
     memorable_events_limit: int,
+    previous_attempt: Optional[str] = None,
+    previous_error: Optional[str] = None,
 ) -> str:
     """Build prompt for LLM-driven seele memory compaction."""
     seele_data = json.loads(current_seele_json)
     bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
     user_name = seele_data.get("user", {}).get("name", "User")
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous seele compaction output was invalid. Review it and "
+            "the error reason, then output corrected compaction JSON:"
+        ),
+    )
+    previous_error_section = ""
+    if previous_error:
+        previous_error_section = f"""
+<previous_compaction_error>
+{previous_error}
+</previous_compaction_error>
+"""
 
     return f"""<seele_compaction_task>
 <role>
 You are a long-term memory curator for {bot_name}.
 </role>
 
+{previous_attempt_section}{previous_error_section}
 <goal>
 The current seele.json contains too many long-term memory items.
 Re-evaluate importance and return a compacted result that preserves only the most valuable long-term information.
@@ -637,15 +677,17 @@ Re-evaluate importance and return a compacted result that preserves only the mos
 2. Keep at most {personal_facts_limit} personal_facts.
 3. Keep at most {memorable_events_limit} memorable_events.
 4. For personal_facts:
-   - Keep only durable, identity-relevant, long-term useful facts about {user_name}
-   - Remove temporary, redundant, overly specific, outdated, or low-value facts
-   - Prefer facts that help {bot_name} understand {user_name}'s stable identity, preferences, history, habits, abilities, or long-term situation
+    - Keep only durable, identity-relevant, long-term useful facts about {user_name}
+    - Remove temporary, redundant, overly specific, outdated, or low-value facts
+    - Do NOT include facts that differ only in capitalization or whitespace — duplicates are case-insensitive and whitespace-normalized
+    - Prefer facts that help {bot_name} understand {user_name}'s stable identity, preferences, history, habits, abilities, or long-term situation
 5. For memorable_events:
-   - Re-evaluate each event's lasting significance
-   - You may remove low-value or redundant events
-   - You may adjust importance scores up or down
-   - Keep only events that are truly important to {user_name}'s life story or the relationship between {user_name} and {bot_name}
-   - Do not keep reminders, todo items, errands, meeting schedules, shopping lists, or temporary tasks
+    - Each event ID must use ONLY lowercase ASCII letters, digits, and underscores (pattern: [a-z0-9_]+)
+    - Re-evaluate each event's lasting significance
+    - You may remove low-value or redundant events
+    - You may adjust importance scores up or down
+    - Keep only events that are truly important to {user_name}'s life story or the relationship between {user_name} and {bot_name}
+    - Do not keep reminders, todo items, errands, meeting schedules, shopping lists, or temporary tasks
 6. Preserve the original language of each item whenever possible.
 7. Do not invent new facts or new events unsupported by the current data.
 </compaction_rules>
@@ -690,22 +732,44 @@ Compacted memory JSON:
 </seele_compaction_task>"""
 
 
-def build_short_term_compaction_prompt(fields_json: str, bot_name: str, user_name: str) -> str:
+def build_short_term_compaction_prompt(
+    fields_json: str,
+    bot_name: str,
+    user_name: str,
+    previous_attempt: Optional[str] = None,
+    previous_error: Optional[str] = None,
+    max_string_length: int = 300,
+) -> str:
     """Build prompt for LLM-driven short-term emotion/need compaction."""
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous short-term compaction output was invalid. Review it "
+            "and the error reason, then output a corrected JSON object:"
+        ),
+    )
+    previous_error_section = ""
+    if previous_error:
+        previous_error_section = f"""
+<previous_compaction_error>
+{previous_error}
+</previous_compaction_error>
+"""
     return f"""<short_term_compaction_task>
 <role>
 You are a long-term memory curator for {bot_name}.
 </role>
 
+{previous_attempt_section}{previous_error_section}
 <goal>
 Short-term emotions and needs have overflowed and must be merged into long-term memory.
-For each field below, re-describe the overall long-term situation in 300 characters or fewer.
+For each field below, re-describe the overall long-term situation in {max_string_length} characters or fewer.
 </goal>
 
 <strict_rules>
 1. Only return the final result — no explanatory text, no recounting old results.
 2. Do NOT simply list or concatenate old items. You must re-describe the overall situation.
-3. Each long_term string must be 300 characters or fewer.
+3. Each long_term string must be {max_string_length} characters or fewer.
 4. Ignore transient facts that will not cause long-term impact. Only personality-shaping matters are worth recording.
 5. Merge new observations into the existing long-term context to form a coherent, concise re-description.
 6. Output pure JSON only, no markdown, no code fences, no explanation.
@@ -730,3 +794,124 @@ Return a JSON object mapping each field path to its new long_term string:
 Compacted long-term strings JSON:
 </final_instruction>
 </short_term_compaction_task>"""
+
+
+def build_long_string_compaction_prompt(
+    current_seele_json: str,
+    oversized_fields_json: str,
+    bot_name: str,
+    max_string_length: int,
+    previous_attempt: Optional[str] = None,
+    previous_error: Optional[str] = None,
+) -> str:
+    """Build prompt for holistic long-string compaction of seele.json."""
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous complete seele.json compaction output was rejected. "
+            "Use it only to understand what to correct; do not repeat the error."
+        ),
+    )
+    previous_error_section = ""
+    if previous_error:
+        previous_error_section = f"""<previous_compaction_error>
+{previous_error}
+</previous_compaction_error>
+
+"""
+
+    return f"""<long_string_compaction_task>
+<role>
+You are a long-term memory curator for {bot_name}.
+</role>
+
+<goal>
+Some string fields in seele.json have grown very large and exceeded a warning threshold.
+The fields listed in <oversized_fields> are the ones that triggered this compaction.
+After compaction, ALL string fields in the output must be {max_string_length} characters or fewer.
+Re-examine whether the content in each oversized field reflects genuine personality-level changes worth preserving.
+</goal>
+
+<oversized_fields>
+{oversized_fields_json}
+</oversized_fields>
+
+<rules>
+1. Scan all oversized string fields. For each:
+   - If the content reflects a genuine personality-shaping change that deserves long-term recording: dialectically synthesize and distill the core insight, saving it to the MOST APPROPRIATE location in seele.json. This could be personality.description, worldview_and_values, long_term emotions/needs, relationship_with_user, memorable_events, or any other semantically fitting field.
+   - If the content does NOT reflect personality-level change: directly compress it to {max_string_length} characters or fewer, preserving essential meaning.
+2. ALL string fields in the output must be {max_string_length} characters or fewer.
+3. Do not add explanatory text, do not recount old results.
+4. Output the COMPLETE revised seele.json as pure JSON.
+5. No markdown, no code fences, no explanation.
+</rules>
+
+<current_seele_json>
+{current_seele_json}
+</current_seele_json>
+
+{previous_attempt_section}{previous_error_section}<retry_instruction>
+If this is a retry, fix the previous output according to the rejection reason above.
+</retry_instruction>
+
+<final_instruction>
+Revised complete seele.json:
+</final_instruction>
+</long_string_compaction_task>"""
+
+
+def build_single_string_compaction_prompt(
+    value: str,
+    current_seele_json: str,
+    path: str,
+    bot_name: str,
+    max_string_length: int,
+    previous_attempt: Optional[str] = None,
+    previous_error: Optional[str] = None,
+) -> str:
+    """Build prompt for focused compaction of one oversized seele string."""
+    previous_attempt_section = _build_previous_attempt_section(
+        previous_attempt,
+        intro=(
+            "The previous compressed string was rejected. "
+            "Use it only to understand what to correct; do not repeat the error."
+        ),
+    )
+    previous_error_section = ""
+    if previous_error:
+        previous_error_section = f"""<previous_compaction_error>
+{previous_error}
+</previous_compaction_error>
+
+"""
+
+    return f"""<single_string_compaction>
+<role>You are a long-term memory curator for {bot_name}.</role>
+
+<task>
+The string at path "{path}" exceeds {max_string_length} characters ({len(value)} chars).
+Compress it to {max_string_length} characters or fewer while preserving essential meaning.
+</task>
+
+<oversized_string>
+{value}
+</oversized_string>
+
+<current_seele_json_for_context>
+{current_seele_json}
+</current_seele_json_for_context>
+
+{previous_attempt_section}{previous_error_section}<retry_instruction>
+If this is a retry, fix the previous compressed string according to the rejection reason above.
+</retry_instruction>
+
+<rules>
+1. Return ONLY the compressed string, no quotes, no JSON wrapper, no explanation.
+2. Must be {max_string_length} characters or fewer.
+3. Preserve essential meaning while removing redundancy.
+</rules>
+
+<final_instruction>
+Compressed string:
+</final_instruction>
+</single_string_compaction>"""

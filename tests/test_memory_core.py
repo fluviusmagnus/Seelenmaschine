@@ -119,7 +119,13 @@ class TestMemoryManagerLongTermMemory:
                 reranker_client=mock_dependencies['reranker_client']
             )
 
-        with patch('prompts.runtime.update_seele_json', return_value=True) as mock_update:
+        from memory.seele import PatchApplyResult
+
+        patch_result = PatchApplyResult(True, {}, "")
+        with patch(
+            'prompts.runtime.update_seele_json_result',
+            return_value=patch_result,
+        ) as mock_update:
             success = await mm.update_long_term_memory_async(
                 summary_id=100,
                 json_patch='[{"op":"replace","path":"/user/name","value":"Test User"}]'
@@ -265,6 +271,12 @@ class TestValidateShortTermPatchOperations:
             cache["user"]["needs"] = {"short_term": list(user_needs)}
         return cache
 
+    def _validate_patch_operations(self, operations, cache):
+        """Return whether unified patch validation accepts the operations."""
+        from memory.seele import _validate_patch_operations
+
+        return _validate_patch_operations(operations, cache) == ""
+
     # ── _is_short_term_path ──────────────────────────────────────────────
 
     def test_is_short_term_path_valid_add_paths(self):
@@ -313,168 +325,132 @@ class TestValidateShortTermPatchOperations:
 
     def test_valid_add_to_short_term(self):
         """Appending to short_term via add /- should pass."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "add", "path": "/bot/emotions/short_term/-",
                 "value": "feeling curious"}]
         cache = self._make_cache(bot_emotions=["previous"])
-        assert _validate_short_term_patch_operations(ops, cache) is True
+        assert self._validate_patch_operations(ops, cache) is True
 
     def test_add_with_empty_value_rejected(self):
         """add with empty value should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "add", "path": "/bot/emotions/short_term/-",
                 "value": ""}]
         cache = self._make_cache(bot_emotions=["previous"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_add_with_whitespace_value_rejected(self):
         """add with whitespace-only value should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "add", "path": "/bot/emotions/short_term/-",
                 "value": "   "}]
         cache = self._make_cache(bot_emotions=["previous"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_add_with_numeric_index_rejected(self):
         """add with numeric index (not /-) should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "add", "path": "/bot/emotions/short_term/0",
                 "value": "feeling good"}]
         cache = self._make_cache(bot_emotions=["previous"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     # ── _validate_short_term_patch_operations (replace) ───────────────────
 
     def test_valid_replace_last_entry(self):
         """Replacing the last entry in a short_term list should pass."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/2",
                 "value": "synthesized: deepening curiosity"}]
         # 3 items, last index = 2
         cache = self._make_cache(bot_emotions=["a", "b", "curious"])
-        assert _validate_short_term_patch_operations(ops, cache) is True
+        assert self._validate_patch_operations(ops, cache) is True
 
     def test_valid_replace_last_entry_single_item(self):
         """Replacing the only entry (index 0) in a single-item list should pass."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0",
                 "value": "updated single entry"}]
         cache = self._make_cache(bot_emotions=["only"])
-        assert _validate_short_term_patch_operations(ops, cache) is True
+        assert self._validate_patch_operations(ops, cache) is True
 
     def test_replace_non_last_entry_rejected(self):
         """Replacing an entry that is NOT the last should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0",
                 "value": "replacing first entry"}]
         # 3 items, last index = 2, so index 0 is not last
         cache = self._make_cache(bot_emotions=["a", "b", "c"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_on_empty_array_rejected(self):
         """Replacing on an empty short_term array should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0",
                 "value": "nothing to replace"}]
         cache = self._make_cache(bot_emotions=[])  # empty array
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_with_empty_value_rejected(self):
         """replace with empty string value should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0",
                 "value": ""}]
         cache = self._make_cache(bot_emotions=["entry"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_with_whitespace_value_rejected(self):
         """replace with whitespace-only value should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0",
                 "value": "   "}]
         cache = self._make_cache(bot_emotions=["entry"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_non_numeric_index_in_path_rejected(self):
         """replace with non-numeric index (like /-) should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/-",
                 "value": "synthesized"}]
         cache = self._make_cache(bot_emotions=["a"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_too_many_path_parts_rejected(self):
         """Path with extra components should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0/extra",
                 "value": "synthesized"}]
         cache = self._make_cache(bot_emotions=["a"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_on_unknown_owner_rejected(self):
         """Replacing on a non-existent owner path should be rejected
         (get chains resolve to [], and 0 != -1)."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/2",
                 "value": "entry"}]
         cache = {"bot": {}}  # no 'emotions' key
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_on_unknown_section_rejected(self):
         """Replacing on a non-existent section path should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/bot/emotions/short_term/0",
                 "value": "entry"}]
         cache = {"bot": {}}  # no 'emotions' key
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_replace_on_user_needs_last_ok(self):
         """replace on /user/needs last entry should pass."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "replace", "path": "/user/needs/short_term/1",
                 "value": "updated need"}]
         cache = self._make_cache(user_needs=["old need", "current need"])
-        assert _validate_short_term_patch_operations(ops, cache) is True
+        assert self._validate_patch_operations(ops, cache) is True
 
     # ── other operations ─────────────────────────────────────────────────
 
     def test_remove_on_short_term_rejected(self):
         """remove operation on short_term should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "remove", "path": "/bot/emotions/short_term/0"}]
         cache = self._make_cache(bot_emotions=["a", "b"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     def test_unknown_op_on_short_term_rejected(self):
         """Unknown operation types on short_term should be rejected."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [{"op": "move", "path": "/bot/emotions/short_term/0"}]
         cache = self._make_cache(bot_emotions=["a"])
-        assert _validate_short_term_patch_operations(ops, cache) is False
+        assert self._validate_patch_operations(ops, cache) is False
 
     # ── mixed / non-short-term operations ────────────────────────────────
 
     def test_mixed_valid_add_and_replace(self):
         """A mix of valid add and replace on short_term should pass."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [
             {"op": "add", "path": "/bot/emotions/short_term/-",
              "value": "new feeling"},
@@ -485,25 +461,22 @@ class TestValidateShortTermPatchOperations:
             bot_emotions=["old"],
             user_needs=["n1", "n2", "n3"],
         )
-        assert _validate_short_term_patch_operations(ops, cache) is True
+        assert self._validate_patch_operations(ops, cache) is True
 
     def test_non_short_term_ops_ignored(self):
         """Operations on non-short-term paths should be ignored by validation."""
-        from memory.seele import _validate_short_term_patch_operations
-
         ops = [
             {"op": "replace", "path": "/user/name", "value": "NewName"},
             {"op": "add", "path": "/user/personal_facts/-", "value": "a fact"},
             {"op": "remove", "path": "/memorable_events/evt_old"},
         ]
         cache = self._make_cache()
-        assert _validate_short_term_patch_operations(ops, cache) is True
+        assert self._validate_patch_operations(ops, cache) is True
 
     def test_empty_operations_list(self):
         """An empty operations list should pass validation."""
-        from memory.seele import _validate_short_term_patch_operations
+        assert self._validate_patch_operations([], {}) is True
 
-        assert _validate_short_term_patch_operations([], {}) is True
 
 
 

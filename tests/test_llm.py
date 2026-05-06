@@ -8,6 +8,25 @@ from llm.request_executor import ChatRequestExecutor
 from llm.tool_loop import ToolLoop
 
 
+class AsyncChunkStream:
+    def __init__(self, parts):
+        self._parts = parts
+
+    def __aiter__(self):
+        self._iter = iter(self._parts)
+        return self
+
+    async def __anext__(self):
+        try:
+            content = next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+        chunk = Mock()
+        chunk.choices = [Mock()]
+        chunk.choices[0].delta.content = content
+        return chunk
+
+
 @pytest.fixture
 def mock_config():
     """Mock configuration."""
@@ -266,6 +285,8 @@ class TestLLMClient:
             '{"bot": {}, "user": {}}',
             None,
             None,
+            None,
+            None,
         )
 
     @patch("llm.chat_client.AsyncOpenAI")
@@ -344,7 +365,35 @@ class TestLLMClient:
             '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
             20,
             20,
+            None,
+            None,
         )
+
+    @pytest.mark.asyncio
+    @patch("llm.chat_client.AsyncOpenAI")
+    @patch(
+        "llm.chat_client.get_seele_compaction_prompt",
+        return_value="compaction prompt",
+    )
+    async def test_generate_seele_compaction_streams_for_keepalive(
+        self, mock_get_prompt, mock_openai, llm_client
+    ):
+        """Seele update LLM calls should use streaming so long calls stay alive."""
+        mock_async_client = AsyncMock()
+        mock_async_client.chat.completions.create = AsyncMock(
+            return_value=AsyncChunkStream(['{"personal_facts": ', '[], "memorable_events": {}}'])
+        )
+        mock_openai.return_value = mock_async_client
+
+        result = await llm_client.generate_seele_compaction_async(
+            '{"bot": {}, "user": {}, "memorable_events": {}, "commands_and_agreements": []}',
+            20,
+            20,
+        )
+
+        assert result == '{"personal_facts": [], "memorable_events": {}}'
+        mock_async_client.chat.completions.create.assert_awaited_once()
+        assert mock_async_client.chat.completions.create.call_args.kwargs["stream"] is True
 
     @pytest.mark.asyncio
     @patch("llm.chat_client.AsyncOpenAI")

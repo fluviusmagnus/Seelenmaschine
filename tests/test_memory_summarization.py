@@ -119,6 +119,8 @@ class TestMemoryManagerLongTermMemory:
             '{\n  "user": {\n    "preferences": {}\n  }\n}',
             1000,
             2000,
+            None,
+            None,
         )
         llm_client.close_async.assert_awaited_once()
     

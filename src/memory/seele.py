@@ -5,9 +5,10 @@ import inspect
 import json
 import re
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import jsonpatch
 
@@ -93,6 +94,74 @@ SHORT_TERM_MEMORY_SECTIONS = ("emotions", "needs")
 MAX_STRING_LENGTH_WARNING = 500
 MAX_STRING_LENGTH_HARD = 300
 STRING_COMPACTION_MAX_RETRIES = 3
+
+
+@dataclass(frozen=True)
+class PatchApplyResult:
+    """Result of applying a seele.json patch."""
+
+    success: bool
+    data: Dict[str, Any]
+    reason: str = ""
+
+
+STRING_FIELD_PATHS = {
+    "/bot/name",
+    "/bot/gender",
+    "/bot/birthday",
+    "/bot/role",
+    "/bot/appearance",
+    "/bot/language_style/description",
+    "/bot/personality/mbti",
+    "/bot/personality/description",
+    "/bot/personality/worldview_and_values",
+    "/bot/emotions/long_term",
+    "/bot/needs/long_term",
+    "/bot/relationship_with_user",
+    "/user/name",
+    "/user/gender",
+    "/user/birthday",
+    "/user/location",
+    "/user/personality/mbti",
+    "/user/personality/description",
+    "/user/personality/worldview_and_values",
+    "/user/emotions/long_term",
+    "/user/needs/long_term",
+}
+
+STRING_ARRAY_FIELD_PATHS = {
+    "/bot/likes",
+    "/bot/dislikes",
+    "/bot/language_style/examples",
+    "/bot/emotions/short_term",
+    "/bot/needs/short_term",
+    "/user/personal_facts",
+    "/user/abilities",
+    "/user/likes",
+    "/user/dislikes",
+    "/user/emotions/short_term",
+    "/user/needs/short_term",
+    "/commands_and_agreements",
+}
+
+
+def _merge_missing_template_fields(data: Any, template: Any) -> tuple[Any, bool]:
+    """Fill missing current-schema fields without overwriting existing values."""
+    if not isinstance(data, dict) or not isinstance(template, dict):
+        return data, False
+
+    changed = False
+    for key, template_value in template.items():
+        if key not in data:
+            data[key] = json.loads(json.dumps(template_value))
+            changed = True
+            continue
+
+        if isinstance(data[key], dict) and isinstance(template_value, dict):
+            _, child_changed = _merge_missing_template_fields(data[key], template_value)
+            changed = changed or child_changed
+
+    return data, changed
 
 
 def _safe_event_slug(details: str) -> str:
@@ -419,10 +488,80 @@ def _collect_oversized_strings(
     return oversized
 
 
+def _validate_memorable_event_payload(path: str, value: Any) -> str:
+    if not isinstance(value, dict):
+        return f"{path} expects memorable event object, got {type(value).__name__}"
+    for field in ("date", "importance", "details"):
+        if field not in value:
+            return f"{path} missing required event field: {field}"
+    if _parse_event_date(value["date"]) is None:
+        return f"{path}/date expects YYYY-MM-DD date"
+    if (
+        not isinstance(value["importance"], int)
+        or value["importance"] not in MEMORABLE_EVENT_RETENTION_DAYS
+    ):
+        return f"{path}/importance expects integer 1-5"
+    if not isinstance(value["details"], str) or not value["details"].strip():
+        return f"{path}/details expects non-empty string"
+    return ""
+
+
+def validate_seele_structure_data(data: dict, logger: Any) -> bool:
+    """Validate that the seele.json structure has all required fields."""
+    required_fields = ["bot", "user", "memorable_events", "commands_and_agreements"]
+
+    for field in required_fields:
+        if field not in data:
+            logger.warning(f"Missing required field: {field}")
+            return False
+
+    if not isinstance(data["memorable_events"], dict):
+        logger.warning("memorable_events is not an object")
+        return False
+
+    for path in STRING_FIELD_PATHS:
+        current: Any = data
+        for part in path.strip("/").split("/"):
+            if not isinstance(current, dict) or part not in current:
+                logger.warning(f"Missing required string field: {path}")
+                return False
+            current = current[part]
+        if not isinstance(current, str):
+            logger.warning(f"{path} is not a string")
+            return False
+
+    for path in STRING_ARRAY_FIELD_PATHS:
+        current = data
+        for part in path.strip("/").split("/"):
+            if not isinstance(current, dict) or part not in current:
+                logger.warning(f"Missing required array field: {path}")
+                return False
+            current = current[part]
+        if not isinstance(current, list):
+            logger.warning(f"{path} is not an array")
+            return False
+        if any(not isinstance(item, str) or not item.strip() for item in current):
+            logger.warning(f"{path} contains invalid items")
+            return False
+
+    for event_id, event in data["memorable_events"].items():
+        if not isinstance(event_id, str) or not MEMORABLE_EVENT_ID_PATTERN.match(event_id):
+            logger.warning(f"Invalid memorable event id: {event_id}")
+            return False
+        reason = _validate_memorable_event_payload(f"/memorable_events/{event_id}", event)
+        if reason:
+            logger.warning(reason)
+            return False
+
+    return True
+
+
 def normalize_seele_data(data: Dict[str, Any], logger: Any) -> tuple[Dict[str, Any], bool]:
     """Normalize current seele data to the latest schema."""
     normalized_data = dict(data)
-    schema_changed = False
+    normalized_data, schema_changed = _merge_missing_template_fields(
+        normalized_data, CURRENT_SEELE_TEMPLATE_FALLBACK
+    )
 
     user = normalized_data.get("user")
     if isinstance(user, dict) and not isinstance(user.get("location"), str):
@@ -511,23 +650,34 @@ def _matches_template_shape(data: Any, template: Any) -> bool:
     return True
 
 
-def dict_to_json_patch(
-    data: Dict[str, Any], base_path: str = ""
-) -> List[Dict[str, Any]]:
-    """Convert a nested dict to JSON Patch operations."""
-    operations: List[Dict[str, Any]] = []
+def _escape_json_pointer_token(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
 
-    for key, value in data.items():
-        path = f"{base_path}/{key}"
-        if isinstance(value, dict):
-            operations.extend(dict_to_json_patch(value, path))
-        elif isinstance(value, list):
-            for item in value:
-                operations.append({"op": "add", "path": f"{path}/-", "value": item})
-        else:
-            operations.append({"op": "replace", "path": path, "value": value})
 
-    return operations
+def build_json_patch_diff(old: Any, new: Any, path: str = "") -> List[Dict[str, Any]]:
+    """Build an RFC 6902 patch that transforms old into new."""
+    if old == new:
+        return []
+
+    if isinstance(old, dict) and isinstance(new, dict):
+        operations: List[Dict[str, Any]] = []
+        for key in old.keys() - new.keys():
+            operations.append(
+                {"op": "remove", "path": f"{path}/{_escape_json_pointer_token(str(key))}"}
+            )
+        for key, new_value in new.items():
+            child_path = f"{path}/{_escape_json_pointer_token(str(key))}"
+            if key not in old:
+                operations.append({"op": "add", "path": child_path, "value": new_value})
+            else:
+                operations.extend(build_json_patch_diff(old[key], new_value, child_path))
+        return operations
+
+    if isinstance(old, list) and isinstance(new, list):
+        return [{"op": "replace", "path": path, "value": new}]
+
+    op = "add" if path == "" else "replace"
+    return [{"op": op, "path": path or "", "value": new}]
 
 
 def _is_short_term_path(path: Any) -> bool:
@@ -543,76 +693,125 @@ def _is_short_term_path(path: Any) -> bool:
     )
 
 
-def _validate_short_term_patch_operations(
+def _validate_short_term_patch_operation(
+    operation: Dict[str, Any], working_cache: Dict[str, Any]
+) -> str:
+    """Return a rejection reason for invalid short-term patch operations."""
+    path = operation.get("path")
+    op = operation.get("op", "")
+    value = operation.get("value")
+
+    if op == "add" and isinstance(path, str) and path.endswith("/-"):
+        if not isinstance(value, str) or not value.strip():
+            return f"{path} expects non-empty string append value"
+        return ""
+    if op != "replace" or not isinstance(path, str):
+        return (
+            f"{path} can only append to /- or replace the current last short_term item"
+        )
+
+    parts = path.strip("/").split("/")
+    if len(parts) != 4 or not parts[3].isdigit():
+        return f"{path} must target /<owner>/<section>/short_term/<index>"
+    target_index = int(parts[3])
+    owner = parts[0]
+    section = parts[1]
+    current_array = (
+        working_cache.get(owner, {}).get(section, {}).get("short_term", [])
+    )
+    if not isinstance(current_array, list):
+        return f"/{owner}/{section}/short_term is not an array"
+    if target_index != len(current_array) - 1:
+        return (
+            f"{path} can only replace the last short_term item "
+            f"(expected index {len(current_array) - 1})"
+        )
+    if not isinstance(value, str) or not value.strip():
+        return f"{path} expects non-empty string value"
+    return ""
+
+
+def _validate_patch_operation(
+    operation: Dict[str, Any], working_cache: Dict[str, Any]
+) -> str:
+    op = operation.get("op")
+    path = operation.get("path")
+    value = operation.get("value")
+    if op not in {"add", "replace", "remove"}:
+        return f"Unsupported JSON Patch op: {op}"
+    if not isinstance(path, str) or not path.startswith("/"):
+        return f"Invalid JSON Patch path: {path}"
+
+    if _is_short_term_path(path):
+        return _validate_short_term_patch_operation(operation, working_cache)
+
+    if op == "remove":
+        return ""
+
+    if path in STRING_FIELD_PATHS:
+        if not isinstance(value, str):
+            return f"{path} expects string value, got {type(value).__name__}"
+        return ""
+
+    if path in STRING_ARRAY_FIELD_PATHS:
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) or not item.strip() for item in value
+        ):
+            return f"{path} expects array of non-empty strings"
+        return ""
+
+    for array_path in STRING_ARRAY_FIELD_PATHS:
+        if path == f"{array_path}/-":
+            if not isinstance(value, str) or not value.strip():
+                return f"{path} expects non-empty string append value"
+            return ""
+
+    parts = path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "memorable_events":
+        event_path = f"/memorable_events/{parts[1]}"
+        if not MEMORABLE_EVENT_ID_PATTERN.match(parts[1]):
+            return f"{event_path} has invalid event id"
+        if len(parts) == 2:
+            return _validate_memorable_event_payload(event_path, value)
+        if len(parts) == 3:
+            field = parts[2]
+            if field == "date" and _parse_event_date(value) is None:
+                return f"{event_path}/date expects YYYY-MM-DD date"
+            if field == "importance" and (
+                not isinstance(value, int)
+                or value not in MEMORABLE_EVENT_RETENTION_DAYS
+            ):
+                return f"{event_path}/importance expects integer 1-5"
+            if field == "details" and (not isinstance(value, str) or not value.strip()):
+                return f"{event_path}/details expects non-empty string"
+            if field not in {"date", "importance", "details"}:
+                return f"{event_path}/{field} is not a valid event field"
+            return ""
+
+    return ""
+
+
+def _validate_patch_operations(
     operations: List[Dict[str, Any]], working_cache: Dict[str, Any]
-) -> bool:
-    """Validate short-term emotion/need patch operations.
-
-    Allowed operations on /short_term paths:
-    - add to /- (append)
-    - replace on the last entry only (numeric index == len-1)
-    """
+) -> str:
+    if not isinstance(operations, list):
+        return "JSON Patch must be an array of operations"
     for operation in operations:
-        path = operation.get("path")
-        if not _is_short_term_path(path):
-            continue
-
-        op = operation.get("op", "")
-        value = operation.get("value")
-
-        if op == "add" and isinstance(path, str) and path.endswith("/-"):
-            if not isinstance(value, str) or not value.strip():
-                logger.error("Invalid short_term add value: expected non-empty string")
-                return False
-        elif op == "replace":
-            if not isinstance(path, str):
-                logger.error("Invalid short_term replace: path must be a string")
-                return False
-            parts = path.strip("/").split("/")
-            if len(parts) != 4 or not parts[3].isdigit():
-                logger.error(
-                    "Invalid short_term replace path: must target /<owner>/<section>/short_term/<index>"
-                )
-                return False
-            target_index = int(parts[3])
-            owner = parts[0]
-            section = parts[1]
-            current_array = (
-                working_cache.get(owner, {})
-                .get(section, {})
-                .get("short_term", [])
-            )
-            if not isinstance(current_array, list):
-                logger.error(
-                    f"Invalid short_term replace: {owner}.{section}.short_term is not an array"
-                )
-                return False
-            if target_index != len(current_array) - 1:
-                logger.error(
-                    f"Invalid short_term replace: index {target_index} is not the last entry "
-                    f"(expected {len(current_array) - 1})"
-                )
-                return False
-            if not isinstance(value, str) or not value.strip():
-                logger.error("Invalid short_term replace value: expected non-empty string")
-                return False
-        else:
-            logger.error(
-                "Invalid short_term JSON Patch operation: short-term emotion/need "
-                "fields may only be appended with add to /short_term/- or the last entry "
-                "may be replaced by numeric index"
-            )
-            return False
-    return True
+        if not isinstance(operation, dict):
+            return "JSON Patch operations must be objects"
+        reason = _validate_patch_operation(operation, working_cache)
+        if reason:
+            return reason
+    return ""
 
 
 def apply_seele_json_patch(
     cache: Dict[str, Any],
-    patch_operations: Union[List[Dict[str, Any]], Dict[str, Any]],
+    patch_operations: List[Dict[str, Any]],
     seele_path: Path,
     load_from_disk: Any,
     logger: Any,
-) -> tuple[bool, Dict[str, Any]]:
+) -> PatchApplyResult:
     """Apply a patch to cached seele.json and persist it."""
     working_cache = cache or load_from_disk()
     working_cache, normalized = normalize_seele_data(working_cache, logger)
@@ -620,59 +819,35 @@ def apply_seele_json_patch(
         logger.info("Normalized seele.json before applying JSON Patch")
 
     try:
-        if isinstance(patch_operations, dict):
-            logger.warning(
-                "Received dict instead of JSON Patch array, converting to patch operations"
-            )
-            operations = dict_to_json_patch(patch_operations)
-        else:
-            operations = patch_operations
+        operations = patch_operations
 
-        if not _validate_short_term_patch_operations(operations, working_cache):
-            return False, working_cache
+        invalid_reason = _validate_patch_operations(operations, working_cache)
+        if invalid_reason:
+            logger.error(f"Rejected seele.json patch: {invalid_reason}")
+            return PatchApplyResult(False, working_cache, invalid_reason)
 
         patch = jsonpatch.JsonPatch(operations)
         updated_cache = patch.apply(working_cache)
         updated_cache, _ = normalize_seele_data(updated_cache, logger)
+        if not validate_seele_structure_data(updated_cache, logger):
+            reason = "Patch result does not match seele.json schema"
+            logger.error(reason)
+            return PatchApplyResult(False, working_cache, reason)
 
         seele_path.parent.mkdir(parents=True, exist_ok=True)
         with open(seele_path, "w", encoding="utf-8") as file_obj:
             json.dump(updated_cache, file_obj, indent=2, ensure_ascii=False)
 
         logger.info(f"Applied {len(operations)} JSON Patch operation(s) to seele.json")
-        return True, updated_cache
+        return PatchApplyResult(True, updated_cache)
     except jsonpatch.JsonPatchException as error:
-        logger.error(f"Invalid JSON Patch operation: {error}")
-        return False, working_cache
+        reason = f"Invalid JSON Patch operation: {error}"
+        logger.error(reason)
+        return PatchApplyResult(False, working_cache, reason)
     except Exception as error:
-        logger.error(f"Failed to update seele.json: {error}")
-        return False, working_cache
-
-
-MAX_STRING_LENGTH_HARD = 1000
-MAX_STRING_LENGTH_WARNING = 300
-STRING_COMPACTION_MAX_RETRIES = 2
-
-
-def _collect_oversized_strings(
-    data: Dict[str, Any], limit: int = MAX_STRING_LENGTH_WARNING
-) -> List[tuple[str, str]]:
-    """Collect leaf string fields exceeding a length limit with their JSON Pointer paths."""
-    oversized: List[tuple[str, str]] = []
-
-    def _walk(obj: Any, json_ptr: str) -> None:
-        if isinstance(obj, str):
-            if len(obj) > limit:
-                oversized.append((json_ptr, obj))
-        elif isinstance(obj, dict):
-            for key, value in obj.items():
-                _walk(value, f"{json_ptr}/{key}")
-        elif isinstance(obj, list):
-            for idx, value in enumerate(obj):
-                _walk(value, f"{json_ptr}/{idx}")
-
-    _walk(data, "")
-    return oversized
+        reason = f"Failed to update seele.json: {error}"
+        logger.error(reason)
+        return PatchApplyResult(False, working_cache, reason)
 
 
 class Seele:
@@ -680,6 +855,7 @@ class Seele:
 
     def __init__(self, db: Any):
         self.db = db
+        self._last_patch_error = ""
 
     @staticmethod
     def _session_snapshot_path() -> Path:
@@ -820,44 +996,55 @@ class Seele:
         compacted["memorable_events"] = candidate["memorable_events"]
         return compacted
 
-    @staticmethod
-    def _parse_compaction_response(compaction_response: str) -> Dict[str, Any]:
+
+    def _parse_compaction_response(self, compaction_response: str) -> Dict[str, Any]:
         """Parse a compacted-memory JSON response."""
-        cleaned_response = compaction_response.strip()
-        if "```json" in cleaned_response:
-            cleaned_response = cleaned_response.split("```json", 1)[1].split("```", 1)[0]
-        elif "```" in cleaned_response:
-            cleaned_response = cleaned_response.split("```", 1)[1].split("```", 1)[0]
+        return json.loads(self.clean_json_response(compaction_response))
 
-        cleaned_response = cleaned_response.strip()
-        start = cleaned_response.find("{")
-        end = cleaned_response.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            cleaned_response = cleaned_response[start : end + 1]
-        return json.loads(cleaned_response)
-
-    def _validate_compaction_candidate(self, candidate: Dict[str, Any]) -> bool:
-        """Validate LLM compaction output shape and limits (personal_facts + memorable_events only)."""
+    def _validate_compaction_candidate(self, candidate: Dict[str, Any]) -> Optional[str]:
+        """Validate LLM compaction output shape and limits; returns None if valid, error reason if invalid."""
         if not isinstance(candidate, dict):
-            return False
+            return "Result is not a JSON object"
 
         personal_facts = candidate.get("personal_facts")
         memorable_events = candidate.get("memorable_events")
         if not isinstance(personal_facts, list) or not isinstance(memorable_events, dict):
-            return False
+            return "Missing or invalid personal_facts (array) or memorable_events (object)"
         if len(personal_facts) > PERSONAL_FACTS_LIMIT:
-            return False
+            return (
+                f"personal_facts has {len(personal_facts)} items, "
+                f"limit is {PERSONAL_FACTS_LIMIT}"
+            )
         if len(memorable_events) > MEMORABLE_EVENTS_LIMIT:
-            return False
+            return (
+                f"memorable_events has {len(memorable_events)} items, "
+                f"limit is {MEMORABLE_EVENTS_LIMIT}"
+            )
 
         normalized_facts = _deduplicate_personal_facts(personal_facts)
         if len(normalized_facts) != len(personal_facts):
-            return False
+            return (
+                "personal_facts contains duplicate entries "
+                "(case-insensitive, whitespace-normalized)"
+            )
 
-        if any(not isinstance(fact, str) or not fact.strip() for fact in personal_facts):
-            return False
+        bad_facts = [f for f in personal_facts if not isinstance(f, str) or not f.strip()]
+        if bad_facts:
+            return "personal_facts contains empty or non-string entries"
 
-        return True
+        for event_id, event in memorable_events.items():
+            if (
+                not isinstance(event_id, str)
+                or not MEMORABLE_EVENT_ID_PATTERN.match(event_id)
+            ):
+                return (
+                    f"Invalid event ID '{event_id}': "
+                    "must be lowercase letters, digits, and underscores only"
+                )
+            if _validate_memorable_event_payload(f"/memorable_events/{event_id}", event):
+                return f"Invalid payload for event '{event_id}'"
+
+        return None
 
     def _fallback_compact_seele_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Apply deterministic fallback compaction to overgrown seele data."""
@@ -879,14 +1066,24 @@ class Seele:
         client = LLMClient()
         current_seele_json = json.dumps(data, ensure_ascii=False, indent=2)
         try:
-            response = await client.generate_seele_compaction_async(
-                current_seele_json=current_seele_json,
-                personal_facts_limit=PERSONAL_FACTS_LIMIT,
-                memorable_events_limit=MEMORABLE_EVENTS_LIMIT,
-            )
-            candidate = self._parse_compaction_response(response)
-            if not self._validate_compaction_candidate(candidate):
-                raise ValueError("Invalid seele compaction response structure")
+            previous_attempt = None
+            previous_error = None
+            for attempt in range(2):
+                response = await client.generate_seele_compaction_async(
+                    current_seele_json=current_seele_json,
+                    personal_facts_limit=PERSONAL_FACTS_LIMIT,
+                    memorable_events_limit=MEMORABLE_EVENTS_LIMIT,
+                    previous_attempt=previous_attempt,
+                    previous_error=previous_error,
+                )
+                candidate = self._parse_compaction_response(response)
+                validation_error = self._validate_compaction_candidate(candidate)
+                if validation_error is None:
+                    break
+                previous_attempt = response
+                previous_error = validation_error
+                if attempt == 1:
+                    raise ValueError(previous_error)
             logger.info("Compacted personal_facts and memorable_events with LLM")
             return self._apply_compaction_candidate(data, candidate)
         except Exception as error:
@@ -964,19 +1161,35 @@ class Seele:
 
         client = LLMClient()
         try:
-            response = await client.generate_short_term_compaction_async(
-                fields_json=fields_json,
-                bot_name=bot_name,
-                user_name=user_name,
-            )
-            new_long_terms = self._parse_short_term_compaction_response(response)
+            previous_attempt = None
+            previous_error = None
+            required_paths = {f"{field['path']}/long_term" for field in fields_to_compact}
+            for attempt in range(2):
+                response = await client.generate_short_term_compaction_async(
+                    fields_json=fields_json,
+                    bot_name=bot_name,
+                    user_name=user_name,
+                    previous_attempt=previous_attempt,
+                    previous_error=previous_error,
+                )
+                try:
+                    new_long_terms = self._parse_short_term_compaction_response(
+                        response, required_paths=required_paths
+                    )
+                    break
+                except Exception as error:
+                    previous_attempt = response
+                    previous_error = str(error)
+                    if attempt == 1:
+                        raise
 
             patch_ops = []
+            long_term_updates: dict = {}
             for field in fields_to_compact:
                 path = field["path"]
                 new_long_term = new_long_terms.get(f"{path}/long_term", "")
                 if new_long_term:
-                    field["section_data"]["long_term"] = new_long_term
+                    long_term_updates[path] = new_long_term
                     patch_ops.append({
                         "op": "replace",
                         "path": f"{path}/long_term",
@@ -985,7 +1198,6 @@ class Seele:
                 kept_items = field["section_data"]["short_term"][
                     -SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
                 ]
-                field["section_data"]["short_term"] = kept_items
                 patch_ops.append({
                     "op": "replace",
                     "path": f"{path}/short_term",
@@ -995,6 +1207,15 @@ class Seele:
             from prompts.runtime import update_seele_json
 
             success = update_seele_json(patch_ops)
+
+            for field in fields_to_compact:
+                path = field["path"]
+                if path in long_term_updates:
+                    field["section_data"]["long_term"] = long_term_updates[path]
+                field["section_data"]["short_term"] = field["section_data"]["short_term"][
+                    -SHORT_TERM_MEMORY_KEEP_AFTER_COMPACTION:
+                ]
+
             if not success:
                 await self._write_complete_seele_json_async(data)
 
@@ -1007,12 +1228,36 @@ class Seele:
 
         return data
 
-    def _parse_short_term_compaction_response(self, response: str) -> Dict[str, str]:
+    def _parse_short_term_compaction_response(
+        self, response: str, *, required_paths: Optional[set[str]] = None
+    ) -> Dict[str, str]:
         """Parse the short-term compaction response into a path -> new long_term map."""
         cleaned = self.clean_json_response(response)
         parsed = json.loads(cleaned)
         if not isinstance(parsed, dict):
             raise ValueError("Short-term compaction response is not a JSON object")
+        allowed_paths = {
+            "/bot/emotions/long_term",
+            "/bot/needs/long_term",
+            "/user/emotions/long_term",
+            "/user/needs/long_term",
+        }
+        if not required_paths:
+            raise ValueError("required_paths must not be empty")
+        for path, value in parsed.items():
+            if path not in allowed_paths:
+                raise ValueError(f"Unexpected short-term compaction path: {path}")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{path} expects non-empty string")
+            if len(value) > MAX_STRING_LENGTH_HARD:
+                raise ValueError(
+                    f"{path} exceeds {MAX_STRING_LENGTH_HARD} characters"
+                )
+        missing = required_paths - set(parsed)
+        if missing:
+            raise ValueError(
+                f"Missing short-term compaction path(s): {', '.join(sorted(missing))}"
+            )
         return parsed
 
     def _build_memory_generation_context(
@@ -1061,14 +1306,15 @@ class Seele:
         messages: Optional[List[Message]],
     ) -> bool:
         """Apply generated patch data and trigger async fallback when needed."""
-        from prompts.runtime import update_seele_json
+        from prompts.runtime import update_seele_json_result
 
-        success = update_seele_json(patch_data)
-        if success:
+        patch_result = update_seele_json_result(patch_data)
+        self._last_patch_error = patch_result.reason
+        if patch_result.success:
             current_memory = self.get_long_term_memory()
             compacted_data = await self._compact_overflowing_memory_async(current_memory)
             compacted_data = await self._compact_long_strings_async(compacted_data)
-            if compacted_data != current_memory:
+            if compacted_data != self.get_long_term_memory():
                 await self._write_complete_seele_json_async(compacted_data)
             self._log_patch_update_success(summary_id, patch_data)
             return True
@@ -1134,14 +1380,23 @@ class Seele:
         return complete_data
 
     async def generate_memory_update_async(
-        self, messages: List[Message], summary_id: int
+        self,
+        messages: List[Message],
+        summary_id: int,
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Async version of generate_memory_update."""
         return await self._generate_with_llm_client_async(
             messages=messages,
             summary_id=summary_id,
             client_call=lambda client, messages_dict, current_seele_json, first_timestamp, last_timestamp: client.generate_memory_update_async(
-                messages_dict, current_seele_json, first_timestamp, last_timestamp
+                messages_dict,
+                current_seele_json,
+                first_timestamp,
+                last_timestamp,
+                previous_attempt,
+                previous_error,
             ),
         )
 
@@ -1246,9 +1501,35 @@ class Seele:
     ) -> bool:
         """Async version of update_long_term_memory."""
         try:
-            patch_data = json.loads(json_patch.strip())
-            return await self._apply_generated_patch_async(
+            patch_data = json.loads(self.clean_json_response(json_patch))
+            apply_result = await self._apply_generated_patch_async(
                 summary_id, patch_data, messages
+            )
+            success = bool(apply_result)
+            reason = self._last_patch_error
+            if success:
+                return True
+            if messages is None:
+                return False
+
+            retry_patch = await self.generate_memory_update_async(
+                messages,
+                summary_id,
+                previous_attempt=json_patch,
+                previous_error=reason or "JSON Patch application failed",
+            )
+            retry_data = json.loads(self.clean_json_response(retry_patch))
+            retry_result = await self._apply_generated_patch_async(
+                summary_id, retry_data, messages
+            )
+            retry_success = bool(retry_result)
+            retry_reason = self._last_patch_error
+            if retry_success:
+                return True
+            return await self.fallback_to_complete_json_async(
+                summary_id,
+                messages,
+                retry_reason or "JSON Patch retry failed",
             )
         except json.JSONDecodeError as e:
             return await self._handle_patch_update_error_async(
@@ -1276,83 +1557,30 @@ class Seele:
         )
 
     def clean_json_response(self, response: str) -> str:
-        """Clean LLM response to extract valid JSON."""
+        """Clean LLM response to extract valid JSON (object or array)."""
         if "```json" in response:
             response = response.split("```json")[1].split("```")[0]
         elif "```" in response:
             response = response.split("```")[1].split("```")[0]
 
         response = response.strip()
-        start = response.find("{")
-        end = response.rfind("}")
 
-        if start != -1 and end != -1 and end > start:
-            response = response[start : end + 1]
+        obj_start = response.find("{")
+        obj_end = response.rfind("}")
+        arr_start = response.find("[")
+        arr_end = response.rfind("]")
+
+        if obj_start != -1 and (arr_start == -1 or obj_start < arr_start):
+            if obj_end != -1 and obj_end > obj_start:
+                response = response[obj_start : obj_end + 1]
+        elif arr_start != -1 and arr_end != -1 and arr_end > arr_start:
+            response = response[arr_start : arr_end + 1]
 
         return response
 
     def validate_seele_structure(self, data: dict) -> bool:
         """Validate that the seele.json structure has all required fields."""
-        required_fields = ["bot", "user", "memorable_events", "commands_and_agreements"]
-
-        for field in required_fields:
-            if field not in data:
-                logger.warning(f"Missing required field: {field}")
-                return False
-
-        if not isinstance(data["memorable_events"], dict):
-            logger.warning("memorable_events is not an object")
-            return False
-
-        for owner_name in SHORT_TERM_MEMORY_OWNERS:
-            owner = data.get(owner_name)
-            if not isinstance(owner, dict):
-                logger.warning(f"{owner_name} is not an object")
-                return False
-            for section_name in SHORT_TERM_MEMORY_SECTIONS:
-                section = owner.get(section_name)
-                if not isinstance(section, dict):
-                    logger.warning(f"{owner_name}.{section_name} is not an object")
-                    return False
-                if not isinstance(section.get("long_term"), str):
-                    logger.warning(f"{owner_name}.{section_name}.long_term is not a string")
-                    return False
-                short_term = section.get("short_term")
-                if not isinstance(short_term, list):
-                    logger.warning(f"{owner_name}.{section_name}.short_term is not a list")
-                    return False
-                if any(not isinstance(item, str) or not item.strip() for item in short_term):
-                    logger.warning(
-                        f"{owner_name}.{section_name}.short_term contains invalid items"
-                    )
-                    return False
-
-        for event_id, event in data["memorable_events"].items():
-            if not isinstance(event_id, str) or not MEMORABLE_EVENT_ID_PATTERN.match(event_id):
-                logger.warning(f"Invalid memorable event id: {event_id}")
-                return False
-            if not isinstance(event, dict):
-                logger.warning(f"Memorable event payload is not an object: {event_id}")
-                return False
-            required_event_fields = ["date", "importance", "details"]
-            for field in required_event_fields:
-                if field not in event:
-                    logger.warning(f"Memorable event {event_id} missing field: {field}")
-                    return False
-            if _parse_event_date(event["date"]) is None:
-                logger.warning(f"Memorable event {event_id} has invalid date")
-                return False
-            if (
-                not isinstance(event["importance"], int)
-                or event["importance"] not in MEMORABLE_EVENT_RETENTION_DAYS
-            ):
-                logger.warning(f"Memorable event {event_id} has invalid importance")
-                return False
-            if not isinstance(event["details"], str):
-                logger.warning(f"Memorable event {event_id} has non-string details")
-                return False
-
-        return True
+        return validate_seele_structure_data(data, logger)
 
     def _load_template_data(self) -> Dict[str, Any]:
         """Load the current template used to validate repair completeness."""
@@ -1532,24 +1760,19 @@ class Seele:
             "triggering LLM compaction"
         )
 
-        from llm.chat_client import LLMClient
-
-        client = LLMClient()
         try:
             revised_data = await self._llm_compact_long_strings_full(data)
             if revised_data:
-                from prompts.runtime import update_seele_json
+                from prompts.runtime import update_seele_json_result
 
-                patch_ops = dict_to_json_patch(revised_data)
-                success = update_seele_json(patch_ops)
-                if not success:
+                patch_ops = build_json_patch_diff(self.get_long_term_memory(), revised_data)
+                patch_result = update_seele_json_result(patch_ops)
+                if not patch_result.success:
                     await self._write_complete_seele_json_async(revised_data)
 
                 data = self.get_long_term_memory()
         except Exception as error:
             logger.warning(f"Tier 1 long-string compaction failed: {error}")
-        finally:
-            await client.close_async()
 
         data = await self._compact_long_strings_tier2(data)
 
@@ -1560,140 +1783,146 @@ class Seele:
     ) -> Optional[Dict[str, Any]]:
         """Submit complete seele.json to LLM for holistic long-string compaction."""
         from llm.chat_client import LLMClient
+        import prompts.runtime as prompts_runtime
 
         bot_name = data.get("bot", {}).get("name", "AI Assistant")
         current_json = json.dumps(data, ensure_ascii=False, indent=2)
         oversized = _collect_oversized_strings(data, MAX_STRING_LENGTH_WARNING)
-
-        prompt = f"""<long_string_compaction_task>
-<role>
-You are a long-term memory curator for {bot_name}.
-</role>
-
-<goal>
-Some string fields in seele.json exceed {MAX_STRING_LENGTH_HARD} characters.
-Re-examine whether any content reflects genuine personality-level changes worth preserving.
-</goal>
-
-<oversized_fields>
-{json.dumps([p for p, _ in oversized], ensure_ascii=False, indent=2)}
-</oversized_fields>
-
-<rules>
-1. Scan all oversized string fields. For each:
-   - If the content reflects a genuine personality-shaping change that deserves long-term recording: dialectically synthesize and distill the core insight, saving it to the MOST APPROPRIATE location in seele.json. This could be personality.description, worldview_and_values, long_term emotions/needs, relationship_with_user, memorable_events, or any other semantically fitting field.
-   - If the content does NOT reflect personality-level change: directly compress it to {MAX_STRING_LENGTH_HARD} characters or fewer, preserving essential meaning.
-2. ALL string fields in the output must be {MAX_STRING_LENGTH_HARD} characters or fewer.
-3. Do not add explanatory text, do not recount old results.
-4. Output the COMPLETE revised seele.json as pure JSON.
-5. No markdown, no code fences, no explanation.
-</rules>
-
-<current_seele_json>
-{current_json}
-</current_seele_json>
-
-<final_instruction>
-Revised complete seele.json:
-</final_instruction>
-</long_string_compaction_task>"""
-
         client = LLMClient()
         try:
-            response = await client._memory_client._run_tool_model_prompt(
-                prompt=prompt,
-                system_content="You compact oversized strings in seele.json and preserve personality-level insights.",
-                debug_prompt_label="Long-string compaction prompt sent to tool_model",
-                debug_result_label="Long-string compaction result from tool_model",
+            previous_attempt = None
+            previous_error = None
+            oversized_fields_json = json.dumps(
+                [p for p, _ in oversized], ensure_ascii=False, indent=2
             )
-            cleaned = self.clean_json_response(response)
-            revised = json.loads(cleaned)
-            if not self.validate_seele_structure(revised):
-                raise ValueError("Revised seele.json has invalid structure")
-            return revised
-        except Exception as error:
-            logger.warning(f"Tier 1 LLM long-string compaction failed: {error}")
+            for attempt in range(2):
+                prompt = prompts_runtime.get_long_string_compaction_prompt(
+                    current_seele_json=current_json,
+                    oversized_fields_json=oversized_fields_json,
+                    bot_name=bot_name,
+                    max_string_length=MAX_STRING_LENGTH_HARD,
+                    previous_attempt=previous_attempt,
+                    previous_error=previous_error,
+                )
+                response = await client.compact_long_strings_async(
+                    prompt=prompt,
+                    system_content=(
+                        "You compact oversized strings in seele.json and preserve "
+                        "personality-level insights."
+                    ),
+                )
+                try:
+                    cleaned = self.clean_json_response(response)
+                    revised = json.loads(cleaned)
+                    if not self.validate_seele_structure(revised):
+                        raise ValueError("Revised seele.json has invalid structure")
+                    oversized_after = _collect_oversized_strings(
+                        revised, MAX_STRING_LENGTH_HARD
+                    )
+                    if oversized_after:
+                        raise ValueError(
+                            "Revised seele.json still has oversized strings: "
+                            + ", ".join(path for path, _ in oversized_after)
+                        )
+                    return revised
+                except Exception as error:
+                    previous_attempt = response
+                    previous_error = str(error)
+
+            logger.warning(
+                f"Tier 1 LLM long-string compaction exhausted retries: {previous_error}"
+            )
             return None
         finally:
             await client.close_async()
 
     async def _compact_long_strings_tier2(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Tier 2: per-string LLM compaction for remaining oversized strings."""
-        for attempt in range(STRING_COMPACTION_MAX_RETRIES):
-            oversized = _collect_oversized_strings(data, MAX_STRING_LENGTH_HARD)
-            if not oversized:
-                break
+        from llm.chat_client import LLMClient
 
-            from llm.chat_client import LLMClient
+        client = LLMClient()
+        try:
+            for attempt in range(STRING_COMPACTION_MAX_RETRIES):
+                oversized = _collect_oversized_strings(data, MAX_STRING_LENGTH_HARD)
+                if not oversized:
+                    break
 
-            client = LLMClient()
-            try:
                 for path, value in oversized:
-                    compressed = await self._llm_compress_single_string(value, data, path)
-                    if len(compressed) <= MAX_STRING_LENGTH_HARD:
-                        from prompts.runtime import update_seele_json
+                    try:
+                        previous_attempt = None
+                        previous_error = None
+                        compressed = ""
+                        for compress_attempt in range(STRING_COMPACTION_MAX_RETRIES):
+                            compressed = await self._llm_compress_single_string(
+                                value,
+                                data,
+                                path,
+                                client,
+                                previous_attempt=previous_attempt,
+                                previous_error=previous_error,
+                            )
+                            if (
+                                compressed
+                                and len(compressed) <= MAX_STRING_LENGTH_HARD
+                            ):
+                                break
+                            previous_attempt = compressed
+                            previous_error = (
+                                f"Compressed string is {len(compressed)} chars; "
+                                f"must be {MAX_STRING_LENGTH_HARD} or fewer"
+                            )
+                            if compress_attempt == STRING_COMPACTION_MAX_RETRIES - 1:
+                                logger.warning(
+                                    f"Could not compress string at {path} below "
+                                    f"{MAX_STRING_LENGTH_HARD} chars after "
+                                    f"{STRING_COMPACTION_MAX_RETRIES} attempts "
+                                    f"(current: {len(compressed)})"
+                                )
+                        if compressed and len(compressed) <= MAX_STRING_LENGTH_HARD:
+                            from prompts.runtime import update_seele_json
 
-                        update_seele_json([{"op": "replace", "path": path, "value": compressed}])
-                    elif attempt == STRING_COMPACTION_MAX_RETRIES - 1:
+                            update_seele_json(
+                                [{"op": "replace", "path": path, "value": compressed}]
+                            )
+                    except Exception as error:
                         logger.warning(
-                            f"Could not compress string at {path} below {MAX_STRING_LENGTH_HARD} "
-                            f"chars after {STRING_COMPACTION_MAX_RETRIES} attempts "
-                            f"(current: {len(compressed)})"
+                            f"Tier 2 long-string compaction failed for {path}: {error}"
                         )
                 data = self.get_long_term_memory()
-            except Exception as error:
-                logger.warning(f"Tier 2 long-string compaction failed: {error}")
-            finally:
-                await client.close_async()
+        finally:
+            await client.close_async()
 
         return data
 
     async def _llm_compress_single_string(
-        self, value: str, seele_data: Dict[str, Any], path: str
+        self,
+        value: str,
+        seele_data: Dict[str, Any],
+        path: str,
+        client,
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """LLM-compress a single oversized string with seele.json context."""
-        from llm.chat_client import LLMClient
+        import prompts.runtime as prompts_runtime
 
         bot_name = seele_data.get("bot", {}).get("name", "AI Assistant")
         current_json = json.dumps(seele_data, ensure_ascii=False, indent=2)
+        prompt = prompts_runtime.get_single_string_compaction_prompt(
+            value=value,
+            current_seele_json=current_json,
+            path=path,
+            bot_name=bot_name,
+            max_string_length=MAX_STRING_LENGTH_HARD,
+            previous_attempt=previous_attempt,
+            previous_error=previous_error,
+        )
 
-        prompt = f"""<single_string_compaction>
-<role>You are a long-term memory curator for {bot_name}.</role>
-
-<task>
-The string at path "{path}" exceeds {MAX_STRING_LENGTH_HARD} characters ({len(value)} chars).
-Compress it to {MAX_STRING_LENGTH_HARD} characters or fewer while preserving essential meaning.
-</task>
-
-<oversized_string>
-{value}
-</oversized_string>
-
-<current_seele_json_for_context>
-{current_json}
-</current_seele_json_for_context>
-
-<rules>
-1. Return ONLY the compressed string, no quotes, no JSON wrapper, no explanation.
-2. Must be {MAX_STRING_LENGTH_HARD} characters or fewer.
-3. Preserve essential meaning while removing redundancy.
-</rules>
-
-<final_instruction>
-Compressed string:
-</final_instruction>"""
-
-        client = LLMClient()
-        try:
-            response = await client._memory_client._run_tool_model_prompt(
-                prompt=prompt,
-                system_content="You compress oversized strings while preserving meaning.",
-                debug_prompt_label="Single-string compaction prompt",
-                debug_result_label="Single-string compaction result",
-            )
-            return response.strip()
-        finally:
-            await client.close_async()
+        response = await client.compress_single_string_async(
+            prompt=prompt,
+            system_content="You compress oversized strings while preserving meaning.",
+        )
+        return response.strip()
 
     async def _write_complete_seele_json_async(self, complete_data: dict) -> None:
         """Write a full seele.json object from async memory update flows."""

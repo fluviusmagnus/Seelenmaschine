@@ -38,9 +38,21 @@ class MemoryClient:
         response = await self.llm_client._tool_client.chat.completions.create(
             model=self.llm_client.tool_model,
             messages=outbound_messages,
+            stream=True,
         )
 
-        result = response.choices[0].message.content or ""
+        if hasattr(response, "choices"):
+            result = response.choices[0].message.content or ""
+        else:
+            parts: List[str] = []
+            async for chunk in response:
+                choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
+                delta = getattr(choice, "delta", None)
+                content = getattr(delta, "content", None)
+                if content:
+                    parts.append(content)
+            result = "".join(parts)
+
         if Config.DEBUG_SHOW_FULL_PROMPT:
             logger.debug(f"{debug_result_label}:\n{result}")
         return result
@@ -76,9 +88,13 @@ class MemoryClient:
         self,
         messages: List[Dict[str, str]],
         current_seele_json: str,
-        prompt_builder: Callable[[str, str, Optional[int], Optional[int]], str],
+        prompt_builder: Callable[
+            [str, str, Optional[int], Optional[int], Optional[str], Optional[str]], str
+        ],
         first_timestamp: Optional[int] = None,
         last_timestamp: Optional[int] = None,
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Async version of generate_memory_update."""
         prompt = self._build_conversation_prompt(
@@ -87,6 +103,8 @@ class MemoryClient:
             current_seele_json,
             first_timestamp,
             last_timestamp,
+            previous_attempt,
+            previous_error,
         )
 
         return await self._run_tool_model_prompt(
@@ -159,13 +177,19 @@ class MemoryClient:
         current_seele_json: str,
         personal_facts_limit: int,
         memorable_events_limit: int,
-        prompt_builder: Callable[[str, int, int], str],
+        prompt_builder: Callable[
+            [str, int, int, Optional[str], Optional[str]], str
+        ],
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Asynchronously compact overgrown seele memory sections."""
         prompt = prompt_builder(
             current_seele_json,
             personal_facts_limit,
             memorable_events_limit,
+            previous_attempt,
+            previous_error,
         )
 
         return await self._run_tool_model_prompt(
@@ -180,14 +204,36 @@ class MemoryClient:
         fields_json: str,
         bot_name: str,
         user_name: str,
-        prompt_builder: Callable[[str, str, str], str],
+        prompt_builder: Callable[[str, str, str, Optional[str], Optional[str]], str],
+        previous_attempt: Optional[str] = None,
+        previous_error: Optional[str] = None,
     ) -> str:
         """Asynchronously compact overflowing short-term emotion/need lists."""
-        prompt = prompt_builder(fields_json, bot_name, user_name)
+        prompt = prompt_builder(
+            fields_json, bot_name, user_name, previous_attempt, previous_error
+        )
 
         return await self._run_tool_model_prompt(
             prompt=prompt,
             system_content="You compact short-term emotions and needs into long-term memory summaries.",
             debug_prompt_label="Short-term compaction (async) prompt sent to tool_model",
             debug_result_label="Short-term compaction (async) result from tool_model",
+        )
+
+    async def compact_long_strings_async(self, prompt: str, system_content: str) -> str:
+        """Asynchronously compact oversized strings via holistic LLM review."""
+        return await self._run_tool_model_prompt(
+            prompt=prompt,
+            system_content=system_content,
+            debug_prompt_label="Long-string compaction prompt sent to tool_model",
+            debug_result_label="Long-string compaction result from tool_model",
+        )
+
+    async def compress_single_string_async(self, prompt: str, system_content: str) -> str:
+        """Asynchronously compress a single oversized string via LLM."""
+        return await self._run_tool_model_prompt(
+            prompt=prompt,
+            system_content=system_content,
+            debug_prompt_label="Single-string compaction prompt",
+            debug_result_label="Single-string compaction result",
         )

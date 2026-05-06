@@ -45,6 +45,41 @@ def memory_manager(mock_db, mock_embedding_client, mock_reranker_client):
     )
 
 
+def make_seele_data():
+    """Return a complete minimal seele.json payload for update tests."""
+    return {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "", "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+
+
 class TestMemoryManager:
     """Test MemoryManager functionality."""
 
@@ -344,6 +379,43 @@ class TestMemoryManager:
         assert result is False
 
     @pytest.mark.asyncio
+    async def test_update_long_term_memory_retries_patch_with_previous_patch_and_reason(
+        self, memory_manager
+    ):
+        """A rejected patch should be retried with the rejected patch and reason."""
+        messages = []
+        bad_patch = json.dumps(
+            [{"op": "replace", "path": "/user/likes", "value": "likes hiking"}]
+        )
+        fixed_patch = json.dumps(
+            [{"op": "add", "path": "/user/likes/-", "value": "hiking"}]
+        )
+
+        with patch.object(
+            memory_manager.seele,
+            "_apply_generated_patch_async",
+            new=AsyncMock(side_effect=[False, True]),
+        ) as mock_apply:
+            memory_manager.seele._last_patch_error = "/user/likes expects array"
+            with patch.object(
+                memory_manager.seele,
+                "generate_memory_update_async",
+                new=AsyncMock(return_value=fixed_patch),
+            ) as mock_retry:
+                result = await memory_manager.update_long_term_memory_async(
+                    1, bad_patch, messages
+                )
+
+        assert result is True
+        mock_retry.assert_awaited_once_with(
+            messages,
+            1,
+            previous_attempt=bad_patch,
+            previous_error="/user/likes expects array",
+        )
+        assert mock_apply.await_args_list[1].args[1] == json.loads(fixed_patch)
+
+    @pytest.mark.asyncio
     async def test_fallback_retry_reuses_previous_failed_output(self, memory_manager):
         """Retry should pass the raw failed generation output into the next attempt."""
         memory_manager.seele.validate_seele_structure = Mock(return_value=True)
@@ -408,6 +480,177 @@ def test_build_event_id_falls_back_to_event_slug_for_non_ascii_details():
     event_id = _build_event_id("2026-03-30", "！！！今天！！！", set())
 
     assert event_id.startswith("evt_20260330_event_")
+
+
+def test_apply_seele_json_patch_rejects_array_field_replaced_with_string_with_reason(tmp_path):
+    """Schema validation should reject patch operations that make array fields strings."""
+    from memory.seele import apply_seele_json_patch
+
+    data = make_seele_data()
+
+    result = apply_seele_json_patch(
+        cache=data,
+        patch_operations=[
+            {"op": "replace", "path": "/user/likes", "value": "likes hiking"}
+        ],
+        seele_path=tmp_path / "seele.json",
+        load_from_disk=lambda: data,
+        logger=Mock(),
+    )
+
+    assert result.success is False
+    assert result.data == data
+    assert "/user/likes" in result.reason
+    assert "array" in result.reason
+
+
+def test_apply_seele_json_patch_accepts_array_append_string(tmp_path):
+    """Appending a string to a string-array field should remain valid."""
+    from memory.seele import apply_seele_json_patch
+
+    data = make_seele_data()
+
+    result = apply_seele_json_patch(
+        cache=data,
+        patch_operations=[{"op": "add", "path": "/user/likes/-", "value": "hiking"}],
+        seele_path=tmp_path / "seele.json",
+        load_from_disk=lambda: data,
+        logger=Mock(),
+    )
+
+    assert result.success is True
+    assert result.data["user"]["likes"] == ["hiking"]
+
+
+def test_apply_seele_json_patch_rejects_invalid_memorable_event_with_reason(tmp_path):
+    """Memorable event patch values should be schema-checked before writing."""
+    from memory.seele import apply_seele_json_patch
+
+    data = make_seele_data()
+
+    result = apply_seele_json_patch(
+        cache=data,
+        patch_operations=[
+            {
+                "op": "add",
+                "path": "/memorable_events/evt_20260506_bad",
+                "value": {"date": "2026-05-06", "importance": 9, "details": "Bad"},
+            }
+        ],
+        seele_path=tmp_path / "seele.json",
+        load_from_disk=lambda: data,
+        logger=Mock(),
+    )
+
+    assert result.success is False
+    assert "importance" in result.reason
+
+
+def test_build_json_patch_diff_replaces_arrays_instead_of_appending():
+    """Complete JSON diffs should replace arrays instead of appending duplicate values."""
+    from memory.seele import build_json_patch_diff
+
+    old = {"bot": {"likes": ["old"]}, "memorable_events": {}}
+    new = {"bot": {"likes": ["new"]}, "memorable_events": {}}
+
+    patch = build_json_patch_diff(old, new)
+
+    assert patch == [{"op": "replace", "path": "/bot/likes", "value": ["new"]}]
+
+
+def test_build_json_patch_diff_adds_new_nested_object_at_parent_path():
+    """Complete JSON diffs should add a new nested object at the missing parent path."""
+    from memory.seele import build_json_patch_diff
+
+    event = {"date": "2026-05-06", "importance": 3, "details": "New event"}
+    old = {"memorable_events": {}}
+    new = {"memorable_events": {"evt_20260506_new": event}}
+
+    patch = build_json_patch_diff(old, new)
+
+    assert patch == [
+        {"op": "add", "path": "/memorable_events/evt_20260506_new", "value": event}
+    ]
+
+
+def test_validate_compaction_candidate_rejects_invalid_event_payload(memory_manager):
+    """Seele compaction candidates must preserve memorable event schema."""
+    candidate = {
+        "personal_facts": ["Stable fact"],
+        "memorable_events": {
+            "evt_20260506_bad": {
+                "date": "2026-05-06",
+                "importance": 9,
+                "details": "Bad importance",
+            }
+        },
+    }
+
+    assert memory_manager.seele._validate_compaction_candidate(candidate) is not None
+
+
+@pytest.mark.asyncio
+async def test_seele_compaction_retries_invalid_candidate_with_previous_output_and_reason(
+    memory_manager,
+):
+    """Invalid seele compaction output should be retried before deterministic fallback."""
+    data = make_seele_data()
+    data["user"]["personal_facts"] = [f"Fact {i}" for i in range(21)]
+    invalid_response = json.dumps(
+        {
+            "personal_facts": data["user"]["personal_facts"][:20],
+            "memorable_events": {
+                "evt_20260506_bad": {
+                    "date": "2026-05-06",
+                    "importance": 9,
+                    "details": "Bad",
+                }
+            },
+        }
+    )
+    valid_response = json.dumps(
+        {
+            "personal_facts": data["user"]["personal_facts"][:20],
+            "memorable_events": {},
+        }
+    )
+    fake_client = Mock()
+    fake_client.generate_seele_compaction_async = AsyncMock(
+        side_effect=[invalid_response, valid_response]
+    )
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        result = await memory_manager.seele._compact_personal_facts_and_events_async(data)
+
+    assert len(result["user"]["personal_facts"]) == 20
+    retry_kwargs = fake_client.generate_seele_compaction_async.await_args_list[1].kwargs
+    assert retry_kwargs["previous_attempt"] == invalid_response
+    assert retry_kwargs["previous_error"] is not None
+    assert len(retry_kwargs["previous_error"]) > 0
+    assert "payload" in retry_kwargs["previous_error"] or "event" in retry_kwargs["previous_error"]
+
+
+def test_parse_short_term_compaction_rejects_unknown_path(memory_manager):
+    """Short-term compaction output must only target known long_term paths."""
+    response = json.dumps({"/user/likes/long_term": "invalid path"})
+
+    with pytest.raises(ValueError, match="Unexpected short-term compaction path"):
+        memory_manager.seele._parse_short_term_compaction_response(
+            response, required_paths={"/bot/emotions/long_term"}
+        )
+
+
+def test_parse_short_term_compaction_rejects_overlong_value(memory_manager):
+    """Short-term compaction long_term values must obey the hard length limit."""
+    from memory.seele import MAX_STRING_LENGTH_HARD
+
+    response = json.dumps({"/bot/emotions/long_term": "X" * (MAX_STRING_LENGTH_HARD + 1)})
+
+    with pytest.raises(ValueError, match="exceeds"):
+        memory_manager.seele._parse_short_term_compaction_response(
+            response, required_paths={"/bot/emotions/long_term"}
+        )
 
 
 def test_build_event_id_adds_suffix_on_collision():
@@ -846,7 +1089,7 @@ async def test_write_complete_seele_json_async_compacts_with_async_fallback(
     saved = json.loads(seele_path.read_text(encoding="utf-8"))
     assert saved["user"]["personal_facts"] == oversized_memory["user"]["personal_facts"][:PERSONAL_FACTS_LIMIT]
     assert prompts_runtime._seele_json_cache == saved
-    fake_client.generate_seele_compaction_async.assert_awaited_once()
+    assert fake_client.generate_seele_compaction_async.await_count == 2
     fake_client.close_async.assert_awaited_once()
 
 
@@ -1018,6 +1261,35 @@ async def test_compact_short_term_overflow_falls_back_on_llm_failure(memory_mana
 
 
 @pytest.mark.asyncio
+async def test_compact_short_term_overflow_retries_with_previous_output_and_reason(memory_manager):
+    """Invalid short-term compaction output should be retried with output and reason."""
+    from memory.seele import SHORT_TERM_MEMORY_LIMIT
+
+    short_terms = [f"Emotion {i}" for i in range(SHORT_TERM_MEMORY_LIMIT + 1)]
+    data = make_seele_data()
+    data["bot"]["emotions"]["short_term"] = short_terms
+
+    invalid_response = json.dumps({"/bot/emotions/long_term": "X" * 301})
+    valid_response = json.dumps({"/bot/emotions/long_term": "Summarized emotion."})
+    fake_client = Mock()
+    fake_client.generate_short_term_compaction_async = AsyncMock(
+        side_effect=[invalid_response, valid_response]
+    )
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        with patch("prompts.runtime.update_seele_json", return_value=True):
+            await memory_manager.seele._compact_short_term_overflow_async(data)
+
+    assert fake_client.generate_short_term_compaction_async.await_args_list[1].kwargs[
+        "previous_attempt"
+    ] == invalid_response
+    assert "exceeds" in fake_client.generate_short_term_compaction_async.await_args_list[1].kwargs[
+        "previous_error"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_compact_overflowing_memory_triggers_short_term_only_when_needed(memory_manager):
     """Per-section: only short_term overflow should trigger only short_term compaction."""
     from memory.seele import SHORT_TERM_MEMORY_LIMIT
@@ -1157,11 +1429,8 @@ async def test_compact_long_strings_tier1_triggers_on_oversized(memory_manager):
 
     fake_response = json.dumps(revised)
 
-    mock_memory_client = Mock()
-    mock_memory_client._run_tool_model_prompt = AsyncMock(return_value=fake_response)
-
     fake_client = Mock()
-    fake_client._memory_client = mock_memory_client
+    fake_client.compact_long_strings_async = AsyncMock(return_value=fake_response)
     fake_client.close_async = AsyncMock()
 
     with patch("llm.chat_client.LLMClient", return_value=fake_client):
@@ -1170,3 +1439,122 @@ async def test_compact_long_strings_tier1_triggers_on_oversized(memory_manager):
                 result = await memory_manager.seele._compact_long_strings_async(data)
 
     assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_compact_long_strings_uses_runtime_prompt_builder(memory_manager):
+    """Long-string compaction prompts should be owned by prompts.runtime."""
+    from memory.seele import MAX_STRING_LENGTH_HARD
+
+    data = {
+        "bot": {
+            "name": "TestBot",
+            "gender": "",
+            "birthday": "",
+            "role": "",
+            "appearance": "",
+            "likes": [],
+            "dislikes": [],
+            "language_style": {"description": "X" * 501, "examples": []},
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+            "relationship_with_user": "",
+        },
+        "user": {
+            "name": "TestUser",
+            "gender": "",
+            "birthday": "",
+            "location": "",
+            "personal_facts": [],
+            "abilities": [],
+            "likes": [],
+            "dislikes": [],
+            "personality": {"mbti": "", "description": "", "worldview_and_values": ""},
+            "emotions": {"long_term": "", "short_term": []},
+            "needs": {"long_term": "", "short_term": []},
+        },
+        "memorable_events": {},
+        "commands_and_agreements": [],
+    }
+    revised = json.loads(json.dumps(data))
+    revised["bot"]["language_style"]["description"] = "A" * (MAX_STRING_LENGTH_HARD - 1)
+
+    fake_client = Mock()
+    fake_client.compact_long_strings_async = AsyncMock(return_value=json.dumps(revised))
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        with patch("prompts.runtime.get_long_string_compaction_prompt", return_value="central prompt") as mock_prompt:
+            await memory_manager.seele._llm_compact_long_strings_full(data)
+
+    mock_prompt.assert_called_once()
+    assert fake_client.compact_long_strings_async.call_args.kwargs["prompt"] == "central prompt"
+
+
+@pytest.mark.asyncio
+async def test_long_string_full_compaction_retries_with_previous_output_and_reason(
+    memory_manager,
+):
+    """Invalid full long-string compaction output should be retried with context."""
+    from memory.seele import MAX_STRING_LENGTH_HARD
+
+    data = make_seele_data()
+    data["bot"]["language_style"]["description"] = "X" * 501
+    revised = json.loads(json.dumps(data))
+    revised["bot"]["language_style"]["description"] = "A" * (
+        MAX_STRING_LENGTH_HARD - 1
+    )
+    invalid_response = '{"bot":'
+    valid_response = json.dumps(revised)
+
+    fake_client = Mock()
+    fake_client.compact_long_strings_async = AsyncMock(
+        side_effect=[invalid_response, valid_response]
+    )
+    fake_client.close_async = AsyncMock()
+
+    with patch("llm.chat_client.LLMClient", return_value=fake_client):
+        with patch(
+            "prompts.runtime.get_long_string_compaction_prompt",
+            side_effect=["first prompt", "retry prompt"],
+        ) as mock_prompt:
+            result = await memory_manager.seele._llm_compact_long_strings_full(data)
+
+    assert result == revised
+    retry_kwargs = mock_prompt.call_args_list[1].kwargs
+    assert retry_kwargs["previous_attempt"] == invalid_response
+    assert retry_kwargs["previous_error"]
+
+
+@pytest.mark.asyncio
+async def test_single_string_compaction_retries_with_previous_output_and_reason(
+    memory_manager,
+):
+    """Oversized single-string compaction output should inform the next attempt."""
+    from memory.seele import MAX_STRING_LENGTH_HARD
+
+    data = make_seele_data()
+    data["bot"]["language_style"]["description"] = "X" * 501
+    oversized_output = "Y" * (MAX_STRING_LENGTH_HARD + 1)
+    valid_output = "short"
+
+    with patch.object(
+        memory_manager.seele,
+        "_llm_compress_single_string",
+        new=AsyncMock(side_effect=[oversized_output, valid_output]),
+    ) as mock_compress:
+        with patch("prompts.runtime.update_seele_json", return_value=True):
+            with patch.object(
+                memory_manager.seele,
+                "get_long_term_memory",
+                return_value=make_seele_data(),
+            ):
+                fake_client = Mock()
+                fake_client.close_async = AsyncMock()
+                with patch("llm.chat_client.LLMClient", return_value=fake_client):
+                    await memory_manager.seele._compact_long_strings_tier2(data)
+
+    retry_kwargs = mock_compress.await_args_list[1].kwargs
+    assert retry_kwargs["previous_attempt"] == oversized_output
+    assert "must be" in retry_kwargs["previous_error"]

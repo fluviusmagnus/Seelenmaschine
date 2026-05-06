@@ -29,8 +29,11 @@ class TestLoadSeeleJson:
                     
                     result = _load_seele_json_from_disk()
                     
-                assert result["bot"] == mock_data["bot"]
-                assert result["user"] == mock_data["user"]
+                assert result["bot"]["name"] == mock_data["bot"]["name"]
+                assert result["user"]["name"] == mock_data["user"]["name"]
+                assert result["user"]["location"] == mock_data["user"]["location"]
+                assert "emotions" in result["bot"]
+                assert "personal_facts" in result["user"]
                 assert result["memorable_events"] == {}
     
     def test_load_seele_json_uses_cache(self):
@@ -155,49 +158,35 @@ class TestBuildSystemPrompt:
                 assert "- tired" in result
                 assert "- rest" in result
 
-class TestJsonPatchConversion:
-    """Test JSON Patch conversion utilities"""
-    
-    def test_dict_to_json_patch_with_nested_dict(self):
-        """Test converting nested dict to JSON Patch operations"""
-        from prompts.runtime import _dict_to_json_patch
-        
-        data = {
-            "user": {
-                "name": "John",
-                "age": 30
-            },
-            "bot": {
-                "name": "Assistant"
-            }
-        }
-        
-        operations = _dict_to_json_patch(data)
-        
-        # Should have 3 operations (name, age, bot.name)
-        assert len(operations) >= 3
-        # All operations should have 'op', 'path', and 'value'
-        for op in operations:
-            assert 'op' in op
-            assert 'path' in op
-            assert 'value' in op
-    
-    def test_dict_to_json_patch_with_lists(self):
-        """Test converting dict with lists to JSON Patch operations"""
-        from prompts.runtime import _dict_to_json_patch
-        
-        data = {
-            "tags": ["tag1", "tag2", "tag3"]
-        }
-        
-        operations = _dict_to_json_patch(data)
-        
-        # Should have 3 operations (one for each list item)
-        assert len(operations) == 3
-        # All should be 'add' operations to the list
-        for op in operations:
-            assert op['op'] == 'add'
-            assert '/tags/-' in op['path']
+class TestJsonPatchDiff:
+    """Test complete-object JSON Patch diff utilities."""
+
+    def test_build_json_patch_diff_with_nested_dict(self):
+        """Test diffing nested dict values."""
+        from memory.seele import build_json_patch_diff
+
+        old = {"user": {"name": "Jane", "age": 29}, "bot": {"name": "Assistant"}}
+        new = {"user": {"name": "John", "age": 30}, "bot": {"name": "Assistant"}}
+
+        operations = build_json_patch_diff(old, new)
+
+        assert operations == [
+            {"op": "replace", "path": "/user/name", "value": "John"},
+            {"op": "replace", "path": "/user/age", "value": 30},
+        ]
+
+    def test_build_json_patch_diff_replaces_lists(self):
+        """Complete-object diffs should replace arrays as arrays."""
+        from memory.seele import build_json_patch_diff
+
+        operations = build_json_patch_diff(
+            {"tags": ["tag1"]},
+            {"tags": ["tag1", "tag2", "tag3"]},
+        )
+
+        assert operations == [
+            {"op": "replace", "path": "/tags", "value": ["tag1", "tag2", "tag3"]}
+        ]
 
 
 # Run tests if executed directly
