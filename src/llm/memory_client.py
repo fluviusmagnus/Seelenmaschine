@@ -20,7 +20,11 @@ class MemoryClient:
         debug_prompt_label: str,
         debug_result_label: str,
     ) -> str:
-        """Execute a prompt against the tool model and return the text result."""
+        """Execute a prompt against the tool model and return the text result.
+
+        Prefers streaming (``stream=True``) and falls back to non-streaming
+        when the provider does not support it.
+        """
         self.llm_client._ensure_tool_client_initialized()
 
         if Config.DEBUG_SHOW_FULL_PROMPT:
@@ -35,14 +39,32 @@ class MemoryClient:
             ]
         )
 
-        response = await self.llm_client._tool_client.chat.completions.create(
-            model=self.llm_client.tool_model,
-            messages=outbound_messages,
-            stream=True,
-        )
+        reasoning_parts: List[str] = []
+
+        try:
+            response = await self.llm_client._tool_client.chat.completions.create(
+                model=self.llm_client.tool_model,
+                messages=outbound_messages,
+                stream=True,
+            )
+        except Exception:
+            logger.warning(
+                "Streaming request failed, falling back to non-streaming"
+            )
+            response = await self.llm_client._tool_client.chat.completions.create(
+                model=self.llm_client.tool_model,
+                messages=outbound_messages,
+                stream=False,
+            )
 
         if hasattr(response, "choices"):
             result = response.choices[0].message.content or ""
+            message = response.choices[0].message
+            if (
+                hasattr(message, "reasoning_content")
+                and message.reasoning_content
+            ):
+                reasoning_parts.append(str(message.reasoning_content))
         else:
             parts: List[str] = []
             async for chunk in response:
@@ -51,9 +73,17 @@ class MemoryClient:
                 content = getattr(delta, "content", None)
                 if content:
                     parts.append(content)
+                rc = getattr(delta, "reasoning_content", None)
+                if rc:
+                    reasoning_parts.append(str(rc))
             result = "".join(parts)
 
         if Config.DEBUG_SHOW_FULL_PROMPT:
+            if reasoning_parts:
+                logger.debug(
+                    f"{debug_result_label} reasoning (full):\n"
+                    f"{''.join(reasoning_parts)}"
+                )
             logger.debug(f"{debug_result_label}:\n{result}")
         return result
 

@@ -65,8 +65,6 @@ class ChatRequestExecutor:
 
         if hasattr(message, "reasoning_content") and message.reasoning_content:
             result["reasoning_content"] = message.reasoning_content
-            if Config.DEBUG_SHOW_FULL_PROMPT:
-                logger.debug(f"Model reasoning (full):\n{message.reasoning_content}")
 
         if message.tool_calls:
             result["api_tool_calls"] = self.llm_client._format_tool_calls_for_api(
@@ -112,6 +110,18 @@ class ChatRequestExecutor:
                 logger.debug(
                     "LLM response content preview: "
                     f"{self.llm_client._preview_text(result['content'])}"
+                )
+
+        if result["reasoning_content"]:
+            if Config.DEBUG_SHOW_FULL_PROMPT:
+                logger.debug(
+                    "LLM response reasoning (full):\n"
+                    f"{result['reasoning_content']}"
+                )
+            else:
+                logger.debug(
+                    "LLM response reasoning preview: "
+                    f"{self.llm_client._preview_text(result['reasoning_content'])}"
                 )
 
     async def async_chat(
