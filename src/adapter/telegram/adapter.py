@@ -3,10 +3,11 @@ import signal
 from typing import Any, Callable, List, Optional
 
 from telegram import Update
-from telegram.error import NetworkError
+from telegram.error import NetworkError, TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
 )
@@ -92,6 +93,8 @@ class TelegramAdapter:
         ):
             application.add_handler(handler)
 
+        application.add_error_handler(self._error_handler)
+
         application.post_init = self._build_post_init_hook()
         application.post_shutdown = self._build_post_shutdown_hook()
 
@@ -129,6 +132,28 @@ class TelegramAdapter:
         if self._application and self._application.running:
             logger.info("Stopping Telegram adapter...")
             self._application.stop()
+
+    @staticmethod
+    async def _error_handler(
+        update: object,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle errors from the Telegram polling loop and update processing."""
+        error = context.error
+        if error is None:
+            return
+
+        if isinstance(error, NetworkError):
+            logger.debug(
+                f"Telegram network error (retried internally): {error}"
+            )
+        elif isinstance(error, TelegramError):
+            logger.warning(f"Telegram API error: {error}", exc_info=True)
+        else:
+            logger.error(
+                f"Unhandled error during update processing: {error}",
+                exc_info=True,
+            )
 
     @staticmethod
     def _ensure_event_loop() -> asyncio.AbstractEventLoop:
