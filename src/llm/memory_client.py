@@ -85,6 +85,16 @@ class MemoryClient:
                     f"{''.join(reasoning_parts)}"
                 )
             logger.debug(f"{debug_result_label}:\n{result}")
+        else:
+            if reasoning_parts:
+                logger.debug(
+                    f"{debug_result_label} reasoning preview: "
+                    f"{self.llm_client._preview_text(''.join(reasoning_parts))}"
+                )
+            logger.debug(
+                f"{debug_result_label} preview: "
+                f"{self.llm_client._preview_text(result)}"
+            )
         return result
 
     def _build_conversation_prompt(
