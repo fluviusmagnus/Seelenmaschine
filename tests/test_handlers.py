@@ -722,9 +722,20 @@ class TestMessageProcessing:
         handler.core_bot.process_message.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_handle_message_summary_phase_does_not_keep_typing(self):
+    async def test_handle_message_summary_phase_does_not_keep_typing(self, monkeypatch):
         """After reply delivery, summary work should continue without active typing."""
+        import adapter.telegram.delivery as delivery
         from adapter.telegram.controller import TelegramController
+
+        real_sleep = asyncio.sleep
+
+        async def _fast_typing_sleep(delay: float) -> None:
+            if delay == 3:
+                await real_sleep(0.01)
+                return
+            await real_sleep(delay)
+
+        monkeypatch.setattr(delivery.asyncio, "sleep", _fast_typing_sleep)
 
         release_summary = asyncio.Event()
 
@@ -768,13 +779,14 @@ class TestMessageProcessing:
         task = asyncio.create_task(handler.handle_message(update, context))
         await asyncio.sleep(0.05)
 
-        handler.response_sender.send_reply_text.assert_awaited_once()
-        send_count_after_reply = context.bot.send_chat_action.await_count
-        await asyncio.sleep(0.2)
-        assert context.bot.send_chat_action.await_count == send_count_after_reply
-
-        release_summary.set()
-        await task
+        try:
+            handler.response_sender.send_reply_text.assert_awaited_once()
+            send_count_after_reply = context.bot.send_chat_action.await_count
+            await real_sleep(0.05)
+            assert context.bot.send_chat_action.await_count == send_count_after_reply
+        finally:
+            release_summary.set()
+            await task
 
     @pytest.mark.asyncio
     async def test_handle_message_returns_error_details_on_failure(self):

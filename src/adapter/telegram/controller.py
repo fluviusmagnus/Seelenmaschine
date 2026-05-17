@@ -287,13 +287,13 @@ class TelegramController:
                         preview_text=self._preview_text,
                         debug_prefix="Sent scheduled segment",
                     )
-                await self.core_bot.run_post_response_summary_check(
-                    context_label="scheduled task response delivery"
-                )
-                logger.debug(
-                    "Scheduled task response sent: "
-                    f"{self._preview_text(response)}"
-                )
+            await self.core_bot.run_post_response_summary_check(
+                context_label="scheduled task response delivery"
+            )
+            logger.debug(
+                "Scheduled task response sent: "
+                f"{self._preview_text(response)}"
+            )
         except Exception as error:
             logger.error(
                 f"Failed to process/send scheduled message: {error}",
@@ -371,9 +371,9 @@ class TelegramController:
                         preview_text=self._preview_text,
                         debug_prefix="Sending Telegram text segment",
                     )
-                await self.core_bot.run_post_response_summary_check(
-                    context_label="message reply delivery"
-                )
+            await self.core_bot.run_post_response_summary_check(
+                context_label="message reply delivery"
+            )
         except ToolLoopAbortedError as error:
             logger.info(f"Tool loop aborted by user request: {error}")
             await self._safe_reply_text(

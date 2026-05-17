@@ -103,9 +103,9 @@ class TelegramFiles:
                         preview_text=preview_text,
                         debug_prefix="Sending Telegram file segment",
                     )
-                await run_post_response_summary_check(
-                    context_label="file reply delivery"
-                )
+            await run_post_response_summary_check(
+                context_label="file reply delivery"
+            )
         except Exception as error:
             logger.error(f"Error handling file: {error}", exc_info=True)
             if format_user_error_text is not None:
