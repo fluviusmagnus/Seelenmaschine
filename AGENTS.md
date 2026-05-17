@@ -322,9 +322,8 @@ message = f"Processing {item_type} with ID {item_id}"
 - Typing indicators should stay active through response delivery and post-response
   summary / seele memory updates; do not stop them immediately after the visible
   reply if background memory work is still running
-- Telegram has no Bot API cancel action for typing status; when a post-response
-  phase sends typing after the last visible reply, use the adapter-owned
-  best-effort sentinel clear in `adapter.telegram.delivery`
+- Telegram has no Bot API cancel action for typing status; avoid fake cleanup
+  messages because they may briefly disturb the chat
 - Core commands include `/new`, `/reset`, `/help`, `/start`
 - Dangerous tool actions may require explicit approval through `/approve`
 

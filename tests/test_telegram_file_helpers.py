@@ -171,8 +171,6 @@ class TestTelegramControllerFiles:
         telegram_file = Mock()
         telegram_file.download_to_drive = AsyncMock()
         mock_context.bot.get_file.return_value = telegram_file
-        mock_context.bot.send_message = AsyncMock(return_value=Mock(message_id=34))
-        mock_context.bot.delete_message = AsyncMock()
 
         async def download_side_effect(custom_path):
             Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
@@ -203,15 +201,6 @@ class TestTelegramControllerFiles:
 
         release_summary.set()
         await task
-        mock_context.bot.send_message.assert_awaited_once_with(
-            chat_id=mock_update_with_document.effective_chat.id,
-            text="\u2060",
-            disable_notification=True,
-        )
-        mock_context.bot.delete_message.assert_awaited_once_with(
-            chat_id=mock_update_with_document.effective_chat.id,
-            message_id=34,
-        )
 
     @pytest.mark.asyncio
     async def test_handle_file_shows_typing_while_waiting_for_processing_lock(

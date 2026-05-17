@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from adapter.telegram.delivery import clear_typing_status_with_sentinel, typing_indicator
+from adapter.telegram.delivery import typing_indicator
 from telegram import Update
 
 from texts import EventTexts, TelegramTexts
@@ -69,11 +69,6 @@ class TelegramFiles:
                     chat_id=update.effective_chat.id, action="typing"
                 ),
                 "Typing indicator failed during file handling",
-                clear_action=lambda: clear_typing_status_with_sentinel(
-                    context.bot,
-                    chat_id=update.effective_chat.id,
-                ),
-                clear_warning_message="Typing indicator clear failed during file handling",
             ):
                 async with get_processing_lock():
                     destination = self.build_media_file_path(
