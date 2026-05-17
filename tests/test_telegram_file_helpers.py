@@ -153,12 +153,26 @@ class TestTelegramControllerFiles:
         )
 
     @pytest.mark.asyncio
-    async def test_handle_file_summary_phase_does_not_keep_typing(
-        self, controller, mock_context, mock_update_with_document
+    async def test_handle_file_keeps_typing_during_summary_phase(
+        self, controller, mock_context, mock_update_with_document, monkeypatch
     ):
+        import adapter.telegram.delivery as delivery
+
+        real_sleep = asyncio.sleep
+
+        async def _fast_typing_sleep(delay: float) -> None:
+            if delay == 3:
+                await real_sleep(0.01)
+                return
+            await real_sleep(delay)
+
+        monkeypatch.setattr(delivery.asyncio, "sleep", _fast_typing_sleep)
+
         telegram_file = Mock()
         telegram_file.download_to_drive = AsyncMock()
         mock_context.bot.get_file.return_value = telegram_file
+        mock_context.bot.send_message = AsyncMock(return_value=Mock(message_id=34))
+        mock_context.bot.delete_message = AsyncMock()
 
         async def download_side_effect(custom_path):
             Path(custom_path).parent.mkdir(parents=True, exist_ok=True)
@@ -184,11 +198,20 @@ class TestTelegramControllerFiles:
             "LLM file response", parse_mode="HTML"
         )
         send_count_after_reply = mock_context.bot.send_chat_action.await_count
-        await asyncio.sleep(0.2)
-        assert mock_context.bot.send_chat_action.await_count == send_count_after_reply
+        await real_sleep(0.05)
+        assert mock_context.bot.send_chat_action.await_count > send_count_after_reply
 
         release_summary.set()
         await task
+        mock_context.bot.send_message.assert_awaited_once_with(
+            chat_id=mock_update_with_document.effective_chat.id,
+            text="\u2060",
+            disable_notification=True,
+        )
+        mock_context.bot.delete_message.assert_awaited_once_with(
+            chat_id=mock_update_with_document.effective_chat.id,
+            message_id=34,
+        )
 
     @pytest.mark.asyncio
     async def test_handle_file_shows_typing_while_waiting_for_processing_lock(

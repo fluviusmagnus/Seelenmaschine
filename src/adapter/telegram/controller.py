@@ -7,6 +7,7 @@ from adapter.telegram.commands import TelegramCommands
 from adapter.telegram.delivery import (
     TelegramAccessGuard,
     TelegramResponseSender,
+    clear_typing_status_with_sentinel,
     typing_indicator,
 )
 from adapter.telegram.files import TelegramFiles
@@ -248,6 +249,11 @@ class TelegramController:
                         action="typing",
                     ),
                     "Scheduled typing indicator failed",
+                    clear_action=lambda: clear_typing_status_with_sentinel(
+                        application.bot,
+                        chat_id=self.core_bot.config.TELEGRAM_USER_ID,
+                    ),
+                    clear_warning_message="Scheduled typing clear failed",
                 ):
                     logger.info(
                         f"Processing scheduled task '{task_name}': {message[:50]}..."
@@ -287,13 +293,13 @@ class TelegramController:
                         preview_text=self._preview_text,
                         debug_prefix="Sent scheduled segment",
                     )
-            await self.core_bot.run_post_response_summary_check(
-                context_label="scheduled task response delivery"
-            )
-            logger.debug(
-                "Scheduled task response sent: "
-                f"{self._preview_text(response)}"
-            )
+                await self.core_bot.run_post_response_summary_check(
+                    context_label="scheduled task response delivery"
+                )
+                logger.debug(
+                    "Scheduled task response sent: "
+                    f"{self._preview_text(response)}"
+                )
         except Exception as error:
             logger.error(
                 f"Failed to process/send scheduled message: {error}",
@@ -357,6 +363,11 @@ class TelegramController:
                     chat_id=update.effective_chat.id, action="typing"
                 ),
                 "Typing indicator failed",
+                clear_action=lambda: clear_typing_status_with_sentinel(
+                    context.bot,
+                    chat_id=update.effective_chat.id,
+                ),
+                clear_warning_message="Typing indicator clear failed",
             ):
                 async with self.core_bot.get_processing_lock():
                     response = await self.process_message(user_message)
@@ -371,9 +382,9 @@ class TelegramController:
                         preview_text=self._preview_text,
                         debug_prefix="Sending Telegram text segment",
                     )
-            await self.core_bot.run_post_response_summary_check(
-                context_label="message reply delivery"
-            )
+                await self.core_bot.run_post_response_summary_check(
+                    context_label="message reply delivery"
+                )
         except ToolLoopAbortedError as error:
             logger.info(f"Tool loop aborted by user request: {error}")
             await self._safe_reply_text(

@@ -607,6 +607,8 @@ class TestMessageProcessing:
         context = Mock()
         context.bot = Mock()
         context.bot.send_chat_action = AsyncMock()
+        context.bot.send_message = AsyncMock(return_value=Mock(message_id=12))
+        context.bot.delete_message = AsyncMock()
 
         await handler.handle_message(update, context)
 
@@ -656,6 +658,8 @@ class TestMessageProcessing:
         context = Mock()
         context.bot = Mock()
         context.bot.send_chat_action = AsyncMock()
+        context.bot.send_message = AsyncMock(return_value=Mock(message_id=12))
+        context.bot.delete_message = AsyncMock()
 
         task = asyncio.create_task(handler.handle_message(update, context))
         await asyncio.sleep(0.05)
@@ -709,6 +713,8 @@ class TestMessageProcessing:
         context = Mock()
         context.bot = Mock()
         context.bot.send_chat_action = AsyncMock()
+        context.bot.send_message = AsyncMock(return_value=Mock(message_id=12))
+        context.bot.delete_message = AsyncMock()
 
         task = asyncio.create_task(handler.handle_message(update, context))
         await asyncio.sleep(0.05)
@@ -722,8 +728,8 @@ class TestMessageProcessing:
         handler.core_bot.process_message.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_handle_message_summary_phase_does_not_keep_typing(self, monkeypatch):
-        """After reply delivery, summary work should continue without active typing."""
+    async def test_handle_message_keeps_typing_during_summary_phase(self, monkeypatch):
+        """After reply delivery, summary/seele work should keep typing active."""
         import adapter.telegram.delivery as delivery
         from adapter.telegram.controller import TelegramController
 
@@ -775,18 +781,29 @@ class TestMessageProcessing:
         context = Mock()
         context.bot = Mock()
         context.bot.send_chat_action = AsyncMock()
+        context.bot.send_message = AsyncMock(return_value=Mock(message_id=12))
+        context.bot.delete_message = AsyncMock()
 
         task = asyncio.create_task(handler.handle_message(update, context))
         await asyncio.sleep(0.05)
 
-        try:
-            handler.response_sender.send_reply_text.assert_awaited_once()
-            send_count_after_reply = context.bot.send_chat_action.await_count
-            await real_sleep(0.05)
-            assert context.bot.send_chat_action.await_count == send_count_after_reply
-        finally:
-            release_summary.set()
-            await task
+        handler.response_sender.send_reply_text.assert_awaited_once()
+        send_count_after_reply = context.bot.send_chat_action.await_count
+        await real_sleep(0.05)
+        assert context.bot.send_chat_action.await_count > send_count_after_reply
+
+        release_summary.set()
+        await task
+
+        context.bot.send_message.assert_awaited_once_with(
+            chat_id=update.effective_chat.id,
+            text="\u2060",
+            disable_notification=True,
+        )
+        context.bot.delete_message.assert_awaited_once_with(
+            chat_id=update.effective_chat.id,
+            message_id=12,
+        )
 
     @pytest.mark.asyncio
     async def test_handle_message_returns_error_details_on_failure(self):

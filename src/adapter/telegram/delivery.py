@@ -146,6 +146,8 @@ class TelegramResponseSender:
 async def typing_indicator(
     send_action: Callable[[], Awaitable[None]],
     warning_message: str,
+    clear_action: Optional[Callable[[], Awaitable[None]]] = None,
+    clear_warning_message: Optional[str] = None,
 ) -> AsyncIterator[None]:
     """Maintain a best-effort typing indicator while work is in progress."""
 
@@ -167,6 +169,32 @@ async def typing_indicator(
             await typing_task
         except asyncio.CancelledError:
             pass
+        if clear_action is not None:
+            try:
+                await clear_action()
+            except Exception as error:
+                logger.warning(f"{clear_warning_message or warning_message}: {error}")
+
+
+async def clear_typing_status_with_sentinel(
+    telegram_bot: Any,
+    *,
+    chat_id: int,
+) -> None:
+    """Best-effort clear for Telegram clients that keep typing status stale."""
+    sent_message = await telegram_bot.send_message(
+        chat_id=chat_id,
+        text="\u2060",
+        disable_notification=True,
+    )
+    message_id = getattr(sent_message, "message_id", None)
+    if message_id is not None:
+        await telegram_bot.delete_message(chat_id=chat_id, message_id=message_id)
+        return
+
+    delete = getattr(sent_message, "delete", None)
+    if delete is not None:
+        await delete()
 
 
 async def send_segmented_text(
